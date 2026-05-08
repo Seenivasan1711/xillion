@@ -1,23 +1,47 @@
-.PHONY: install dev-backend dev-frontend lint format type-check test \
+.PHONY: setup install dev dev-backend dev-frontend lint format type-check test \
         db-init db-upgrade render-build render-start clean
+
+# ── First-time setup ───────────────────────────────────────────────────────────
+
+setup: ## One-time: create .env, install all deps, init DB
+	@test -f .env && echo ".env already exists — skipping copy" || (cp .env.example .env && echo "Created .env — review it before going live")
+	pip install -e ".[dev]"
+	npm --prefix frontend install
+	mkdir -p data
+	@echo ""
+	@echo "Setup complete. Run 'make dev' to start everything."
 
 # ── Local development ──────────────────────────────────────────────────────────
 
-install:
+install: ## Install Python + Node deps (re-run after adding packages)
 	pip install -e ".[dev]"
 	npm --prefix frontend install
 
-dev-backend:
+dev: ## ★ Start backend + frontend together. Ctrl+C stops both.
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "  Xillion starting up"
+	@echo "  API  →  http://localhost:8000"
+	@echo "  UI   →  http://localhost:5173"
+	@echo "  Docs →  http://localhost:8000/api/docs"
+	@echo "  Ctrl+C to stop everything"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@mkdir -p data
+	@trap 'kill 0' INT TERM EXIT; \
+	uvicorn xillion.main:app --host 0.0.0.0 --port 8000 --reload 2>&1 | sed 's/^/[backend] /' & \
+	npm --prefix frontend run dev 2>&1 | sed 's/^/[frontend] /' & \
+	wait
+
+dev-backend: ## Backend only (uvicorn with --reload)
 	uvicorn xillion.main:app --host 0.0.0.0 --port 8000 --reload
 
-dev-frontend:
+dev-frontend: ## Frontend only (Vite dev server)
 	npm --prefix frontend run dev
 
-db-init:
+db-init: ## Create data/ and run migrations
 	mkdir -p data
-	xillion db upgrade
+	alembic upgrade head
 
-db-upgrade:
+db-upgrade: ## Run pending Alembic migrations
 	alembic upgrade head
 
 # ── Code quality ───────────────────────────────────────────────────────────────

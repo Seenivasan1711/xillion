@@ -6,37 +6,38 @@ See `docs/` for full specifications.
 
 ---
 
-## Quick start (local dev)
+## Quick start — single command
 
-**Prerequisites:** Python 3.11+, Node 20+
+**Prerequisites:** Python 3.11+, Node 20+, a virtual environment activated.
 
 ```bash
-# 1. Clone & install
-cp .env.example .env
-make install       # pip install -e ".[dev]" + npm install in frontend/
+# First time only — installs everything and creates .env + data/
+make setup
 
-# 2. Init database
-make db-init       # creates data/ dir + runs Alembic migrations
-
-# 3. Run backend (port 8000)
-make dev-backend
-
-# 4. Run frontend dev server (port 5173) — in a separate terminal
-make dev-frontend
+# Every time after that — starts backend + frontend together
+make dev
 ```
 
-Open `http://localhost:5173` — the Vite dev server proxies `/api` to FastAPI.
+That's it. Both processes start in one terminal. **Ctrl+C** stops everything cleanly.
+
+| URL | What |
+|-----|------|
+| `http://localhost:5173` | React UI (Vite dev server) |
+| `http://localhost:8000` | FastAPI backend |
+| `http://localhost:8000/api/docs` | Interactive API docs (Swagger) |
+
+> The database (SQLite) is created automatically on first start inside `data/`. No separate DB process needed for local dev.
 
 ---
 
-## With Docker Compose
+## With Docker Compose (alternative — requires Docker)
 
 ```bash
 cp .env.example .env
-docker compose up
+docker compose up        # starts backend + frontend in one command
 ```
 
-Backend at `localhost:8000`, frontend dev server at `localhost:5173`.
+Backend at `localhost:8000`, Vite dev server at `localhost:5173`.
 
 ---
 
