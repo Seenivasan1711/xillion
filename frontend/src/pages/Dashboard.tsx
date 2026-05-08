@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Activity, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
-import { api } from '../lib/api'
+import { Activity, CheckCircle, RefreshCw, Wifi, WifiOff, XCircle, Zap } from 'lucide-react'
+import { api, type BrokerStatus } from '../lib/api'
+import { wsClient } from '../lib/ws'
 
 interface HealthData {
   status: string
   version: string
   timestamp: string
+  brokers: BrokerStatus[]
+  brokers_connected: boolean
 }
 
 interface Runner {
@@ -14,11 +17,19 @@ interface Runner {
   last_error: string | null
 }
 
+interface LiveTick {
+  symbol: string
+  ltp: string
+  ts: string
+  volume?: number
+}
+
 export default function Dashboard() {
   const [health, setHealth] = useState<HealthData | null>(null)
   const [runners, setRunners] = useState<Runner[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [ticks, setTicks] = useState<Record<string, LiveTick>>({})
 
   const refresh = async () => {
     setLoading(true)
@@ -36,8 +47,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     refresh()
-    const interval = setInterval(refresh, 10_000)
+    const interval = setInterval(refresh, 15_000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const unsub = wsClient.subscribe((event) => {
+      if (event.type === 'tick') {
+        const tick = event as unknown as LiveTick
+        setTicks((prev) => ({ ...prev, [tick.symbol]: tick }))
+      }
+    })
+    return unsub
   }, [])
 
   return (
@@ -54,8 +75,9 @@ export default function Dashboard() {
         <div className="card border-red-800 bg-red-950/30 text-red-300 text-sm">{error}</div>
       )}
 
-      {/* System Health */}
+      {/* System & Broker status row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* System */}
         <div className="card">
           <div className="flex items-center gap-2 mb-2">
             <Activity size={16} className="text-gray-400" />
@@ -63,9 +85,9 @@ export default function Dashboard() {
           </div>
           {health ? (
             <div className="flex items-center gap-2">
-              <CheckCircle size={18} className="text-green-400" />
+              <CheckCircle size={18} className="text-emerald-400" />
               <span className="font-medium">Online</span>
-              <span className="text-xs text-gray-500 ml-auto">v{health.version}</span>
+              <span className="text-xs text-gray-500 ml-auto font-mono">v{health.version}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-gray-500">
@@ -75,25 +97,69 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* Broker connections */}
+        <div className="card">
+          <div className="flex items-center gap-2 mb-2">
+            <Wifi size={16} className="text-gray-400" />
+            <span className="text-sm text-gray-400 uppercase tracking-wider">Brokers</span>
+          </div>
+          {health?.brokers && health.brokers.length > 0 ? (
+            <div className="space-y-1">
+              {health.brokers.map((b) => (
+                <div key={b.name} className="flex items-center gap-2">
+                  {b.status === 'connected' ? (
+                    <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                  ) : (
+                    <WifiOff size={14} className="text-rose-400 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium">{b.broker_name}</span>
+                  <span
+                    className={`text-xs ml-auto ${
+                      b.status === 'connected' ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {b.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">
+              {loading ? 'Checking…' : 'No brokers configured'}
+            </div>
+          )}
+        </div>
+
+        {/* Running strategies */}
         <div className="card">
           <div className="text-sm text-gray-400 uppercase tracking-wider mb-2">Running</div>
-          <div className="text-3xl font-bold text-green-400">
+          <div className="text-3xl font-bold text-emerald-400">
             {runners.filter((r) => r.status === 'running').length}
           </div>
           <div className="text-xs text-gray-500">strategy instances</div>
         </div>
+      </div>
 
+      {/* Live tick feed */}
+      {Object.keys(ticks).length > 0 && (
         <div className="card">
-          <div className="text-sm text-gray-400 uppercase tracking-wider mb-2">Last Updated</div>
-          <div className="text-sm font-mono text-gray-300">
-            {health
-              ? new Date(health.timestamp).toLocaleTimeString()
-              : loading
-              ? '…'
-              : '—'}
+          <h2 className="font-semibold mb-4 flex items-center gap-2">
+            <Zap size={16} className="text-brand-500" />
+            Live Ticks
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Object.values(ticks).map((tick) => (
+              <div key={tick.symbol} className="bg-gray-900 rounded-lg p-3">
+                <div className="text-xs text-gray-500 font-mono mb-1">{tick.symbol}</div>
+                <div className="text-lg font-mono font-bold">₹{Number(tick.ltp).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                {tick.volume && (
+                  <div className="text-xs text-gray-600 mt-1">Vol: {tick.volume.toLocaleString()}</div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Running instances */}
       <div className="card">
@@ -112,7 +178,10 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-2">
             {runners.map((r) => (
-              <div key={r.instance_id} className="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0">
+              <div
+                key={r.instance_id}
+                className="flex items-center gap-3 py-2 border-b border-gray-800 last:border-0"
+              >
                 <span
                   className={
                     r.status === 'running'
@@ -126,7 +195,7 @@ export default function Dashboard() {
                 </span>
                 <span className="font-mono text-xs text-gray-400">{r.instance_id}</span>
                 {r.last_error && (
-                  <span className="text-xs text-red-400 ml-auto">{r.last_error}</span>
+                  <span className="text-xs text-red-400 ml-auto truncate max-w-xs">{r.last_error}</span>
                 )}
               </div>
             ))}
