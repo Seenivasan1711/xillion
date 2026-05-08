@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: xillion
+    runtime: python
+    plan: free
+    buildCommand: make render-build
+    startCommand: make render-start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: xillion-db
+          property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: APP_SECRET_KEY
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: OPS_LIMIT_PER_SECOND
+        value: "9"
+      - key: DEFAULT_ACCOUNT_DAILY_LOSS_PCT
+        value: "3"
+      - key: DEFAULT_PER_STRATEGY_DAILY_LOSS_PCT
+        value: "2"
+      - key: DEFAULT_MAX_OPEN_POSITIONS
+        value: "10"
+      - key: STRATEGIES_DIR
+        value: ./strategies
+      - key: BROKERS_DIR
+        value: ./brokers
+      # Fill these in via Render dashboard — do NOT commit real values:
+      # ZERODHA_PRIMARY_API_KEY
+      # ZERODHA_PRIMARY_API_SECRET
+      # ZERODHA_PRIMARY_USER_ID
+      # ZERODHA_PRIMARY_PASSWORD
+      # ZERODHA_PRIMARY_TOTP_SECRET
+      # TELEGRAM_BOT_TOKEN
+      # TELEGRAM_CHAT_ID
+
+databases:
+  - name: xillion-db
+    databaseName: xillion
+    plan: free

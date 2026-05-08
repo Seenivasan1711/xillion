@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply dark;
+  }
+  body {
+    @apply bg-gray-950 text-gray-100;
+  }
+  * {
+    @apply border-gray-800;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-gray-900 border border-gray-800 rounded-lg p-4;
+  }
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors;
+  }
+  .badge-running {
+    @apply bg-green-900 text-green-300 text-xs px-2 py-0.5 rounded-full;
+  }
+  .badge-idle {
+    @apply bg-gray-800 text-gray-400 text-xs px-2 py-0.5 rounded-full;
+  }
+  .badge-error {
+    @apply bg-red-900 text-red-300 text-xs px-2 py-0.5 rounded-full;
+  }
+}

@@ -1,0 +1,155 @@
+# Xillion — Personal Algorithmic Trading Platform
+
+> Self-hosted algo trading bot: drop a Python file to add a strategy, drop a Python file to add a broker.
+
+See `docs/` for full specifications.
+
+---
+
+## Quick start (local dev)
+
+**Prerequisites:** Python 3.11+, Node 20+
+
+```bash
+# 1. Clone & install
+cp .env.example .env
+make install       # pip install -e ".[dev]" + npm install in frontend/
+
+# 2. Init database
+make db-init       # creates data/ dir + runs Alembic migrations
+
+# 3. Run backend (port 8000)
+make dev-backend
+
+# 4. Run frontend dev server (port 5173) — in a separate terminal
+make dev-frontend
+```
+
+Open `http://localhost:5173` — the Vite dev server proxies `/api` to FastAPI.
+
+---
+
+## With Docker Compose
+
+```bash
+cp .env.example .env
+docker compose up
+```
+
+Backend at `localhost:8000`, frontend dev server at `localhost:5173`.
+
+---
+
+## CLI
+
+```bash
+# List discovered plugins
+xillion plugins list
+
+# Run a backtest
+xillion backtest run "SMA Cross" data/nifty_15m.csv \
+  --capital 100000 --slippage 5 --params '{"fast":10,"slow":30,"qty":1}'
+
+# Database management
+xillion db upgrade    # run pending Alembic migrations
+```
+
+CSV format for `backtest run`:
+```
+symbol,ts,open,high,low,close,volume[,timeframe,exchange]
+NIFTY,2024-01-15T09:15:00,21000,21050,20990,21030,1000
+```
+
+---
+
+## Adding a strategy
+
+```bash
+cp strategies/_template.py strategies/my_strategy.py
+# Edit the file, implement on_bar()
+# Click "Reload" in the dashboard — strategy appears instantly
+```
+
+## Adding a broker
+
+```bash
+# Read brokers/_base.py for the contract
+cp brokers/paper.py brokers/my_broker.py
+# Implement all abstract methods
+# Add credentials to .env
+# Restart backend — broker appears in dashboard
+```
+
+---
+
+## Deploy on Render
+
+1. Push repo to GitHub
+2. Create a new Render **Web Service** — connect the repo
+3. Render auto-detects `render.yml` and creates the service + Postgres DB
+4. Set secret env vars in Render dashboard:
+   - `ZERODHA_PRIMARY_*` (when you reach Phase 3)
+   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+5. Deploy
+
+The build command (`make render-build`) installs Node, builds React, then installs Python deps.
+The start command runs `alembic upgrade head` then starts uvicorn.
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.11, FastAPI, SQLAlchemy 2.0 async |
+| Database | SQLite (dev), Postgres (prod) |
+| Frontend | React 18, Vite, TypeScript, Tailwind CSS |
+| Charts | lightweight-charts |
+| Auth | Session cookie + TOTP (Phase 3+) |
+| Notifications | Telegram (Phase 5+) |
+| CI | GitHub Actions |
+| Deploy | Render |
+
+---
+
+## Build phases
+
+| Phase | Status | Description |
+|---|---|---|
+| 0 | ✅ | Repo scaffolding, CI, docker-compose, React shell |
+| 1 | ✅ | Plugin core (Strategy/Broker ABCs, loader, SMA example) |
+| 2 | ✅ | Backtest engine + metrics + CLI |
+| 3 | 🔲 | Zerodha broker + auth + minimal UI |
+| 4 | 🔲 | Strategy instances + paper trading |
+| 5 | 🔲 | Risk manager + live trading + kill switch |
+| 6 | 🔲 | Dashboard polish + mobile |
+| 7 | 🔲 | Hardening + deploy |
+
+See `docs/09-progress-tracker.md` for task-level detail.
+
+---
+
+## Project structure
+
+```
+xillion/
+├── xillion/          Python package (core, api, db, engine, data, notifications)
+├── strategies/       Drop .py files here to add strategies
+├── brokers/          Drop .py files here to add brokers
+├── frontend/         React + Vite app
+├── tests/            pytest test suite
+├── scripts/          Utility scripts (init_db, import_csv)
+├── docs/             Spec documents
+├── render.yml        Render deployment config
+├── docker-compose.yml Local dev
+└── Makefile          All commands
+```
+
+---
+
+## Risk & compliance
+
+This platform is for **personal use** on your own trading account. Read `docs/07-risk-and-compliance.md` before going live. In particular:
+- Never go live before completing a paper-trade soak (Phase 4 exit criterion)
+- Keep your SEBI OPS rate under 10/second (configured via `OPS_LIMIT_PER_SECOND`)
+- Keep your `.env` file **out of git** — it contains broker API secrets
