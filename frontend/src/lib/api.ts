@@ -91,7 +91,11 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    start: (id: string) => request<{ started: boolean; status: string }>(`/instances/${id}/start`, { method: 'POST' }),
+    start: (id: string) =>
+      request<{ started: boolean; status: string; tick_source?: string; warning?: string | null }>(
+        `/instances/${id}/start`,
+        { method: 'POST' }
+      ),
     stop: (id: string) => request<{ stopped: boolean }>(`/instances/${id}/stop`, { method: 'POST' }),
     delete: (id: string) => request<{ deleted: boolean }>(`/instances/${id}`, { method: 'DELETE' }),
   },
@@ -105,12 +109,46 @@ export const api = {
       }),
   },
 
+  settings: {
+    getZerodha: () =>
+      request<{ configured: boolean; api_key_preview?: string; user_id?: string; updated_at?: string }>(
+        '/settings/zerodha'
+      ),
+    saveZerodha: (body: ZerodhaCredentials) =>
+      request<{ saved: boolean; connection_status: string; last_error: string | null }>(
+        '/settings/zerodha',
+        { method: 'PUT', body: JSON.stringify(body) }
+      ),
+    deleteZerodha: () =>
+      request<{ deleted: boolean }>('/settings/zerodha', { method: 'DELETE' }),
+  },
+
   backtest: {
     run: (body: BacktestRequest) =>
       request<BacktestResponse>('/backtest/run', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    runCsv: async (file: File, cfg: BacktestCsvConfig): Promise<BacktestResponse> => {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('strategy_name', cfg.strategy_name)
+      fd.append('instruments', (cfg.instruments ?? []).join(','))
+      fd.append('timeframe', cfg.timeframe ?? '5m')
+      fd.append('initial_capital', String(cfg.initial_capital ?? 100000))
+      fd.append('slippage_bps', String(cfg.slippage_bps ?? 5))
+      fd.append('params', JSON.stringify(cfg.params ?? {}))
+      const res = await fetch(`${BASE}/backtest/run-csv`, {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      return res.json()
+    },
   },
 }
 
@@ -224,4 +262,23 @@ export interface BacktestResponse {
   trade_count: number
   from_ts: string
   to_ts: string
+  bars_loaded?: number
+  parse_errors?: string[]
+}
+
+export interface BacktestCsvConfig {
+  strategy_name: string
+  instruments?: string[]
+  timeframe?: string
+  initial_capital?: number
+  slippage_bps?: number
+  params?: Record<string, unknown>
+}
+
+export interface ZerodhaCredentials {
+  api_key: string
+  api_secret: string
+  user_id: string
+  password: string
+  totp_secret: string
 }

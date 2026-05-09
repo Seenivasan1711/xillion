@@ -263,15 +263,25 @@ async def start_instance(
     instruments = json.loads(inst.instruments_json)
 
     # Subscribe to live ticks if Zerodha is connected (paper mode uses real ticks)
+    tick_source: str = "none"
     if inst.mode in ("paper", "live"):
         zerodha_info = getattr(request.app.state, "broker_instances", {}).get("Zerodha Primary")
         if zerodha_info and zerodha_info.get("status") == "connected":
             zerodha = zerodha_info["instance"]
             try:
                 await zerodha.subscribe_ticks(instruments)
+                tick_source = "zerodha"
                 logger.info("subscribed instruments to Zerodha", instruments=instruments)
             except Exception as exc:
                 logger.warning("tick subscription failed (non-fatal)", error=str(exc))
+        else:
+            logger.warning(
+                "instance starting without a live tick source — strategy will idle. "
+                "Connect Zerodha (Settings) or use Backtest to validate strategy logic.",
+                instance_id=instance_id,
+                mode=inst.mode,
+                instruments=instruments,
+            )
 
     runner = await engine.spawn(
         instance_id=instance_id,
@@ -288,8 +298,19 @@ async def start_instance(
     inst.last_started_at = _now()
     inst.updated_at = _now()
     await db.commit()
-    logger.info("instance started", id=instance_id, mode=inst.mode)
-    return {"started": True, "instance_id": instance_id, "status": runner.status}
+    logger.info("instance started", id=instance_id, mode=inst.mode, tick_source=tick_source)
+    return {
+        "started": True,
+        "instance_id": instance_id,
+        "status": runner.status,
+        "tick_source": tick_source,
+        "warning": (
+            "No live tick source. Strategy will idle until Zerodha is connected. "
+            "Use Backtest to validate strategy logic offline."
+            if tick_source == "none" and inst.mode == "paper"
+            else None
+        ),
+    }
 
 
 def _resolve_broker(mode: str, request: Request):

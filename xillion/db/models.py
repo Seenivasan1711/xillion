@@ -323,6 +323,18 @@ class Session(Base):
     user: Mapped[AppUser] = relationship(back_populates="sessions")
 
 
+# ── Broker credentials (encrypted) ────────────────────────────────────────────
+
+
+class BrokerCredential(Base):
+    __tablename__ = "broker_credential"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)  # e.g. "Zerodha Primary"
+    broker_name: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. "Zerodha"
+    encrypted_payload: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet-encrypted JSON
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 # ── Notifications ──────────────────────────────────────────────────────────────
 
 class NotificationChannel(Base):

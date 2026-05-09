@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from xillion import __version__
 from xillion.api import backtest, brokers, health, instances, risk as risk_router, strategies, ws
 from xillion.api import auth as auth_router
+from xillion.api import settings as settings_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
 from xillion.core.risk import RiskManager
@@ -38,24 +39,48 @@ logger = structlog.get_logger(__name__)
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
-async def _try_connect_zerodha(app: FastAPI) -> None:
-    """Attempt to connect Zerodha if credentials are configured. Non-fatal."""
+async def _load_zerodha_credentials() -> Optional[dict]:
+    """Prefer credentials from the encrypted DB store; fall back to env vars."""
+    from xillion.auth.credstore import load_credentials
+    from xillion.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        creds = await load_credentials(db, "Zerodha Primary")
+    if creds and creds.get("api_key"):
+        return creds
+
     s = get_settings()
-    if not s.zerodha_primary_api_key:
-        logger.info("zerodha: no credentials configured — skipping auto-connect")
-        return
-
-    try:
-        from brokers.zerodha import ZerodhaBroker
-
-        broker = ZerodhaBroker()
-        creds = {
+    if s.zerodha_primary_api_key:
+        return {
             "api_key": s.zerodha_primary_api_key,
             "api_secret": s.zerodha_primary_api_secret,
             "user_id": s.zerodha_primary_user_id,
             "password": s.zerodha_primary_password,
             "totp_secret": s.zerodha_primary_totp_secret,
         }
+    return None
+
+
+async def _try_connect_zerodha(app: FastAPI) -> None:
+    """Attempt to connect Zerodha if credentials are configured. Non-fatal."""
+    creds = await _load_zerodha_credentials()
+    if creds is None:
+        logger.info("zerodha: no credentials configured — skipping auto-connect")
+        app.state.broker_instances.pop("Zerodha Primary", None)
+        return
+
+    # If a previous instance exists, disconnect it cleanly
+    prev = app.state.broker_instances.get("Zerodha Primary")
+    if prev and prev.get("instance"):
+        try:
+            await prev["instance"].disconnect()
+        except Exception:
+            pass
+
+    try:
+        from brokers.zerodha import ZerodhaBroker
+
+        broker = ZerodhaBroker()
         await broker.connect(creds)
         app.state.broker_instances["Zerodha Primary"] = {
             "name": "Zerodha Primary",
@@ -209,6 +234,7 @@ app.include_router(instances.router, prefix="/api")
 app.include_router(risk_router.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
+app.include_router(settings_router.router, prefix="/api")
 app.include_router(ws.router)
 
 # Serve React frontend (production build)

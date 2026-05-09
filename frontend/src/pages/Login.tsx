@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
@@ -10,8 +10,10 @@ export default function Login() {
   const [requiresTotp, setRequiresTotp] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
+  const { login, needsSetup, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+
+  if (!authLoading && needsSetup) return <Navigate to="/setup" replace />
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

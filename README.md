@@ -120,13 +120,21 @@ The start command runs `alembic upgrade head` then starts uvicorn.
 | 0 | ✅ | Repo scaffolding, CI, docker-compose, React shell |
 | 1 | ✅ | Plugin core (Strategy/Broker ABCs, loader, SMA example) |
 | 2 | ✅ | Backtest engine + metrics + CLI |
-| 3 | 🔲 | Zerodha broker + auth + minimal UI |
-| 4 | 🔲 | Strategy instances + paper trading |
-| 5 | 🔲 | Risk manager + live trading + kill switch |
-| 6 | 🔲 | Dashboard polish + mobile |
-| 7 | 🔲 | Hardening + deploy |
+| 3 | ✅ | Zerodha broker + auth + minimal UI |
+| 4 | ✅ | Strategy instances + paper trading |
+| 5 | ✅ | Risk manager + live trading + kill switch |
+| 6 | ✅ | Dashboard polish + mobile (Trades, Logs, Settings pages) |
+| 7 | ✅ | Hardening (Docker, systemd, HTTPS, backup, tests) |
 
 See `docs/09-progress-tracker.md` for task-level detail.
+
+### First-run flow
+
+1. `make dev` (or `docker compose up`) → open http://localhost:5173
+2. **Setup page** — create your first user (this becomes your login).
+3. **Settings → Zerodha Credentials** — enter your API key, secret, user ID, login password, and TOTP secret. Click *Save & Connect*. Credentials are encrypted at rest.
+4. **Backtest** — choose a strategy, upload a CSV of historical bars, click *Run Backtest*. Equity curve and metrics render in the same view.
+5. **Strategies → New Instance** — pick a strategy (e.g. SMA Cross), choose paper mode, set instruments (e.g. `NIFTY`), start it. Paper mode requires Zerodha to be connected for live ticks; otherwise the strategy idles. Validate strategy logic with Backtest before running paper.
 
 ---
 

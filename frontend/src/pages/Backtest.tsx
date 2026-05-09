@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { BarChart2, Play, AlertCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { BarChart2, Play, AlertCircle, Upload } from 'lucide-react'
 import { api, StrategyClass, BacktestResponse } from '../lib/api'
 
 export default function Backtest() {
@@ -7,11 +7,13 @@ export default function Backtest() {
   const [selectedStrategy, setSelectedStrategy] = useState('')
   const [capital, setCapital] = useState('100000')
   const [slippage, setSlippage] = useState('5')
+  const [timeframe, setTimeframe] = useState('5m')
   const [paramsJson, setParamsJson] = useState('{}')
-  const [barsJson, setBarsJson] = useState('')
+  const [csvFile, setCsvFile] = useState<File | null>(null)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<BacktestResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api.strategies.classes().then((r) => {
@@ -25,18 +27,18 @@ export default function Backtest() {
     setResult(null)
     setRunning(true)
     try {
-      const bars = barsJson ? JSON.parse(barsJson) : undefined
+      if (!csvFile) throw new Error('Please choose a CSV file')
       const params = JSON.parse(paramsJson)
       const strategy = strategies.find((s) => s.name === selectedStrategy)
-      const instruments = strategy ? (strategy.instruments.length ? strategy.instruments : ['NIFTY']) : ['NIFTY']
+      const instruments = strategy?.instruments?.length ? strategy.instruments : []
 
-      const res = await api.backtest.run({
+      const res = await api.backtest.runCsv(csvFile, {
         strategy_name: selectedStrategy,
         instruments,
+        timeframe,
         initial_capital: parseFloat(capital),
         slippage_bps: parseInt(slippage),
         params,
-        bars,
       })
       setResult(res)
     } catch (e) {
@@ -102,6 +104,21 @@ export default function Backtest() {
             </label>
 
             <label className="block">
+              <span className="text-sm text-gray-400">Timeframe</span>
+              <select
+                value={timeframe}
+                onChange={(e) => setTimeframe(e.target.value)}
+                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
+              >
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+                <option value="15m">15m</option>
+                <option value="1h">1h</option>
+                <option value="1d">1d</option>
+              </select>
+            </label>
+
+            <label className="block">
               <span className="text-sm text-gray-400">Parameters (JSON)</span>
               <textarea
                 rows={4}
@@ -111,23 +128,31 @@ export default function Backtest() {
               />
             </label>
 
-            <label className="block">
-              <span className="text-sm text-gray-400">
-                Bars (JSON array) —{' '}
-                <span className="text-xs text-gray-500">or leave empty & use /api/backtest/upload-csv</span>
-              </span>
-              <textarea
-                rows={4}
-                value={barsJson}
-                onChange={(e) => setBarsJson(e.target.value)}
-                placeholder='[{"symbol":"NIFTY","ts":"2024-01-15T09:15:00","open":21000,"high":21050,"low":20990,"close":21030,"volume":1000}]'
-                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-xs font-mono text-white resize-none placeholder-gray-600"
+            <div>
+              <span className="text-sm text-gray-400">Historical bars CSV</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+                className="hidden"
               />
-            </label>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-1 w-full bg-gray-800 border border-dashed border-gray-700 hover:border-gray-500 rounded-md px-3 py-3 text-sm text-gray-300 flex items-center justify-center gap-2"
+              >
+                <Upload size={14} />
+                {csvFile ? csvFile.name : 'Choose CSV file'}
+              </button>
+              <p className="text-xs text-gray-500 mt-1">
+                Columns: symbol, ts, open, high, low, close, volume
+              </p>
+            </div>
 
             <button
               onClick={run}
-              disabled={running || !selectedStrategy || !barsJson}
+              disabled={running || !selectedStrategy || !csvFile}
               className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Play size={14} className={running ? 'animate-pulse' : ''} />

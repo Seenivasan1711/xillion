@@ -46,7 +46,8 @@ export default function Strategies() {
 
   const handleStart = async (id: string) => {
     try {
-      await api.instances.start(id)
+      const res = await api.instances.start(id)
+      if (res.warning) alert(`Started, but: ${res.warning}`)
       await loadAll()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Start failed')

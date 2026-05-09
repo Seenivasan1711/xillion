@@ -1,43 +1,135 @@
+# Render Blueprint for Xillion
+# ────────────────────────────────────────────────────────────────────────────────
+# Deploy: push this repo to GitHub, then in Render dashboard:
+#   New + → Blueprint → connect repo → "Apply" — it will provision everything below.
+#
+# After first deploy, set these secrets in the Render dashboard
+# (Service → Environment) — they are intentionally NOT in this file:
+#
+#   ENCRYPTION_KEY              ★ REQUIRED ★ Fernet base64 key — generate once with:
+#                                 python -c "from cryptography.fernet import Fernet; \
+#                                            print(Fernet.generate_key().decode())"
+#                               If you skip this, the app will auto-generate one to
+#                               disk on first start (works because of the persistent
+#                               disk below) — but losing the disk loses all encrypted
+#                               broker credentials. Setting it explicitly is safer.
+#
+#   ZERODHA_PRIMARY_API_KEY     Optional — you can also set Zerodha credentials
+#   ZERODHA_PRIMARY_API_SECRET  via the Settings page in the UI after first login.
+#   ZERODHA_PRIMARY_USER_ID
+#   ZERODHA_PRIMARY_PASSWORD
+#   ZERODHA_PRIMARY_TOTP_SECRET
+#
+#   TELEGRAM_BOT_TOKEN          Optional — alerts and kill-switch notifications.
+#   TELEGRAM_CHAT_ID
+#
+# ────────────────────────────────────────────────────────────────────────────────
+# Plan notes
+#
+# - We use `plan: starter` ($7/mo) instead of free because the free plan sleeps
+#   after 15 min of inactivity. A trading bot must always be on — strategies that
+#   miss a tick because the dyno was asleep can lose money.
+#
+# - We use `runtime: docker` to leverage the existing multi-stage Dockerfile,
+#   which builds the React frontend and bakes it into the image. This is more
+#   reliable than the Python buildpack (which would need Node installed at build
+#   time). To switch back to the Python buildpack, set `runtime: python` and use
+#   `buildCommand: make render-build` / `startCommand: make render-start`.
+#
+# - The persistent disk at /app/data holds: SQLite DB (if Postgres not used),
+#   Zerodha access-token cache, the auto-generated encryption key, and backup
+#   snapshots. Even with Postgres, keep the disk for the cache and backups.
+# ────────────────────────────────────────────────────────────────────────────────
+
 services:
   - type: web
     name: xillion
-    runtime: python
-    plan: free
-    buildCommand: make render-build
-    startCommand: make render-start
+    runtime: docker
+    plan: starter
+    region: singapore           # Closest Render region to NSE/BSE — cuts ~150ms RTT
+                                # Alternatives: oregon, frankfurt, ohio
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    healthCheckPath: /api/health
+
+    disk:
+      name: xillion-data
+      mountPath: /app/data
+      sizeGB: 1                  # Plenty for SQLite + backups + token cache
+
     envVars:
+      - key: APP_ENV
+        value: production
+
+      - key: PORT
+        value: "8000"
+
+      - key: APP_BASE_URL
+        sync: false              # Set this to your render.com URL after first deploy
+
+      # Database — uses the managed Postgres provisioned below
       - key: DATABASE_URL
         fromDatabase:
           name: xillion-db
           property: connectionString
-      - key: APP_ENV
-        value: production
+
+      # Auth — APP_SECRET_KEY can be auto-generated (used for session signing only,
+      # rotating it just logs everyone out)
       - key: APP_SECRET_KEY
         generateValue: true
+
+      - key: SESSION_LIFETIME_HOURS
+        value: "8"
+
+      # ENCRYPTION_KEY: do NOT use generateValue — Render produces an alphanumeric
+      # string, but Fernet requires a 44-char base64-encoded key. The app will
+      # auto-generate one to /app/data/.encryption_key on first start if this is
+      # unset. For production, set it explicitly via the dashboard (instructions
+      # at the top of this file).
       - key: ENCRYPTION_KEY
-        generateValue: true
+        sync: false
+
+      # SEBI / risk defaults — review before going live
       - key: OPS_LIMIT_PER_SECOND
         value: "9"
       - key: DEFAULT_ACCOUNT_DAILY_LOSS_PCT
-        value: "3"
+        value: "1"               # Conservative for first week; raise once stable
       - key: DEFAULT_PER_STRATEGY_DAILY_LOSS_PCT
-        value: "2"
+        value: "0.5"
       - key: DEFAULT_MAX_OPEN_POSITIONS
-        value: "10"
+        value: "3"
+
+      # Plugin paths
       - key: STRATEGIES_DIR
         value: ./strategies
       - key: BROKERS_DIR
         value: ./brokers
-      # Fill these in via Render dashboard — do NOT commit real values:
-      # ZERODHA_PRIMARY_API_KEY
-      # ZERODHA_PRIMARY_API_SECRET
-      # ZERODHA_PRIMARY_USER_ID
-      # ZERODHA_PRIMARY_PASSWORD
-      # ZERODHA_PRIMARY_TOTP_SECRET
-      # TELEGRAM_BOT_TOKEN
-      # TELEGRAM_CHAT_ID
+
+      # Broker / notification secrets — left unset; configure via dashboard
+      # or via the Settings page in the UI after first login.
+      - key: ZERODHA_PRIMARY_API_KEY
+        sync: false
+      - key: ZERODHA_PRIMARY_API_SECRET
+        sync: false
+      - key: ZERODHA_PRIMARY_USER_ID
+        sync: false
+      - key: ZERODHA_PRIMARY_PASSWORD
+        sync: false
+      - key: ZERODHA_PRIMARY_TOTP_SECRET
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
 
 databases:
   - name: xillion-db
     databaseName: xillion
-    plan: free
+    user: xillion
+    plan: free                   # 256 MB, expires after 30 days. Upgrade to
+                                 # `basic-256mb` ($6/mo) before going live with
+                                 # real money to avoid losing trade history.
+    region: singapore            # Match the web service region
