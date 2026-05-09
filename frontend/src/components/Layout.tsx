@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, BarChart2, Cpu, LogOut, User, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, BarChart2, Cpu, LogOut, Settings, Terminal, TrendingUp, User, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { wsClient } from '../lib/ws'
 import { api } from '../lib/api'
@@ -94,9 +94,21 @@ export default function Layout() {
               <Cpu size={16} />
               Strategies
             </NavLink>
+            <NavLink to="/trades" className={navClass}>
+              <TrendingUp size={16} />
+              Trades
+            </NavLink>
             <NavLink to="/backtest" className={navClass}>
               <BarChart2 size={16} />
               Backtest
+            </NavLink>
+            <NavLink to="/logs" className={navClass}>
+              <Terminal size={16} />
+              Logs
+            </NavLink>
+            <NavLink to="/settings" className={navClass}>
+              <Settings size={16} />
+              Settings
             </NavLink>
           </nav>
 
