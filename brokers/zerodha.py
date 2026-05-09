@@ -74,6 +74,7 @@ class ZerodhaBroker(Broker):
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._order_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._token_to_symbol: dict[int, str] = {}  # instrument_token → trading symbol
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -365,7 +366,12 @@ class ZerodhaBroker(Broker):
             ltp = await loop.run_in_executor(
                 None, lambda: self._kite.ltp([f"NSE:{s}" for s in symbols])
             )
-            tokens = [v["instrument_token"] for v in ltp.values()]
+            tokens = []
+            for key, val in ltp.items():
+                sym = key.split(":")[-1]
+                token = val["instrument_token"]
+                tokens.append(token)
+                self._token_to_symbol[token] = sym
             self._ticker.subscribe(tokens)
             self._ticker.set_mode(self._ticker.MODE_FULL, tokens)
             logger.info("zerodha: subscribed ticks", symbols=symbols)
@@ -396,8 +402,10 @@ class ZerodhaBroker(Broker):
                 depth = t.get("depth", {})
                 buy_depth = depth.get("buy", [{}])
                 sell_depth = depth.get("sell", [{}])
+                token = t.get("instrument_token")
+                symbol = self._token_to_symbol.get(token, str(token))
                 tick = Tick(
-                    symbol=str(t.get("instrument_token")),
+                    symbol=symbol,
                     ltp=Decimal(str(t.get("last_price", 0))),
                     ltt=t.get("last_trade_time") or _utcnow(),
                     bid=Decimal(str(buy_depth[0].get("price", 0))) if buy_depth else None,

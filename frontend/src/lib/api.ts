@@ -58,6 +58,24 @@ export const api = {
     runners: () => request<{ runners: Runner[] }>('/strategies/runners'),
   },
 
+  instances: {
+    list: () => request<{ instances: StrategyInstance[] }>('/instances'),
+    create: (body: CreateInstanceRequest) =>
+      request<{ id: string; name: string; status: string }>('/instances', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    get: (id: string) => request<StrategyInstance>(`/instances/${id}`),
+    update: (id: string, body: Partial<CreateInstanceRequest>) =>
+      request<{ updated: boolean }>(`/instances/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    start: (id: string) => request<{ started: boolean; status: string }>(`/instances/${id}/start`, { method: 'POST' }),
+    stop: (id: string) => request<{ stopped: boolean }>(`/instances/${id}/stop`, { method: 'POST' }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/instances/${id}`, { method: 'DELETE' }),
+  },
+
   brokers: {
     classes: () => request<{ brokers: BrokerClass[] }>('/brokers/classes'),
     connections: () => request<{ connections: BrokerStatus[] }>('/brokers/connections'),
@@ -144,6 +162,36 @@ export interface BarData {
   close: number
   volume: number
   timeframe?: string
+}
+
+export interface StrategyInstance {
+  id: string
+  name: string
+  strategy_class_name: string
+  strategy_class_version: string
+  mode: 'paper' | 'live' | 'backtest'
+  status: 'idle' | 'running' | 'paused' | 'error' | 'killed'
+  last_error: string | null
+  instruments: string[]
+  timeframe: string
+  params: Record<string, unknown>
+  capital_allocation: number
+  risk_limits: Record<string, unknown>
+  last_started_at: string | null
+  last_stopped_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateInstanceRequest {
+  name: string
+  strategy_class_name: string
+  mode: 'paper' | 'live'
+  instruments: string[]
+  timeframe: string
+  params: Record<string, unknown>
+  capital_allocation: number
+  risk_limits: Record<string, unknown>
 }
 
 export interface BacktestResponse {

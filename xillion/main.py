@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from xillion import __version__
-from xillion.api import backtest, brokers, health, strategies, ws
+from xillion.api import backtest, brokers, health, instances, strategies, ws
 from xillion.api import auth as auth_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
@@ -66,8 +66,8 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         }
         logger.info("zerodha: connected successfully")
 
-        # Start broadcasting ticks to WebSocket clients
-        asyncio.create_task(_tick_broadcaster(broker))
+        # Start broadcasting ticks to WebSocket clients + MarketDataBus
+        asyncio.create_task(_tick_broadcaster(broker, app.state.bus))
     except Exception as exc:
         logger.error("zerodha: failed to connect", error=str(exc))
         app.state.broker_instances["Zerodha Primary"] = {
@@ -80,11 +80,14 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         }
 
 
-async def _tick_broadcaster(broker) -> None:
-    """Forward broker ticks to WebSocket clients and the market data bus."""
+async def _tick_broadcaster(broker, bus: "MarketDataBus") -> None:
+    """Forward broker ticks to the MarketDataBus (strategies) and WebSocket clients (UI)."""
     logger.info("tick broadcaster started")
     try:
         async for tick in broker.tick_stream():
+            # Publish to strategy runners via the data bus
+            await bus.publish_tick(tick)
+            # Broadcast to connected UI clients
             await ws.broadcast(
                 {
                     "type": "tick",
@@ -197,6 +200,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(strategies.router, prefix="/api")
+app.include_router(instances.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(ws.router)
