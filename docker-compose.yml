@@ -1,5 +1,9 @@
 version: "3.9"
 
+# ── Development ────────────────────────────────────────────────────────────────
+# Usage: docker compose up
+# Hot-reloads backend; frontend runs Vite dev server on port 5173.
+
 services:
   backend:
     build:
@@ -29,6 +33,9 @@ services:
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     depends_on:
       - backend
+
+# ── Production (single container) ─────────────────────────────────────────────
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 volumes:
   xillion-data:

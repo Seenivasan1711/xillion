@@ -1,0 +1,41 @@
+version: "3.9"
+
+# Production override — single container serving API + built frontend.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   1. Copy .env.example to .env and fill in all production values.
+#   2. Ensure Caddy (or Nginx) is running on the host and proxies port 8000.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile       # production multi-stage build
+    image: xillion:latest
+    ports:
+      - "127.0.0.1:8000:8000"     # bind to loopback only — Caddy proxies from outside
+    volumes:
+      - xillion-data:/app/data
+    environment:
+      APP_ENV: production
+    env_file:
+      - .env
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn xillion.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Remove dev-only frontend service in production
+  frontend:
+    profiles: ["dev-only"]        # excluded unless --profile dev-only is passed
+
+volumes:
+  xillion-data:
+    driver: local

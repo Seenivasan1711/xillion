@@ -1,5 +1,5 @@
 .PHONY: setup install dev dev-backend dev-frontend lint format type-check test \
-        db-init db-upgrade render-build render-start clean
+        db-init db-upgrade render-build render-start docker-build docker-run backup clean
 
 # ── First-time setup ───────────────────────────────────────────────────────────
 
@@ -77,6 +77,19 @@ render-build:
 render-start:
 	alembic upgrade head
 	uvicorn xillion.main:app --host 0.0.0.0 --port $${PORT:-8000} --workers 2
+
+# ── Docker (production) ────────────────────────────────────────────────────────
+
+docker-build: ## Build production Docker image
+	docker build -t xillion:latest .
+
+docker-run: ## Run production image (set PORT, DATABASE_URL, APP_SECRET_KEY in env)
+	docker run --rm -p 8000:8000 --env-file .env xillion:latest
+
+# ── Backup ─────────────────────────────────────────────────────────────────────
+
+backup: ## Snapshot SQLite to data/backups/ (keep 30 days)
+	./scripts/backup_db.sh
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
