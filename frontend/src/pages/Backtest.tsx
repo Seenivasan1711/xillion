@@ -29,12 +29,10 @@ export default function Backtest() {
     try {
       if (!csvFile) throw new Error('Please choose a CSV file')
       const params = JSON.parse(paramsJson)
-      const strategy = strategies.find((s) => s.name === selectedStrategy)
-      const instruments = strategy?.instruments?.length ? strategy.instruments : []
 
       const res = await api.backtest.runCsv(csvFile, {
         strategy_name: selectedStrategy,
-        instruments,
+        instruments: [],
         timeframe,
         initial_capital: parseFloat(capital),
         slippage_bps: parseInt(slippage),
@@ -47,8 +45,6 @@ export default function Backtest() {
       setRunning(false)
     }
   }
-
-  const strategy = strategies.find((s) => s.name === selectedStrategy)
 
   return (
     <div className="space-y-6">

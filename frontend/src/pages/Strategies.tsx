@@ -320,7 +320,7 @@ function NewInstanceModal({
 }) {
   const [name, setName] = useState(`${strategy.name} — Paper`)
   const [mode, setMode] = useState<'paper' | 'live'>('paper')
-  const [instruments, setInstruments] = useState(strategy.instruments?.join(', ') || 'NIFTY')
+  const [instruments, setInstruments] = useState('NIFTY')
   const [timeframe, setTimeframe] = useState(strategy.timeframe)
   const [capital, setCapital] = useState('100000')
   const [params, setParams] = useState<Record<string, unknown>>(
