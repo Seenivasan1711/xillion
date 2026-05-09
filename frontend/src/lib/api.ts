@@ -58,6 +58,26 @@ export const api = {
     runners: () => request<{ runners: Runner[] }>('/strategies/runners'),
   },
 
+  risk: {
+    status: () =>
+      request<{
+        kill_switch_active: boolean
+        kill_switch_at: string | null
+        account_daily_loss: string
+        ops_limit: number
+      }>('/risk/status'),
+    activateKillSwitch: (totp_code?: string, exit_positions = false) =>
+      request<{ activated: boolean; strategies_stopped: number; orders_cancelled: number }>(
+        '/risk/kill-switch/activate',
+        { method: 'POST', body: JSON.stringify({ totp_code, exit_positions }) }
+      ),
+    resetKillSwitch: (totp_code?: string) =>
+      request<{ reset: boolean }>('/risk/kill-switch/reset', {
+        method: 'POST',
+        body: JSON.stringify({ totp_code }),
+      }),
+  },
+
   instances: {
     list: () => request<{ instances: StrategyInstance[] }>('/instances'),
     create: (body: CreateInstanceRequest) =>
