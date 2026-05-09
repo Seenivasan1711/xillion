@@ -3,16 +3,23 @@
 # Deploy: push this repo to GitHub, then in Render dashboard:
 #   New + → Blueprint → connect repo → "Apply" — it will provision everything below.
 #
+# This blueprint is configured for the FREE tier (no card required).
+# See "GO-LIVE UPGRADE" section near the bottom for the one-line edits to flip
+# this into a paid production-ready config when you're ready to trade real money.
+#
 # After first deploy, set these secrets in the Render dashboard
 # (Service → Environment) — they are intentionally NOT in this file:
 #
-#   ENCRYPTION_KEY              ★ REQUIRED ★ Fernet base64 key — generate once with:
+#   ENCRYPTION_KEY              ★ STRONGLY RECOMMENDED ★ Fernet base64 key —
+#                               generate once with:
 #                                 python -c "from cryptography.fernet import Fernet; \
 #                                            print(Fernet.generate_key().decode())"
-#                               If you skip this, the app will auto-generate one to
-#                               disk on first start (works because of the persistent
-#                               disk below) — but losing the disk loses all encrypted
-#                               broker credentials. Setting it explicitly is safer.
+#                               If you skip this, the app auto-generates one to
+#                               disk on first start. On the FREE plan there is no
+#                               persistent disk, so the key (and any encrypted
+#                               broker credentials) will be wiped on every redeploy
+#                               or restart. Set this env var explicitly to avoid
+#                               losing your saved Zerodha credentials.
 #
 #   ZERODHA_PRIMARY_API_KEY     Optional — you can also set Zerodha credentials
 #   ZERODHA_PRIMARY_API_SECRET  via the Settings page in the UI after first login.
@@ -24,30 +31,31 @@
 #   TELEGRAM_CHAT_ID
 #
 # ────────────────────────────────────────────────────────────────────────────────
-# Plan notes
+# FREE-TIER CAVEATS — read before deploying
 #
-# - We use `plan: starter` ($7/mo) instead of free because the free plan sleeps
-#   after 15 min of inactivity. A trading bot must always be on — strategies that
-#   miss a tick because the dyno was asleep can lose money.
+# - The free web instance sleeps after 15 min of inactivity. While asleep, any
+#   running strategy loses ticks and the auto Zerodha reconnect at 6:15 AM IST
+#   may not fire. The free tier is fine for trying the UI / running backtests,
+#   but do NOT run live or paper strategies for any meaningful period on it.
 #
-# - We use `runtime: docker` to leverage the existing multi-stage Dockerfile,
-#   which builds the React frontend and bakes it into the image. This is more
-#   reliable than the Python buildpack (which would need Node installed at build
-#   time). To switch back to the Python buildpack, set `runtime: python` and use
-#   `buildCommand: make render-build` / `startCommand: make render-start`.
+# - The free Postgres database expires 30 days after creation. You'll need to
+#   recreate it (and lose its data) or upgrade. Trade history will be lost.
 #
-# - The persistent disk at /app/data holds: SQLite DB (if Postgres not used),
-#   Zerodha access-token cache, the auto-generated encryption key, and backup
-#   snapshots. Even with Postgres, keep the disk for the cache and backups.
+# - No persistent disk. On every redeploy/restart, /app/data is wiped. SQLite
+#   would lose all data, but we use Postgres so the DB is safe. The encryption
+#   key file is wiped though — set ENCRYPTION_KEY explicitly (above) to keep
+#   broker credentials decryptable across restarts.
+#
 # ────────────────────────────────────────────────────────────────────────────────
 
 services:
   - type: web
     name: xillion
     runtime: docker
-    plan: starter
-    region: singapore           # Closest Render region to NSE/BSE — cuts ~150ms RTT
-                                # Alternatives: oregon, frankfurt, ohio
+    plan: free                   # ★ See GO-LIVE UPGRADE below for the production
+                                 #   plan. Free sleeps after 15 min idle.
+    region: singapore            # Closest Render region to NSE/BSE
+                                 # Alternatives: oregon, frankfurt, ohio, virginia
     branch: main
     autoDeploy: true
     dockerfilePath: ./Dockerfile
@@ -55,10 +63,13 @@ services:
 
     healthCheckPath: /api/health
 
-    disk:
-      name: xillion-data
-      mountPath: /app/data
-      sizeGB: 1                  # Plenty for SQLite + backups + token cache
+    # ── GO-LIVE UPGRADE: uncomment this disk block (and set plan: starter above)
+    # to get persistent storage for the encryption key, Zerodha token cache, and
+    # SQLite backups. Disks require a paid plan.
+    # disk:
+    #   name: xillion-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
 
     envVars:
       - key: APP_ENV
@@ -68,7 +79,7 @@ services:
         value: "8000"
 
       - key: APP_BASE_URL
-        sync: false              # Set this to your render.com URL after first deploy
+        sync: false              # Set to your render.com URL after first deploy
 
       # Database — uses the managed Postgres provisioned below
       - key: DATABASE_URL
@@ -76,8 +87,8 @@ services:
           name: xillion-db
           property: connectionString
 
-      # Auth — APP_SECRET_KEY can be auto-generated (used for session signing only,
-      # rotating it just logs everyone out)
+      # APP_SECRET_KEY — used for session signing only. Auto-generated; rotating
+      # it just logs everyone out, no data is lost.
       - key: APP_SECRET_KEY
         generateValue: true
 
@@ -85,10 +96,8 @@ services:
         value: "8"
 
       # ENCRYPTION_KEY: do NOT use generateValue — Render produces an alphanumeric
-      # string, but Fernet requires a 44-char base64-encoded key. The app will
-      # auto-generate one to /app/data/.encryption_key on first start if this is
-      # unset. For production, set it explicitly via the dashboard (instructions
-      # at the top of this file).
+      # string, but Fernet requires a 44-char base64 key. Set manually via the
+      # dashboard (instructions at the top of this file).
       - key: ENCRYPTION_KEY
         sync: false
 
@@ -96,7 +105,7 @@ services:
       - key: OPS_LIMIT_PER_SECOND
         value: "9"
       - key: DEFAULT_ACCOUNT_DAILY_LOSS_PCT
-        value: "1"               # Conservative for first week; raise once stable
+        value: "1"               # Conservative for first week
       - key: DEFAULT_PER_STRATEGY_DAILY_LOSS_PCT
         value: "0.5"
       - key: DEFAULT_MAX_OPEN_POSITIONS
@@ -129,7 +138,17 @@ databases:
   - name: xillion-db
     databaseName: xillion
     user: xillion
-    plan: free                   # 256 MB, expires after 30 days. Upgrade to
-                                 # `basic-256mb` ($6/mo) before going live with
-                                 # real money to avoid losing trade history.
+    plan: free                   # 256 MB, EXPIRES 30 DAYS AFTER CREATION.
+                                 # Upgrade to `basic-256mb` ($6/mo) before going
+                                 # live to avoid losing trade history.
     region: singapore            # Match the web service region
+
+# ────────────────────────────────────────────────────────────────────────────────
+# GO-LIVE UPGRADE — when ready to trade real money, make these three edits:
+#
+#   1. services[0].plan:        free  →  starter      (~$7/mo, no sleep)
+#   2. services[0].disk:        uncomment the block above
+#   3. databases[0].plan:       free  →  basic-256mb  (~$6/mo, no expiry)
+#
+# Then commit + push. Render picks up the blueprint changes on next deploy.
+# ────────────────────────────────────────────────────────────────────────────────
