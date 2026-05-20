@@ -16,6 +16,7 @@ from xillion.db.models import (
     DailyRiskState,
     DailyStrategyPnl,
     FillRecord,
+    OrderRecord,
     StrategyInstance,
 )
 
@@ -151,6 +152,30 @@ async def portfolio_summary(
 
     avg_trade_pnl = (pnl_today / closed_trades_today) if closed_trades_today > 0 else 0.0
 
+    # Win rate from FIFO-matched fills for today
+    win_rate = 0.0
+    try:
+        from xillion.api.trades import _match_fills
+        fill_rows = (
+            await db.execute(
+                select(
+                    FillRecord,
+                    OrderRecord.strategy_instance_id,
+                    StrategyInstance.name,
+                    StrategyInstance.mode,
+                )
+                .join(OrderRecord, FillRecord.order_id == OrderRecord.id)
+                .outerjoin(StrategyInstance, OrderRecord.strategy_instance_id == StrategyInstance.id)
+                .where(FillRecord.ts >= today)
+            )
+        ).all()
+        matched_today = _match_fills(list(fill_rows))
+        if matched_today:
+            wins_today = sum(1 for t in matched_today if t["pnl"] > 0)
+            win_rate = round(wins_today / len(matched_today) * 100, 1)
+    except Exception:
+        pass
+
     return {
         "pnl_today": round(pnl_today, 2),
         "pnl_today_pct": round((pnl_today / equity_total * 100) if equity_total > 0 else 0, 2),
@@ -162,6 +187,6 @@ async def portfolio_summary(
         "loss_budget_pct": round(loss_budget_pct, 2),
         "open_trades": open_trades,
         "closed_trades_today": closed_trades_today,
-        "win_rate": 0.0,  # per-trade matching not yet available in live schema
+        "win_rate": win_rate,
         "avg_trade_pnl": round(avg_trade_pnl, 2),
     }

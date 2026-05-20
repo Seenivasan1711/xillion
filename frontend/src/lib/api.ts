@@ -139,6 +139,13 @@ export const api = {
     summary: () => request<PortfolioSummary>('/portfolio/summary'),
   },
 
+  trades: {
+    list: (page = 1, limit = 500) =>
+      request<{ trades: MatchedTrade[]; total: number; page: number; limit: number }>(
+        `/trades?page=${page}&limit=${limit}`
+      ),
+  },
+
   backtest: {
     run: (body: BacktestRequest) =>
       request<BacktestResponse>('/backtest/run', {
@@ -337,6 +344,21 @@ export interface PortfolioSummary {
   closed_trades_today: number
   win_rate: number
   avg_trade_pnl: number
+}
+
+export interface MatchedTrade {
+  id: string
+  symbol: string
+  instance_id: string
+  instance_name: string
+  side: 'LONG' | 'SHORT'
+  quantity: number
+  entry_price: number
+  exit_price: number
+  entry_ts: string
+  exit_ts: string
+  pnl: number
+  mode: 'paper' | 'live'
 }
 
 export interface ZerodhaCredentials {

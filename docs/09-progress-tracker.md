@@ -349,6 +349,38 @@ Goal: implement the new Xillion design system across all screens. Reference: `Xi
 
 ---
 
+## Phase 10 — DB persistence pipeline + Trades page (May 2026)
+
+Goal: every order, fill, and closed trade round-trip is persisted to DB; the Trades page loads from DB on mount and receives real-time updates via WebSocket.
+
+### A — Execution layer DB persistence
+
+- [x] `ExecutionRouter._persist_order()` — upserts `OrderRecord` + writes `FillRecord` on fill; increments `DailyRiskState.total_orders_placed`
+- [x] `_StrategyContextImpl._persist_trade_close()` — upserts `PositionRecord`, `DailyStrategyPnl`, `DailyRiskState.account_realised_pnl` when a position fully closes
+- [x] `_StrategyContextImpl._update_position_from_order()` wired into `place_order()` (was dead code)
+- [x] Thread `db_factory`, `broker_connection_id`, `instance_name`, `on_trade_close` through `StrategyEngine.spawn()` and `instances.py start_instance`
+
+### B — In-session trade counters
+
+- [x] `_StrategyContextImpl` tracks `_trade_count` and `_win_count` per running instance
+- [x] `StrategyRunner` exposes `trade_count` and `win_count` properties
+- [x] `_inst_to_dict` in `instances.py` includes `trade_count` and `win_count`
+
+### C — Trades API + page
+
+- [x] `GET /api/trades` — FIFO-matched entry/exit pairs from `FillRecord`; supports `symbol`, `instance_id`, `date_from` filters and pagination
+- [x] Register trades router in `main.py`
+- [x] `MatchedTrade` interface + `api.trades.list()` in `frontend/src/lib/api.ts`
+- [x] `Trades.tsx` rewritten — loads history from DB on mount, WS listener for real-time `trade_closed` events, entry/exit column layout, direction filter (LONG/SHORT)
+
+### D — Win rate in portfolio endpoint
+
+- [x] `GET /api/portfolio/summary` computes `win_rate` from today's FIFO-matched fills (replaces the hardcoded `0.0`)
+
+**Exit:** start a paper strategy, place a BUY+SELL pair; `/api/trades` returns the matched trade; Trades page shows it; Dashboard win rate is non-zero.
+
+---
+
 ## Future / commercial — Phase 8+
 
 - [ ] Second broker plugin (Upstox / Fyers)

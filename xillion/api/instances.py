@@ -31,10 +31,12 @@ def _now() -> str:
 def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> dict:
     pnl = None
     trade_count = None
-    if runner and hasattr(runner, "_ctx"):
+    win_count = None
+    if runner:
         try:
             pnl = float(runner._ctx.realised_pnl_today())
-            trade_count = getattr(runner._ctx, "_trade_count", 0)
+            trade_count = runner.trade_count
+            win_count = runner.win_count
         except Exception:
             pass
     return {
@@ -56,6 +58,7 @@ def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> di
         "updated_at": inst.updated_at,
         "pnl": pnl,
         "trade_count": trade_count,
+        "win_count": win_count,
     }
 
 
@@ -293,6 +296,7 @@ async def start_instance(
                 instruments=instruments,
             )
 
+    from xillion.api.ws import broadcast as ws_broadcast
     runner = await engine.spawn(
         instance_id=instance_id,
         strategy_name=sc.name,
@@ -302,6 +306,9 @@ async def start_instance(
         capital=Decimal(str(inst.capital_allocation)),
         params=json.loads(inst.params_json),
         mode=inst.mode,
+        broker_connection_id=inst.broker_connection_id,
+        instance_name=inst.name,
+        on_trade_close=ws_broadcast,
     )
 
     inst.status = "running"

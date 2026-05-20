@@ -1,51 +1,54 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Trash2, Search } from 'lucide-react'
+import { Download, RefreshCw, Search } from 'lucide-react'
+import { api, MatchedTrade } from '../lib/api'
 import { wsClient } from '../lib/ws'
 import { Badge, SegmentedControl, fmtINR, fmtTime } from '../components/ui'
 
-interface Trade {
-  id: number
-  ts: string
-  instance_id: string
-  instance_name: string
-  symbol: string
-  side: 'BUY' | 'SELL'
-  qty: number
-  price: number
-  pnl: number | null
-  mode: 'paper' | 'live'
-  order_id: string
-}
-
 export default function Trades() {
-  const [trades, setTrades] = useState<Trade[]>([])
+  const [trades, setTrades] = useState<MatchedTrade[]>([])
+  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
-  const [side, setSide] = useState('all')
-  const idRef = useRef(0)
+  const [direction, setDirection] = useState('all')
+  const wsIdRef = useRef(0)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const res = await api.trades.list()
+      setTrades(res.trades)
+    } catch {
+      // keep existing list on error
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
+    load()
+
     const unsub = wsClient.subscribe((event) => {
-      if (event.type !== 'trade') return
-      const t: Trade = {
-        id: ++idRef.current,
-        ts: (event.ts as string) || new Date().toISOString(),
+      if (event.type !== 'trade_closed') return
+      const t: MatchedTrade = {
+        id: `ws-${++wsIdRef.current}`,
+        symbol: (event.symbol as string) || '',
         instance_id: (event.instance_id as string) || '',
         instance_name: (event.instance_name as string) || 'Unknown',
-        symbol: (event.symbol as string) || '',
-        side: (event.side as 'BUY' | 'SELL') || 'BUY',
-        qty: Number(event.qty) || 0,
-        price: Number(event.price) || 0,
-        pnl: event.pnl != null ? Number(event.pnl) : null,
+        side: (event.side as 'LONG' | 'SHORT') || 'LONG',
+        quantity: Number(event.quantity) || 0,
+        entry_price: Number(event.entry_price) || 0,
+        exit_price: Number(event.exit_price) || 0,
+        entry_ts: (event.entry_ts as string) || new Date().toISOString(),
+        exit_ts: (event.exit_ts as string) || new Date().toISOString(),
+        pnl: Number(event.pnl) || 0,
         mode: (event.mode as 'paper' | 'live') || 'paper',
-        order_id: (event.order_id as string) || '',
       }
-      setTrades(prev => [t, ...prev.slice(0, 499)])
+      setTrades(prev => [t, ...prev])
     })
     return unsub
   }, [])
 
   const filtered = trades.filter(t => {
-    if (side !== 'all' && t.side !== side) return false
+    if (direction !== 'all' && t.side !== direction) return false
     if (filter) {
       const f = filter.toLowerCase()
       if (!t.symbol.toLowerCase().includes(f) && !t.instance_name.toLowerCase().includes(f)) return false
@@ -53,15 +56,17 @@ export default function Trades() {
     return true
   })
 
-  const total = filtered.reduce((s, t) => s + (t.pnl ?? 0), 0)
-  const buys = filtered.filter(t => t.side === 'BUY').length
-  const sells = filtered.length - buys
-  const wins = filtered.filter(t => (t.pnl ?? 0) > 0).length
+  const totalPnl = filtered.reduce((s, t) => s + t.pnl, 0)
+  const wins = filtered.filter(t => t.pnl > 0).length
   const winRate = filtered.length > 0 ? Math.round((wins / filtered.length) * 100) : 0
+  const avgPnl = filtered.length > 0 ? totalPnl / filtered.length : 0
 
   const exportCsv = () => {
-    const header = 'Time,Instance,Symbol,Side,Qty,Price,PnL,Mode,OrderID'
-    const rows = filtered.map(t => [t.ts, t.instance_name, t.symbol, t.side, t.qty, t.price, t.pnl ?? '', t.mode, t.order_id].join(','))
+    const header = 'Exit Time,Strategy,Symbol,Direction,Qty,Entry Price,Exit Price,P&L,Mode'
+    const rows = filtered.map(t => [
+      t.exit_ts, t.instance_name, t.symbol, t.side,
+      t.quantity, t.entry_price, t.exit_price, t.pnl, t.mode,
+    ].join(','))
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -75,14 +80,14 @@ export default function Trades() {
       <div className="h-page">
         <div>
           <h1>Trades</h1>
-          <div className="sub">Real-time order stream — paper + live combined</div>
+          <div className="sub">Closed round-trip trades — entry / exit matched</div>
         </div>
         <div className="row">
+          <button className="btn ghost" onClick={load} disabled={loading}>
+            <RefreshCw size={13} /> Refresh
+          </button>
           <button className="btn ghost" onClick={exportCsv} disabled={trades.length === 0}>
             <Download size={13} /> Export CSV
-          </button>
-          <button className="btn ghost" onClick={() => setTrades([])} disabled={trades.length === 0}>
-            <Trash2 size={13} /> Clear feed
           </button>
         </div>
       </div>
@@ -94,16 +99,12 @@ export default function Trades() {
           <div className="hero-num sm">{filtered.length}</div>
         </div>
         <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Session P&L</div>
-          <div className={`hero-num sm ${total >= 0 ? 'pos' : 'neg'}`}>{fmtINR(total, { signed: true })}</div>
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total P&L</div>
+          <div className={`hero-num sm ${totalPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(totalPnl, { signed: true })}</div>
         </div>
         <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Buy / Sell</div>
-          <div className="hero-num sm">
-            <span className="pos">{buys}</span>
-            <span className="faint"> / </span>
-            <span className="neg">{sells}</span>
-          </div>
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Avg P&L / trade</div>
+          <div className={`hero-num sm ${avgPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(avgPnl, { signed: true })}</div>
         </div>
         <div className="card card-pad">
           <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Win rate</div>
@@ -120,7 +121,6 @@ export default function Trades() {
       <div className="card" style={{ overflow: 'hidden' }}>
         <div className="card-head">
           <div className="row" style={{ gap: 10 }}>
-            {/* Search input */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
               background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -139,53 +139,55 @@ export default function Trades() {
               />
             </div>
             <SegmentedControl
-              options={[{ value: 'all', label: 'All' }, { value: 'BUY', label: 'BUY' }, { value: 'SELL', label: 'SELL' }]}
-              value={side}
-              onChange={setSide}
+              options={[{ value: 'all', label: 'All' }, { value: 'LONG', label: 'Long' }, { value: 'SHORT', label: 'Short' }]}
+              value={direction}
+              onChange={setDirection}
             />
           </div>
-          <Badge tone="pos" dot>streaming</Badge>
+          <Badge tone="pos" dot>live</Badge>
         </div>
 
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>Loading trades…</div>
+        ) : filtered.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
             {trades.length === 0
-              ? 'No trades yet — trades appear here as strategies execute orders'
+              ? 'No closed trades yet — run a strategy to see matched round-trips here'
               : 'No trades match your filter'}
           </div>
         ) : (
           <table className="tbl">
             <thead>
               <tr>
-                <th>Time</th>
+                <th>Exit Time</th>
                 <th>Strategy</th>
                 <th>Symbol</th>
-                <th>Side</th>
+                <th>Direction</th>
                 <th className="num">Qty</th>
-                <th className="num">Price</th>
+                <th className="num">Entry</th>
+                <th className="num">Exit</th>
                 <th className="num">P&amp;L</th>
                 <th>Mode</th>
-                <th>Order ID</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(t => (
                 <tr key={t.id}>
-                  <td className="faint mono-num" style={{ fontSize: 11 }}>{fmtTime(t.ts)}</td>
+                  <td className="faint mono-num" style={{ fontSize: 11 }}>{fmtTime(t.exit_ts)}</td>
                   <td className="dim" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.instance_name}</td>
                   <td style={{ fontWeight: 500 }}>{t.symbol}</td>
                   <td>
-                    <span style={{ color: t.side === 'BUY' ? 'var(--pos)' : 'var(--neg)', fontWeight: 500, fontSize: 11 }}>
-                      {t.side === 'BUY' ? '▲' : '▼'} {t.side}
+                    <span style={{ color: t.side === 'LONG' ? 'var(--pos)' : 'var(--neg)', fontWeight: 500, fontSize: 11 }}>
+                      {t.side === 'LONG' ? '▲' : '▼'} {t.side}
                     </span>
                   </td>
-                  <td className="num mono-num">{t.qty}</td>
-                  <td className="num mono-num">₹{t.price.toFixed(2)}</td>
-                  <td className={`num mono-num ${t.pnl == null ? 'faint' : t.pnl >= 0 ? 'pos' : 'neg'}`}>
-                    {t.pnl == null ? '—' : fmtINR(t.pnl, { signed: true })}
+                  <td className="num mono-num">{t.quantity}</td>
+                  <td className="num mono-num">₹{t.entry_price.toFixed(2)}</td>
+                  <td className="num mono-num">₹{t.exit_price.toFixed(2)}</td>
+                  <td className={`num mono-num ${t.pnl >= 0 ? 'pos' : 'neg'}`}>
+                    {fmtINR(t.pnl, { signed: true })}
                   </td>
                   <td><Badge tone={t.mode === 'live' ? 'pos' : undefined}>{t.mode}</Badge></td>
-                  <td className="faint mono-num" style={{ fontSize: 10.5 }}>{t.order_id || '—'}</td>
                 </tr>
               ))}
             </tbody>
