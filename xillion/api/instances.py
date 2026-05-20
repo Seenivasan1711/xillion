@@ -29,6 +29,14 @@ def _now() -> str:
 
 
 def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> dict:
+    pnl = None
+    trade_count = None
+    if runner and hasattr(runner, "_ctx"):
+        try:
+            pnl = float(runner._ctx.realised_pnl_today())
+            trade_count = getattr(runner._ctx, "_trade_count", 0)
+        except Exception:
+            pass
     return {
         "id": inst.id,
         "name": inst.name,
@@ -46,6 +54,8 @@ def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> di
         "last_stopped_at": inst.last_stopped_at,
         "created_at": inst.created_at,
         "updated_at": inst.updated_at,
+        "pnl": pnl,
+        "trade_count": trade_count,
     }
 
 

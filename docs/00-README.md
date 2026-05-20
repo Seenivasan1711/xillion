@@ -22,6 +22,7 @@ A small, opinionated, self-hosted algo trading bot that lets you **drop a Python
 | 08 | [Testing Strategy](./08-testing-strategy.md) | How we avoid blowing up the account |
 | 09 | [Progress Tracker](./09-progress-tracker.md) | Phased build plan with checkboxes |
 | 10 | [Decisions & Open Questions](./10-decisions-and-open-questions.md) | What's decided, what's not |
+| 12 | [User Guide](./12-user-guide.md) | **Start here** — how to actually use the app |
 
 Read in order on the first pass. After that, jump to whatever's relevant.
 

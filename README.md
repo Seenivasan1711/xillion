@@ -22,9 +22,9 @@ That's it. Both processes start in one terminal. **Ctrl+C** stops everything cle
 
 | URL | What |
 |-----|------|
-| `http://localhost:5173` | React UI (Vite dev server) |
-| `http://localhost:8000` | FastAPI backend |
-| `http://localhost:8000/api/docs` | Interactive API docs (Swagger) |
+| `http://localhost:5174` | React UI (Vite dev server) |
+| `http://localhost:8001` | FastAPI backend |
+| `http://localhost:8001/api/docs` | Interactive API docs (Swagger) |
 
 > The database (SQLite) is created automatically on first start inside `data/`. No separate DB process needed for local dev.
 
@@ -37,7 +37,7 @@ cp .env.example .env
 docker compose up        # starts backend + frontend in one command
 ```
 
-Backend at `localhost:8000`, Vite dev server at `localhost:5173`.
+Backend at `localhost:8001`, Vite dev server at `localhost:5174`.
 
 ---
 
@@ -130,7 +130,7 @@ See `docs/09-progress-tracker.md` for task-level detail.
 
 ### First-run flow
 
-1. `make dev` (or `docker compose up`) → open http://localhost:5173
+1. `make dev` (or `docker compose up`) → open http://localhost:5174
 2. **Setup page** — create your first user (this becomes your login).
 3. **Settings → Zerodha Credentials** — enter your API key, secret, user ID, login password, and TOTP secret. Click *Save & Connect*. Credentials are encrypted at rest.
 4. **Backtest** — choose a strategy, upload a CSV of historical bars, click *Run Backtest*. Equity curve and metrics render in the same view.

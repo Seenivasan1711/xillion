@@ -31,13 +31,23 @@ async def portfolio_summary(
 ) -> dict[str, Any]:
     today = date.today().isoformat()
 
-    # Today's aggregated risk state
+    # Today's aggregated risk state (written when DB persistence is active)
     risk_row = await db.scalar(
         select(DailyRiskState).where(DailyRiskState.trading_date == today)
     )
     pnl_today_realised = float(risk_row.account_realised_pnl) if risk_row else 0.0
     pnl_today_unrealised = float(risk_row.account_unrealised_pnl) if risk_row else 0.0
     pnl_today = pnl_today_realised + pnl_today_unrealised
+
+    # Fallback: sum live P&L from in-memory strategy contexts when DB is not yet
+    # populated (DB persistence for fills/positions is a Phase 10 item).
+    engine = getattr(request.app.state, "strategy_engine", None)
+    if pnl_today == 0.0 and engine:
+        for runner in engine.list_runners():
+            try:
+                pnl_today += float(runner._ctx.realised_pnl_today())
+            except Exception:
+                pass
 
     # Capital totals from all instances
     cap_row = (

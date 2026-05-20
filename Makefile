@@ -20,19 +20,19 @@ install: ## Install Python + Node deps (re-run after adding packages)
 dev: ## ★ Start backend + frontend together. Ctrl+C stops both.
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "  Xillion starting up"
-	@echo "  API  →  http://localhost:8000"
-	@echo "  UI   →  http://localhost:5173"
-	@echo "  Docs →  http://localhost:8000/api/docs"
+	@echo "  API  →  http://localhost:8001"
+	@echo "  UI   →  http://localhost:5174"
+	@echo "  Docs →  http://localhost:8001/api/docs"
 	@echo "  Ctrl+C to stop everything"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@mkdir -p data
 	@trap 'kill 0' INT TERM EXIT; \
-	uvicorn xillion.main:app --host 0.0.0.0 --port 8000 --reload 2>&1 | sed 's/^/[backend] /' & \
+	uvicorn xillion.main:app --host 0.0.0.0 --port 8001 --reload 2>&1 | sed 's/^/[backend] /' & \
 	npm --prefix frontend run dev 2>&1 | sed 's/^/[frontend] /' & \
 	wait
 
 dev-backend: ## Backend only (uvicorn with --reload)
-	uvicorn xillion.main:app --host 0.0.0.0 --port 8000 --reload
+	uvicorn xillion.main:app --host 0.0.0.0 --port 8001 --reload
 
 dev-frontend: ## Frontend only (Vite dev server)
 	npm --prefix frontend run dev
