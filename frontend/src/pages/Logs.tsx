@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Filter, Terminal } from 'lucide-react'
+import { Download, Trash2, Search } from 'lucide-react'
 import { wsClient } from '../lib/ws'
+import { Badge, SegmentedControl } from '../components/ui'
 
 interface LogLine {
   id: number
@@ -11,60 +12,58 @@ interface LogLine {
   fields: Record<string, unknown>
 }
 
-const LEVEL_COLOR: Record<string, string> = {
-  debug: 'text-gray-500',
-  info: 'text-sky-400',
-  warning: 'text-amber-400',
-  warn: 'text-amber-400',
-  error: 'text-rose-400',
-  critical: 'text-rose-300 font-bold',
+const LEVEL_MAP: Record<string, string> = {
+  debug: 'dbg',
+  info: 'info',
+  warning: 'warn',
+  warn: 'warn',
+  error: 'err',
+  critical: 'err',
 }
 
 export default function Logs() {
   const [logs, setLogs] = useState<LogLine[]>([])
   const [filter, setFilter] = useState('')
-  const [levelFilter, setLevelFilter] = useState<string>('all')
+  const [level, setLevel] = useState('all')
   const [paused, setPaused] = useState(false)
-  const [expanded, setExpanded] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const idRef = useRef(0)
 
   useEffect(() => {
     const unsub = wsClient.subscribe((event) => {
-      if (paused) return
-      if (event.type === 'log' || event.type === 'heartbeat' || event.type === 'tick') {
-        if (event.type !== 'log') return
-        const line: LogLine = {
-          id: ++idRef.current,
-          ts: (event.ts as string) || new Date().toISOString(),
-          level: (event.level as string) || 'info',
-          source: (event.source as string) || 'system',
-          message: (event.message as string) || JSON.stringify(event),
-          fields: (event.fields as Record<string, unknown>) || {},
-        }
-        setLogs((prev) => [...prev.slice(-500), line])
+      if (paused || event.type !== 'log') return
+      const line: LogLine = {
+        id: ++idRef.current,
+        ts: (event.ts as string) || new Date().toISOString(),
+        level: (event.level as string) || 'info',
+        source: (event.source as string) || 'system',
+        message: (event.message as string) || JSON.stringify(event),
+        fields: (event.fields as Record<string, unknown>) || {},
       }
+      setLogs(prev => [...prev.slice(-500), line])
     })
     return unsub
   }, [paused])
 
   useEffect(() => {
-    if (!paused) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
+    if (!paused) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs, paused])
 
-  const filtered = logs.filter((l) => {
-    if (levelFilter !== 'all' && l.level !== levelFilter) return false
+  const filtered = logs.filter(l => {
+    const lvl = l.level.toLowerCase()
+    if (level !== 'all') {
+      if (level === 'err' && lvl !== 'error' && lvl !== 'critical') return false
+      if (level === 'warn' && lvl !== 'warning' && lvl !== 'warn') return false
+      if (level === 'info' && lvl !== 'info') return false
+      if (level === 'debug' && lvl !== 'debug') return false
+    }
     if (filter && !l.message.toLowerCase().includes(filter.toLowerCase()) &&
         !l.source.toLowerCase().includes(filter.toLowerCase())) return false
     return true
   })
 
   const exportLogs = () => {
-    const text = filtered
-      .map((l) => `${l.ts} [${l.level.toUpperCase()}] ${l.source}: ${l.message}`)
-      .join('\n')
+    const text = filtered.map(l => `${l.ts} [${l.level.toUpperCase()}] ${l.source}: ${l.message}`).join('\n')
     const blob = new Blob([text], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -74,87 +73,98 @@ export default function Logs() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Terminal size={22} />
-          Logs
-        </h1>
-        <div className="flex items-center gap-2">
-          <button onClick={exportLogs} className="p-2 text-gray-500 hover:text-gray-300" title="Export">
-            <Download size={16} />
+    <div className="stack">
+      <div className="h-page">
+        <div>
+          <h1>Logs</h1>
+          <div className="sub">Live engine output · scrollback retained for 24h</div>
+        </div>
+        <div className="row">
+          <button className="btn ghost" onClick={exportLogs} disabled={logs.length === 0}>
+            <Download size={13} /> Download
           </button>
-          <button
-            onClick={() => setPaused((p) => !p)}
-            className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-              paused
-                ? 'border-amber-600 text-amber-400 hover:bg-amber-950/30'
-                : 'border-gray-700 text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {paused ? 'Resume' : 'Pause'}
+          <button className="btn ghost" onClick={() => setLogs([])} disabled={logs.length === 0}>
+            <Trash2 size={13} /> Clear
           </button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Filter size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Search logs…"
-            className="input w-full pl-8 py-1.5 text-sm"
-          />
-        </div>
-        <select
-          value={levelFilter}
-          onChange={(e) => setLevelFilter(e.target.value)}
-          className="input py-1.5 text-sm"
-        >
-          {['all', 'debug', 'info', 'warning', 'error', 'critical'].map((l) => (
-            <option key={l} value={l}>{l === 'all' ? 'All levels' : l}</option>
-          ))}
-        </select>
-        {logs.length > 0 && (
-          <button onClick={() => setLogs([])} className="text-xs text-gray-500 hover:text-gray-300">
-            Clear
-          </button>
-        )}
-      </div>
-
-      {/* Log stream */}
-      <div className="card font-mono text-xs space-y-0 max-h-[65vh] overflow-y-auto bg-gray-950">
-        {filtered.length === 0 ? (
-          <div className="py-12 text-center text-gray-600">
-            {logs.length === 0 ? 'Waiting for log events from backend…' : 'No logs match your filters'}
-          </div>
-        ) : (
-          filtered.map((l) => (
-            <div key={l.id}>
-              <div
-                className="flex items-start gap-3 py-1 px-2 hover:bg-gray-900 cursor-pointer"
-                onClick={() => setExpanded(expanded === l.id ? null : l.id)}
-              >
-                <span className="text-gray-600 flex-shrink-0 tabular-nums">
-                  {new Date(l.ts).toLocaleTimeString()}
-                </span>
-                <span className={`w-16 flex-shrink-0 uppercase ${LEVEL_COLOR[l.level] || 'text-gray-400'}`}>
-                  {l.level}
-                </span>
-                <span className="text-gray-500 flex-shrink-0 w-24 truncate">{l.source}</span>
-                <span className="text-gray-300 truncate flex-1">{l.message}</span>
-              </div>
-              {expanded === l.id && Object.keys(l.fields).length > 0 && (
-                <pre className="px-4 pb-2 text-[10px] text-gray-500 bg-gray-900/50">
-                  {JSON.stringify(l.fields, null, 2)}
-                </pre>
-              )}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {/* Card header with embedded filter + controls */}
+        <div className="card-head">
+          <div className="row" style={{ gap: 10 }}>
+            {/* Search */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '0 10px', height: 28,
+            }}>
+              <Search size={12} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+              <input
+                placeholder="filter…"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                style={{
+                  background: 'transparent', border: 0, outline: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                  color: 'var(--text)', width: 200,
+                }}
+              />
             </div>
-          ))
-        )}
-        <div ref={bottomRef} />
+            {/* Level segmented control */}
+            <SegmentedControl
+              options={[
+                { value: 'all',   label: 'all'   },
+                { value: 'info',  label: 'info'  },
+                { value: 'warn',  label: 'warn'  },
+                { value: 'err',   label: 'err'   },
+                { value: 'debug', label: 'debug' },
+              ]}
+              value={level}
+              onChange={setLevel}
+            />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            {!paused
+              ? <Badge tone="pos" dot>tailing</Badge>
+              : <Badge>paused</Badge>
+            }
+            <span className="faint" style={{ fontSize: 11 }}>{filtered.length} lines</span>
+            <button
+              className="btn ghost sm"
+              onClick={() => setPaused(p => !p)}
+            >
+              {paused ? 'Resume' : 'Pause'}
+            </button>
+          </div>
+        </div>
+
+        {/* Log stream */}
+        <div style={{ maxHeight: '65vh', overflowY: 'auto', background: 'rgba(7,9,12,0.4)' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
+              {logs.length === 0 ? 'Waiting for log events from backend…' : 'No logs match your filters'}
+            </div>
+          ) : (
+            filtered.map(l => {
+              const cls = LEVEL_MAP[l.level.toLowerCase()] || 'dbg'
+              return (
+                <div key={l.id} className="log-line">
+                  <span className="faint">
+                    {new Date(l.ts).toLocaleString('en-IN', { hour12: false }).replace(',', '')}
+                  </span>
+                  <span className={`lvl ${cls}`}>{l.level.toUpperCase().slice(0, 5)}</span>
+                  <span>
+                    <span className="dim">{l.source}</span>
+                    {'  '}
+                    {l.message}
+                  </span>
+                </div>
+              )
+            })
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   )

@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react'
-import { Clock, Cpu, Pause, Play, Plus, RefreshCw, Tag, Trash2, X } from 'lucide-react'
+import { Plus, RefreshCw, Pause, Play, Trash2, X, Gear } from 'lucide-react'
 import { api, type CreateInstanceRequest, type ParamSpec, type StrategyClass, type StrategyInstance } from '../lib/api'
+import { Badge, SegmentedControl, fmtINR } from '../components/ui'
+
+// Re-use lucide Gear as Settings icon
+import { Settings as GearIcon } from 'lucide-react'
 
 export default function Strategies() {
   const [strategies, setStrategies] = useState<StrategyClass[]>([])
   const [instances, setInstances] = useState<StrategyInstance[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'classes' | 'instances'>('instances')
+  const [tab, setTab] = useState<'instances' | 'classes' | 'archived'>('instances')
   const [newInstanceFor, setNewInstanceFor] = useState<StrategyClass | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [sc, inst] = await Promise.all([
-        api.strategies.classes(),
-        api.instances.list(),
-      ])
+      const [sc, inst] = await Promise.all([api.strategies.classes(), api.instances.list()])
       setStrategies(sc.strategies)
       setErrors(sc.errors)
       setInstances(inst.instances)
@@ -29,13 +30,8 @@ export default function Strategies() {
 
   const reload = async () => {
     setLoading(true)
-    try {
-      await api.strategies.reload()
-      await loadAll()
-    } catch (e) {
-      console.error(e)
-      setLoading(false)
-    }
+    try { await api.strategies.reload(); await loadAll() }
+    catch (e) { console.error(e); setLoading(false) }
   }
 
   useEffect(() => {
@@ -49,216 +45,229 @@ export default function Strategies() {
       const res = await api.instances.start(id)
       if (res.warning) alert(`Started, but: ${res.warning}`)
       await loadAll()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Start failed')
-    }
+    } catch (e) { alert(e instanceof Error ? e.message : 'Start failed') }
   }
 
   const handleStop = async (id: string) => {
-    try {
-      await api.instances.stop(id)
-      await loadAll()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Stop failed')
-    }
+    try { await api.instances.stop(id); await loadAll() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Stop failed') }
   }
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete instance "${name}"?`)) return
-    try {
-      await api.instances.delete(id)
-      await loadAll()
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Delete failed')
-    }
-  }
-
-  const handleInstanceCreated = async () => {
-    setNewInstanceFor(null)
-    await loadAll()
+    try { await api.instances.delete(id); await loadAll() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Delete failed') }
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Cpu size={22} />
-          Strategies
-        </h1>
-        <button onClick={reload} disabled={loading} className="btn-primary flex items-center gap-2">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Reload plugins
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-800 gap-4">
-        {(['instances', 'classes'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-2 text-sm font-medium capitalize transition-colors ${
-              activeTab === tab
-                ? 'text-white border-b-2 border-brand-500'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {tab === 'instances' ? `Instances (${instances.length})` : `Classes (${strategies.length})`}
+    <div className="stack">
+      <div className="h-page">
+        <div>
+          <h1>Strategies</h1>
+          <div className="sub">Discoverable plugins from <code>strategies/</code>. Drop a Python file, click reload.</div>
+        </div>
+        <div className="row">
+          <button className="btn ghost" onClick={reload} disabled={loading}>
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Reload plugins
           </button>
-        ))}
+          <button className="btn primary" onClick={() => strategies[0] && setNewInstanceFor(strategies[0])}>
+            <Plus size={13} /> New instance
+          </button>
+        </div>
       </div>
 
-      {/* Plugin load errors */}
+      {/* Plugin errors */}
       {Object.keys(errors).length > 0 && (
-        <div className="card border-yellow-800 bg-yellow-950/20">
-          <h3 className="text-yellow-400 text-sm font-medium mb-2">Plugin Load Errors</h3>
+        <div className="card card-pad" style={{ borderColor: 'color-mix(in srgb, var(--warn) 30%, transparent)', background: 'var(--warn-dim)' }}>
+          <div style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 6 }}>Plugin load errors</div>
           {Object.entries(errors).map(([k, v]) => (
-            <div key={k} className="text-xs text-yellow-300 font-mono">{k}: {v}</div>
+            <div key={k} className="faint" style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{k}: {v}</div>
           ))}
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="tabs">
+        <div className={`tab ${tab === 'instances' ? 'active' : ''}`} onClick={() => setTab('instances')}>
+          Instances <span className="count">{instances.length}</span>
+        </div>
+        <div className={`tab ${tab === 'classes' ? 'active' : ''}`} onClick={() => setTab('classes')}>
+          Classes <span className="count">{strategies.length}</span>
+        </div>
+        <div className={`tab ${tab === 'archived' ? 'active' : ''}`} onClick={() => setTab('archived')}>
+          Archived <span className="count">0</span>
+        </div>
+      </div>
+
       {/* Instances tab */}
-      {activeTab === 'instances' && (
-        <div className="space-y-4">
-          {instances.length === 0 ? (
-            <div className="card text-center py-12 text-gray-500">
-              <Cpu size={40} className="mx-auto mb-3 opacity-30" />
-              <p>No instances yet.</p>
-              <p className="text-sm mt-1">
-                Go to <button onClick={() => setActiveTab('classes')} className="text-brand-500 hover:underline">Classes</button> tab and click "New Instance".
-              </p>
+      {tab === 'instances' && (
+        instances.length === 0 ? (
+          <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>No instances yet</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6 }}>
+              Go to{' '}
+              <button onClick={() => setTab('classes')} style={{ background: 'none', border: 0, color: 'var(--text)', cursor: 'pointer', textDecoration: 'underline' }}>
+                Classes
+              </button>{' '}
+              tab and click "New Instance"
             </div>
-          ) : (
-            instances.map((inst) => (
+          </div>
+        ) : (
+          <div className="grid-2">
+            {instances.map(inst => (
               <InstanceCard
                 key={inst.id}
-                instance={inst}
+                inst={inst}
                 onStart={() => handleStart(inst.id)}
                 onStop={() => handleStop(inst.id)}
                 onDelete={() => handleDelete(inst.id, inst.name)}
+                onConfigure={() => {
+                  const cls = strategies.find(s => s.name === inst.strategy_class_name)
+                  if (cls) setNewInstanceFor(cls)
+                }}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )
       )}
 
       {/* Classes tab */}
-      {activeTab === 'classes' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {strategies.length === 0 && !loading ? (
-            <div className="col-span-full card text-center py-12 text-gray-500">
-              <Cpu size={40} className="mx-auto mb-3 opacity-30" />
-              <p>No strategies found.</p>
-              <p className="text-sm mt-1">
-                Drop a <code className="text-gray-400">.py</code> file in{' '}
-                <code className="text-gray-400">strategies/</code> and click Reload.
-              </p>
+      {tab === 'classes' && (
+        strategies.length === 0 && !loading ? (
+          <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>No strategies found</div>
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6 }}>
+              Drop a <code>.py</code> file in <code>strategies/</code> and click Reload
             </div>
-          ) : (
-            strategies.map((s) => (
-              <StrategyCard
-                key={s.name}
-                strategy={s}
-                onNewInstance={() => setNewInstanceFor(s)}
-              />
-            ))
-          )}
+          </div>
+        ) : (
+          <div className="grid-3">
+            {strategies.map(s => (
+              <div key={s.name} className="card card-pad">
+                <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 500, fontSize: 14 }}>{s.name}</span>
+                  <span className="faint" style={{ fontSize: 10 }}>v{s.version}</span>
+                </div>
+                <p className="dim" style={{ fontSize: 11.5, margin: '0 0 14px', lineHeight: 1.55 }}>
+                  {s.description || 'No description'}
+                </p>
+                <div className="row" style={{ gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                  <Badge>{s.timeframe}</Badge>
+                  <Badge>{s.params_schema.length} params</Badge>
+                  {s.author && <Badge>{s.author}</Badge>}
+                </div>
+                <button className="btn ghost sm" onClick={() => setNewInstanceFor(s)}>
+                  <Plus size={11} /> New instance
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Archived tab */}
+      {tab === 'archived' && (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>No archived instances</div>
         </div>
       )}
 
-      {/* New Instance Modal */}
       {newInstanceFor && (
         <NewInstanceModal
           strategy={newInstanceFor}
           onClose={() => setNewInstanceFor(null)}
-          onCreated={handleInstanceCreated}
+          onCreated={() => { setNewInstanceFor(null); loadAll() }}
         />
       )}
     </div>
   )
 }
 
-// ── Instance card ──────────────────────────────────────────────────────────────
+// ── Instance card ──────────────────────────────────────────────────────────
 
 function InstanceCard({
-  instance: inst,
+  inst,
   onStart,
   onStop,
   onDelete,
+  onConfigure,
 }: {
-  instance: StrategyInstance
+  inst: StrategyInstance
   onStart: () => void
   onStop: () => void
   onDelete: () => void
+  onConfigure: () => void
 }) {
-  const isRunning = inst.status === 'running'
-  const isError = inst.status === 'error'
+  const running = inst.status === 'running'
+  const errored = inst.status === 'error'
 
   return (
-    <div className={`card flex flex-col gap-3 ${isError ? 'border-red-800' : ''}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="font-semibold truncate">{inst.name}</h3>
-          <p className="text-xs text-gray-500 truncate">
-            {inst.strategy_class_name} · {inst.timeframe} · {inst.instruments.join(', ')}
-          </p>
+    <div className="card">
+      <div className="card-pad">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 4 }}>{inst.name}</div>
+            <div className="faint" style={{ fontSize: 11 }}>
+              {inst.strategy_class_name} · {inst.timeframe} · {inst.instruments.join(', ')}
+            </div>
+          </div>
+          <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+            <Badge tone={inst.mode === 'live' ? 'pos' : undefined}>{inst.mode}</Badge>
+            <Badge
+              tone={running ? 'pos' : errored ? 'neg' : undefined}
+              dot={running}
+            >
+              {inst.status}
+            </Badge>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span
-            className={`text-xs px-2 py-0.5 rounded-full ${
-              inst.mode === 'live'
-                ? 'bg-emerald-900 text-emerald-300'
-                : 'bg-sky-900 text-sky-300'
-            }`}
-          >
-            {inst.mode}
-          </span>
-          <span
-            className={
-              isRunning ? 'badge-running' : isError ? 'badge-error' : 'badge-idle'
-            }
-          >
-            {inst.status}
-          </span>
+
+        {inst.last_error && (
+          <div style={{
+            fontSize: 11, color: 'var(--neg)', background: 'var(--neg-dim)',
+            padding: '8px 10px', borderRadius: 7, marginBottom: 12,
+            border: '1px solid color-mix(in srgb, var(--neg) 30%, transparent)',
+          }}>
+            {inst.last_error}
+          </div>
+        )}
+
+        {/* Capital / Trades / P&L stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+          <div>
+            <div className="faint" style={{ fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3 }}>Capital</div>
+            <div className="mono-num" style={{ fontSize: 13 }}>{fmtINR(inst.capital_allocation)}</div>
+          </div>
+          <div>
+            <div className="faint" style={{ fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3 }}>Trades</div>
+            <div className="mono-num" style={{ fontSize: 13 }}>{inst.trade_count ?? '—'}</div>
+          </div>
+          <div>
+            <div className="faint" style={{ fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3 }}>P&amp;L</div>
+            <div
+              className={`mono-num ${inst.pnl != null && inst.pnl > 0 ? 'pos' : inst.pnl != null && inst.pnl < 0 ? 'neg' : 'faint'}`}
+              style={{ fontSize: 13 }}
+            >
+              {inst.pnl != null ? fmtINR(inst.pnl, { signed: true }) : '—'}
+            </div>
+          </div>
         </div>
       </div>
 
-      {inst.last_error && (
-        <p className="text-xs text-red-400 bg-red-950/30 rounded p-2 truncate">{inst.last_error}</p>
-      )}
-
-      <div className="flex items-center gap-2 text-xs text-gray-500">
-        <span>₹{inst.capital_allocation.toLocaleString()}</span>
-        <span className="text-gray-700">·</span>
-        <span>{Object.keys(inst.params).length} params</span>
-        {inst.last_started_at && (
-          <>
-            <span className="text-gray-700">·</span>
-            <span>started {new Date(inst.last_started_at).toLocaleTimeString()}</span>
-          </>
-        )}
-      </div>
-
-      <div className="flex gap-2 border-t border-gray-800 pt-3">
-        {isRunning ? (
-          <button onClick={onStop} className="btn-primary flex items-center gap-1 text-xs py-1.5">
-            <Pause size={12} />
-            Stop
-          </button>
-        ) : (
-          <button onClick={onStart} className="btn-primary flex items-center gap-1 text-xs py-1.5">
-            <Play size={12} />
-            Start
-          </button>
-        )}
-        {!isRunning && (
+      <div className="row" style={{ borderTop: '1px solid var(--border)', padding: '10px 18px', gap: 8 }}>
+        {running
+          ? <button className="btn sm" onClick={onStop}><Pause size={11} /> Stop</button>
+          : <button className="btn sm primary" onClick={onStart}><Play size={11} /> Start</button>}
+        <button className="btn ghost sm" onClick={onConfigure}><GearIcon size={11} /> Configure</button>
+        <div style={{ flex: 1 }} />
+        {!running && (
           <button
+            className="icon-btn"
             onClick={onDelete}
-            className="p-1.5 text-gray-600 hover:text-red-400 transition-colors ml-auto"
-            title="Delete instance"
+            title="Delete"
+            style={{ width: 28, height: 28 }}
           >
-            <Trash2 size={14} />
+            <Trash2 size={13} />
           </button>
         )}
       </div>
@@ -266,48 +275,7 @@ function InstanceCard({
   )
 }
 
-// ── Strategy class card ────────────────────────────────────────────────────────
-
-function StrategyCard({
-  strategy: s,
-  onNewInstance,
-}: {
-  strategy: StrategyClass
-  onNewInstance: () => void
-}) {
-  return (
-    <div className="card hover:border-gray-700 transition-colors flex flex-col gap-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-semibold">{s.name}</h3>
-          <p className="text-xs text-gray-500">{s.description || 'No description'}</p>
-        </div>
-        <span className="text-xs text-gray-600 font-mono">v{s.version}</span>
-      </div>
-
-      <div className="flex items-center gap-3 text-xs text-gray-400">
-        <span className="flex items-center gap-1">
-          <Clock size={12} />
-          {s.timeframe}
-        </span>
-        {s.author && (
-          <span className="flex items-center gap-1">
-            <Tag size={12} />
-            {s.author}
-          </span>
-        )}
-        <span className="ml-auto font-mono text-gray-600">{s.params_schema.length} params</span>
-      </div>
-
-      <button onClick={onNewInstance} className="btn-primary flex items-center justify-center gap-1 text-xs py-1.5 mt-auto">
-        <Plus size={12} />
-        New Instance
-      </button>
-    </div>
-  )
-}
-
-// ── New Instance Modal ─────────────────────────────────────────────────────────
+// ── New Instance Modal ─────────────────────────────────────────────────────
 
 function NewInstanceModal({
   strategy,
@@ -324,7 +292,7 @@ function NewInstanceModal({
   const [timeframe, setTimeframe] = useState(strategy.timeframe)
   const [capital, setCapital] = useState('100000')
   const [params, setParams] = useState<Record<string, unknown>>(
-    Object.fromEntries(strategy.params_schema.map((p) => [p.name, p.default]))
+    Object.fromEntries(strategy.params_schema.map(p => [p.name, p.default]))
   )
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -338,7 +306,7 @@ function NewInstanceModal({
         name,
         strategy_class_name: strategy.name,
         mode,
-        instruments: instruments.split(',').map((s) => s.trim()).filter(Boolean),
+        instruments: instruments.split(',').map(s => s.trim()).filter(Boolean),
         timeframe,
         params,
         capital_allocation: parseFloat(capital),
@@ -354,83 +322,90 @@ function NewInstanceModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h2 className="font-semibold">New Instance — {strategy.name}</h2>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-300">
-            <X size={18} />
-          </button>
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+        backdropFilter: 'blur(4px)', zIndex: 100,
+        display: 'grid', placeItems: 'center', padding: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-elev)', border: '1px solid var(--border-strong)',
+          borderRadius: 14, width: '100%', maxWidth: 520,
+          maxHeight: '90vh', overflow: 'auto',
+          boxShadow: '0 40px 100px -20px rgba(0,0,0,0.6)',
+        }}
+      >
+        <div className="card-head">
+          <div>
+            <div className="title" style={{ color: 'var(--text-dim)' }}>NEW INSTANCE</div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>{strategy.name}</div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><X size={14} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Instance name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="input w-full" required />
+        <form onSubmit={handleSubmit} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="field">
+            <label>Instance name</label>
+            <input className="input" value={name} onChange={e => setName(e.target.value)} required />
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Mode</label>
-            <select
+          <div className="field">
+            <label>Mode</label>
+            <SegmentedControl
+              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
               value={mode}
-              onChange={(e) => setMode(e.target.value as 'paper' | 'live')}
-              className="input w-full"
-            >
-              <option value="paper">Paper (simulated fills, real ticks)</option>
-              <option value="live">Live (real orders — requires Zerodha connected)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Instruments (comma-separated)</label>
-            <input
-              value={instruments}
-              onChange={(e) => setInstruments(e.target.value)}
-              className="input w-full font-mono"
-              placeholder="NIFTY, RELIANCE"
+              onChange={v => setMode(v as 'paper' | 'live')}
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Timeframe</label>
-              <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className="input w-full">
-                {['1m', '5m', '15m', '30m', '1h', '1d'].map((tf) => (
-                  <option key={tf} value={tf}>{tf}</option>
-                ))}
+          <div className="field">
+            <label>Instruments (comma-separated)</label>
+            <input className="input" value={instruments} onChange={e => setInstruments(e.target.value)} placeholder="NIFTY, RELIANCE" />
+          </div>
+
+          <div className="grid-2">
+            <div className="field">
+              <label>Timeframe</label>
+              <select className="input" value={timeframe} onChange={e => setTimeframe(e.target.value)}>
+                {['1m', '5m', '15m', '30m', '1h', '1d'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Capital (₹)</label>
-              <input
-                type="number"
-                value={capital}
-                onChange={(e) => setCapital(e.target.value)}
-                className="input w-full"
-                min={1000}
-              />
+            <div className="field">
+              <label>Capital (₹)</label>
+              <input className="input" type="number" value={capital} onChange={e => setCapital(e.target.value)} min={1000} />
             </div>
           </div>
 
           {strategy.params_schema.length > 0 && (
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Parameters</label>
-              <div className="space-y-2">
-                {strategy.params_schema.map((p) => (
-                  <ParamInput key={p.name} spec={p} value={params[p.name]} onChange={(v) => setParams({ ...params, [p.name]: v })} />
-                ))}
+            <>
+              <hr className="hr" />
+              <div className="field">
+                <label>Parameters</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {strategy.params_schema.map(p => (
+                    <ParamInput
+                      key={p.name}
+                      spec={p}
+                      value={params[p.name]}
+                      onChange={v => setParams({ ...params, [p.name]: v })}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
+            </>
           )}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p style={{ fontSize: 11.5, color: 'var(--neg)', margin: 0 }}>{error}</p>}
 
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-md text-sm border border-gray-700 text-gray-400 hover:text-gray-200">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} className="flex-1 btn-primary">
-              {loading ? 'Creating…' : 'Create'}
+          <div className="row" style={{ marginTop: 6 }}>
+            <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+            <div style={{ flex: 1 }} />
+            <button type="submit" className="btn primary" disabled={loading}>
+              {loading ? 'Creating…' : 'Create instance'}
             </button>
           </div>
         </form>
@@ -439,53 +414,32 @@ function NewInstanceModal({
   )
 }
 
-function ParamInput({
-  spec,
-  value,
-  onChange,
-}: {
-  spec: ParamSpec
-  value: unknown
-  onChange: (v: unknown) => void
-}) {
-  const id = `param-${spec.name}`
+function ParamInput({ spec, value, onChange }: { spec: ParamSpec; value: unknown; onChange: (v: unknown) => void }) {
   return (
-    <div className="flex items-center gap-3">
-      <label htmlFor={id} className="text-xs text-gray-400 w-24 flex-shrink-0">
+    <div className="row" style={{ gap: 10 }}>
+      <span className="dim" style={{ fontSize: 11.5, width: 110, flexShrink: 0 }}>
         {spec.name}
-        {spec.description && (
-          <span className="block text-gray-600 text-[10px]">{spec.description}</span>
-        )}
-      </label>
+      </span>
       {spec.type === 'bool' ? (
-        <input
-          id={id}
-          type="checkbox"
-          checked={Boolean(value)}
-          onChange={(e) => onChange(e.target.checked)}
-          className="accent-brand-500"
-        />
+        <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
       ) : spec.choices ? (
-        <select
-          id={id}
-          value={String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          className="input flex-1 text-xs py-1"
-        >
-          {spec.choices.map((c) => <option key={c} value={c}>{c}</option>)}
+        <select className="input" style={{ flex: 1, fontSize: 11.5 }} value={String(value)} onChange={e => onChange(e.target.value)}>
+          {spec.choices.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       ) : (
         <input
-          id={id}
+          className="input"
+          style={{ flex: 1, fontSize: 11.5 }}
           type={spec.type === 'int' || spec.type === 'float' ? 'number' : 'text'}
           value={String(value ?? '')}
-          onChange={(e) =>
-            onChange(spec.type === 'int' ? parseInt(e.target.value) : spec.type === 'float' ? parseFloat(e.target.value) : e.target.value)
-          }
+          onChange={e => onChange(
+            spec.type === 'int' ? parseInt(e.target.value)
+            : spec.type === 'float' ? parseFloat(e.target.value)
+            : e.target.value
+          )}
           min={spec.min}
           max={spec.max}
           step={spec.type === 'float' ? 0.01 : 1}
-          className="input flex-1 text-xs py-1 font-mono"
         />
       )}
     </div>

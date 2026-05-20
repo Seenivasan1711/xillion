@@ -121,6 +121,22 @@ export const api = {
       ),
     deleteZerodha: () =>
       request<{ deleted: boolean }>('/settings/zerodha', { method: 'DELETE' }),
+    getNotifications: () =>
+      request<NotificationSettings>('/settings/notifications'),
+    saveNotifications: (body: NotificationSettings) =>
+      request<{ saved: boolean }>('/settings/notifications', { method: 'PUT', body: JSON.stringify(body) }),
+    getRiskLimits: () =>
+      request<RiskLimits>('/settings/risk-limits'),
+    saveRiskLimits: (body: RiskLimits) =>
+      request<{ saved: boolean }>('/settings/risk-limits', { method: 'PUT', body: JSON.stringify(body) }),
+    resetData: () =>
+      request<{ reset: boolean }>('/settings/reset-data', { method: 'POST' }),
+    wipeAll: () =>
+      request<{ wiped: boolean }>('/settings/wipe', { method: 'POST' }),
+  },
+
+  portfolio: {
+    summary: () => request<PortfolioSummary>('/portfolio/summary'),
   },
 
   backtest: {
@@ -239,6 +255,9 @@ export interface StrategyInstance {
   last_stopped_at: string | null
   created_at: string
   updated_at: string
+  // Extended fields (populated when backend supports them)
+  pnl?: number
+  trade_count?: number
 }
 
 export interface CreateInstanceRequest {
@@ -264,6 +283,36 @@ export interface BacktestResponse {
   to_ts: string
   bars_loaded?: number
   parse_errors?: string[]
+  elapsed_seconds?: number
+  trades?: BacktestTrade[]
+}
+
+export interface BacktestTrade {
+  ts: string
+  side: 'BUY' | 'SELL'
+  entry_price: number
+  exit_price: number
+  bars_held: number
+  pnl: number
+}
+
+export interface NotificationSettings {
+  telegram_bot_token: string
+  telegram_chat_id: string
+  on_strategy_start_stop: boolean
+  on_order_filled: boolean
+  on_order_rejected: boolean
+  on_drawdown_breach: boolean
+  on_kill_switch: boolean
+}
+
+export interface RiskLimits {
+  daily_loss_pct: number
+  per_trade_risk_pct: number
+  max_open_positions: number
+  position_size_cap: number
+  ops_limit: number
+  burst_window: number
 }
 
 export interface BacktestCsvConfig {
@@ -273,6 +322,21 @@ export interface BacktestCsvConfig {
   initial_capital?: number
   slippage_bps?: number
   params?: Record<string, unknown>
+}
+
+export interface PortfolioSummary {
+  pnl_today: number
+  pnl_today_pct: number
+  equity_total: number
+  intraday_curve: Array<{ ts: string; value: number }>
+  historical_equity: Array<{ ts: string; value: number }>
+  drawdown_pct: number
+  capital_used_pct: number
+  loss_budget_pct: number
+  open_trades: number
+  closed_trades_today: number
+  win_rate: number
+  avg_trade_pnl: number
 }
 
 export interface ZerodhaCredentials {

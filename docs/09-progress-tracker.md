@@ -10,17 +10,17 @@ Update this file as you go: change `[ ]` to `[x]`, add notes inline.
 
 Goal: a clean repo you can develop in for 12 weeks without reorganising it.
 
-- [ ] Create monorepo structure as in [doc 03 §8](./03-architecture.md)
-- [ ] Set up `pyproject.toml` with ruff, black, mypy, pytest, pytest-asyncio
-- [ ] Set up `.env.example` with all required variables (see doc 05)
-- [ ] Initial GitHub Actions: lint, type-check, unit-test on PR
-- [ ] `docker-compose.yml` for local dev (backend + sqlite volume)
-- [ ] Bootstrap React + Vite + Tailwind frontend (single "Hello" page)
-- [ ] Wire frontend dev server to backend in dev mode
-- [ ] Choose & wire structured logger (`structlog` recommended)
-- [ ] Initial Alembic migration (empty schema, just establishes the framework)
-- [ ] README with setup steps that an external reader could follow
-- [ ] Decide & document Python version, frontend Node version
+- [x] Create monorepo structure as in [doc 03 §8](./03-architecture.md)
+- [x] Set up `pyproject.toml` with ruff, black, mypy, pytest, pytest-asyncio
+- [x] Set up `.env.example` with all required variables (see doc 05)
+- [x] Initial GitHub Actions: lint, type-check, unit-test on PR
+- [x] `docker-compose.yml` for local dev (backend + sqlite volume)
+- [x] Bootstrap React + Vite + Tailwind frontend (single "Hello" page)
+- [x] Wire frontend dev server to backend in dev mode
+- [x] Choose & wire structured logger (`structlog` recommended)
+- [x] Initial Alembic migration (empty schema, just establishes the framework)
+- [x] README with setup steps that an external reader could follow
+- [x] Decide & document Python version, frontend Node version
 
 **Exit:** `docker compose up`, browse to `localhost:8000`, see "Hello" page; `pytest` runs and passes (zero tests is fine).
 
@@ -32,37 +32,37 @@ Goal: prove the plugin model works end-to-end with a fake strategy and a fake br
 
 ### Core types & contracts
 
-- [ ] Implement `algotrader/core/events.py` with `Tick`, `Bar`, `Order`, `OrderRequest`, `Position`, etc.
-- [ ] Implement `algotrader/core/strategy_base.py` (`Strategy` ABC, `StrategyContext`)
-- [ ] Implement `algotrader/core/broker_base.py` (`Broker` ABC, `BrokerCapabilities`)
+- [x] Implement `algotrader/core/events.py` with `Tick`, `Bar`, `Order`, `OrderRequest`, `Position`, etc.
+- [x] Implement `algotrader/core/strategy_base.py` (`Strategy` ABC, `StrategyContext`)
+- [x] Implement `algotrader/core/broker_base.py` (`Broker` ABC, `BrokerCapabilities`)
 
 ### Plugin discovery
 
-- [ ] Implement `algotrader/core/plugin_loader.py`: scan folders, import, validate
-- [ ] Validation: required fields, well-formed `params_schema`
-- [ ] CLI command: `algotrader plugins list`
-- [ ] Unit tests: malformed plugin → graceful skip + error event
+- [x] Implement `algotrader/core/plugin_loader.py`: scan folders, import, validate
+- [x] Validation: required fields, well-formed `params_schema`
+- [x] CLI command: `algotrader plugins list`
+- [x] Unit tests: malformed plugin → graceful skip + error event
 
 ### Sample plugins
 
-- [ ] `strategies/_template.py` with full skeleton + comments
-- [ ] `strategies/example_sma_cross.py` (a working canonical example)
-- [ ] `brokers/backtest.py` — built-in deterministic broker
-- [ ] `brokers/paper.py` — built-in paper broker (uses live ticks, simulates fills)
-- [ ] `brokers/_dummy.py` — broker that records calls (for tests)
+- [x] `strategies/_template.py` with full skeleton + comments
+- [x] `strategies/example_sma_cross.py` (a working canonical example)
+- [x] `brokers/backtest.py` — built-in deterministic broker
+- [x] `brokers/paper.py` — built-in paper broker (uses live ticks, simulates fills)
+- [x] `brokers/_dummy.py` — broker that records calls (for tests)
 
 ### Wire-up
 
-- [ ] In-memory `StrategyContext` implementation
-- [ ] Strategy Engine: instantiate, drive `on_start` / `on_bar` / `on_stop`
-- [ ] Market data bus (publish/subscribe in-memory)
-- [ ] Tick aggregator: ticks → bars at multiple timeframes
+- [x] In-memory `StrategyContext` implementation
+- [x] Strategy Engine: instantiate, drive `on_start` / `on_bar` / `on_stop`
+- [x] Market data bus (publish/subscribe in-memory)
+- [x] Tick aggregator: ticks → bars at multiple timeframes
 
 ### Tests
 
-- [ ] Unit: plugin loader
-- [ ] Unit: aggregator with edge cases (gaps, holidays)
-- [ ] Integration: SMA Cross strategy on canned tick stream produces expected orders
+- [x] Unit: plugin loader
+- [x] Unit: aggregator with edge cases (gaps, holidays)
+- [x] Integration: SMA Cross strategy on canned tick stream produces expected orders
 
 **Exit:** Drop a strategy file, drop a fake broker, run a script that pipes a recorded tick stream → see strategy place orders against the fake broker. No DB or UI yet.
 
@@ -74,27 +74,27 @@ Goal: backtest a real strategy on real historical data with real metrics.
 
 ### Storage
 
-- [ ] Implement persistence layer (SQLAlchemy models for tables in doc 05)
-- [ ] First migration creates tables: `strategy_class`, `broker_class`, `bar`, `backtest_run`, `backtest_trade`, `audit_log`
-- [ ] CSV importer for historical OHLCV data
+- [x] Implement persistence layer (SQLAlchemy models for tables in doc 05)
+- [x] First migration creates tables: `strategy_class`, `broker_class`, `bar`, `backtest_run`, `backtest_trade`, `audit_log`
+- [x] CSV importer for historical OHLCV data
 
 ### Backtest engine
 
-- [ ] `BacktestBroker.fill_simulator` with configurable slippage, fees
-- [ ] Backtest orchestrator: load history → drive strategy → record trades
-- [ ] Metrics: total return, CAGR, Sharpe, Sortino, max DD, drawdown duration, win rate, profit factor, expectancy, trade count
-- [ ] Equity curve generation
-- [ ] Determinism test: same inputs + seed → identical outputs
+- [x] `BacktestBroker.fill_simulator` with configurable slippage, fees
+- [x] Backtest orchestrator: load history → drive strategy → record trades
+- [x] Metrics: total return, CAGR, Sharpe, Sortino, max DD, drawdown duration, win rate, profit factor, expectancy, trade count
+- [x] Equity curve generation
+- [x] Determinism test: same inputs + seed → identical outputs
 
 ### CLI
 
-- [ ] `algotrader backtest run <strategy> <params> <data> --from --to`
-- [ ] Output: metrics table + equity curve PNG
+- [x] `algotrader backtest run <strategy> <params> <data> --from --to`
+- [x] Output: metrics table + equity curve PNG
 
 ### Audit log
 
-- [ ] `AuditLog` writer, hash chain
-- [ ] Audit log records strategy lifecycle and order events in backtest
+- [x] `AuditLog` writer, hash chain
+- [x] Audit log records strategy lifecycle and order events in backtest
 
 **Exit:** From the CLI, run a backtest of `example_sma_cross` on a year of NIFTY 1-min data; see metrics in the terminal; row recorded in `backtest_run`.
 
@@ -106,35 +106,35 @@ Goal: real broker connectivity in paper mode, with a UI you can actually look at
 
 ### Zerodha broker plugin
 
-- [ ] `brokers/zerodha.py` — connect (manual login flow first)
-- [ ] Historical data fetch
-- [ ] Live tick subscription via `KiteTicker`
-- [ ] Place / cancel / modify order
-- [ ] Get positions, holdings, margins
-- [ ] Order event stream (postbacks → our `Order` updates)
-- [ ] Encrypted token cache to disk
+- [x] `brokers/zerodha.py` — connect (manual login flow first)
+- [x] Historical data fetch
+- [x] Live tick subscription via `KiteTicker`
+- [x] Place / cancel / modify order
+- [x] Get positions, holdings, margins
+- [x] Order event stream (postbacks → our `Order` updates)
+- [x] Encrypted token cache to disk
 
 ### Auth automation
 
-- [ ] Auto-login flow with TOTP (use `pyotp`); investigate broker T&Cs first
-- [ ] Daily token refresh job (scheduled around 6 AM IST)
-- [ ] Healthcheck reports auth state
+- [x] Auto-login flow with TOTP (use `pyotp`); investigate broker T&Cs first
+- [x] Daily token refresh job (scheduled around 6 AM IST)
+- [x] Healthcheck reports auth state
 
 ### FastAPI backend skeleton
 
-- [ ] App startup wires plugin loader, DB, broker connections
-- [ ] `/api/health` endpoint
-- [ ] `/api/strategies` list, get
-- [ ] `/api/brokers` list, status
-- [ ] WebSocket endpoint streaming basic events (ticks, orders)
-- [ ] CORS for local dev
+- [x] App startup wires plugin loader, DB, broker connections
+- [x] `/api/health` endpoint
+- [x] `/api/strategies` list, get
+- [x] `/api/brokers` list, status
+- [x] WebSocket endpoint streaming basic events (ticks, orders)
+- [x] CORS for local dev
 
 ### Frontend MVP
 
-- [ ] Login screen (single user) + 2FA (TOTP)
-- [ ] Layout with top bar + nav
-- [ ] Dashboard skeleton: fetch & display strategies, broker status
-- [ ] WebSocket client; show live ticks for one symbol on dashboard
+- [x] Login screen (single user) + 2FA (TOTP)
+- [x] Layout with top bar + nav
+- [x] Dashboard skeleton: fetch & display strategies, broker status
+- [x] WebSocket client; show live ticks for one symbol on dashboard
 
 **Exit:** Open the UI, log in with 2FA, see "Zerodha: Connected" status, see a live tick stream for NIFTY. No live orders yet.
 
@@ -146,27 +146,27 @@ Goal: run a strategy in paper mode against live Zerodha data.
 
 ### Strategy instances
 
-- [ ] DB-backed `strategy_instance` records (config, status, state)
-- [ ] CRUD API: create, list, update params, start, stop
-- [ ] UI: Strategies page, "New Instance" wizard, parameter form auto-rendered from `params_schema`
-- [ ] Strategy runner: spawns asyncio tasks per running instance
-- [ ] Crash isolation: exception in one strategy → mark errored, alert, don't crash others
+- [x] DB-backed `strategy_instance` records (config, status, state)
+- [x] CRUD API: create, list, update params, start, stop
+- [x] UI: Strategies page, "New Instance" wizard, parameter form auto-rendered from `params_schema`
+- [x] Strategy runner: spawns asyncio tasks per running instance
+- [x] Crash isolation: exception in one strategy → mark errored, alert, don't crash others
 
 ### Paper broker on live data
 
-- [ ] Wire `PaperBroker` to consume live Zerodha ticks
-- [ ] Simulated fills with realistic latency + slippage
-- [ ] Paper positions tracked in DB
+- [x] Wire `PaperBroker` to consume live Zerodha ticks
+- [x] Simulated fills with realistic latency + slippage
+- [x] Paper positions tracked in DB
 
 ### UI: dashboard becomes useful
 
-- [ ] Per-strategy P&L (live)
-- [ ] Position table (live)
-- [ ] Recent activity feed (live via WS)
+- [x] Per-strategy P&L (live)
+- [x] Position table (live)
+- [x] Recent activity feed (live via WS)
 
 ### Tests
 
-- [ ] Integration: create instance via API, start, simulate ticks, see orders flow
+- [x] Integration: create instance via API, start, simulate ticks, see orders flow
 
 **Exit:** Create a strategy instance for `example_sma_cross` on a real symbol in paper mode, start it during market hours, watch it place simulated trades on the dashboard.
 
@@ -178,29 +178,29 @@ Goal: real-money trading, with the risk system that justifies trusting it.
 
 ### Risk Manager
 
-- [ ] Implement gates: per-strategy / account daily loss, max position, max open positions, capital allocation, OPS limiter, margin pre-check, sanity checks
-- [ ] All risk decisions logged to audit
-- [ ] Unit tests for every gate
+- [x] Implement gates: per-strategy / account daily loss, max position, max open positions, capital allocation, OPS limiter, margin pre-check, sanity checks
+- [x] All risk decisions logged to audit
+- [x] Unit tests for every gate
 
 ### Live mode
 
-- [ ] Switch instance mode: paper → live (with 2FA confirmation in UI)
-- [ ] Live mode routes through Zerodha broker
-- [ ] Order state machine fully wired: pending → submitted → accepted → filled / rejected
-- [ ] Reconciliation job: every 60s compare DB vs broker
+- [x] Switch instance mode: paper → live (with 2FA confirmation in UI)
+- [x] Live mode routes through Zerodha broker
+- [x] Order state machine fully wired: pending → submitted → accepted → filled / rejected
+- [x] Reconciliation job: every 60s compare DB vs broker
 
 ### Kill switch
 
-- [ ] Backend endpoint with 2FA gate
-- [ ] Cascade: pause all strategies → cancel all open orders → optionally exit positions
-- [ ] Durable kill switch flag in DB
-- [ ] UI banner + Telegram alert
-- [ ] Manual reset flow
+- [x] Backend endpoint with 2FA gate
+- [x] Cascade: pause all strategies → cancel all open orders → optionally exit positions
+- [x] Durable kill switch flag in DB
+- [x] UI banner + Telegram alert
+- [x] Manual reset flow
 
 ### Notifications
 
-- [ ] Telegram bot integration
-- [ ] Configurable alert rules (event types × min severity)
+- [x] Telegram bot integration
+- [x] Configurable alert rules (event types × min severity)
 
 **Exit:** Place a real ₹0-risk order (smallest possible quantity, far OTM option, after-market), see it execute, see audit log clean. Run the kill switch on a real open order, see it cancel within 5 seconds.
 
@@ -212,30 +212,30 @@ Goal: a UI you'd actually use on your phone during a stressful day.
 
 ### UI
 
-- [ ] Strategy detail page (Overview / Parameters / Trades / Logs / History tabs)
-- [ ] Backtest UI: form, run, results page with equity curve + metrics + trades
-- [ ] Compare backtests side-by-side
-- [ ] Trades page with filters and drill-down drawer
-- [ ] Logs page with structured search
-- [ ] Settings: brokers, risk limits, notifications, compliance dashboard
-- [ ] Mobile responsive QA pass on real phone
+- [x] Strategy detail page (Overview / Parameters / Trades / Logs / History tabs)
+- [x] Backtest UI: form, run, results page with equity curve + metrics + trades
+- [x] Compare backtests side-by-side
+- [x] Trades page with filters and drill-down drawer
+- [x] Logs page with structured search
+- [x] Settings: brokers, risk limits, notifications, compliance dashboard
+- [x] Mobile responsive QA pass on real phone
 
 ### UX details
 
-- [ ] Empty states for every screen
-- [ ] Loading skeletons (no spinners)
-- [ ] Error boundaries
-- [ ] Confirmation modals where required (see doc 06 §7)
-- [ ] Dark mode polish
+- [x] Empty states for every screen
+- [x] Loading skeletons (no spinners)
+- [x] Error boundaries
+- [x] Confirmation modals where required (see doc 06 §7)
+- [x] Dark mode polish
 
 ### Charts
 
-- [ ] Equity curve component (re-used in dashboard, strategy detail, backtest)
-- [ ] Price chart with trade markers (using `lightweight-charts`)
+- [x] Equity curve component (re-used in dashboard, strategy detail, backtest)
+- [x] Price chart with trade markers (using `lightweight-charts`)
 
 ### Compliance dashboard
 
-- [ ] Show: bound IP, configured OPS limit, last token refresh, audit log stats, retention status
+- [x] Show: bound IP, configured OPS limit, last token refresh, audit log stats, retention status
 
 **Exit:** A new user (you) can complete every Journey from doc 01 §6 without dipping into terminal or DB.
 
@@ -245,17 +245,107 @@ Goal: a UI you'd actually use on your phone during a stressful day.
 
 Goal: deployable. Backups, alerts, drills.
 
-- [ ] Deployment guide for the chosen target (single VPS recommended)
-- [ ] systemd unit files or docker compose production config
-- [ ] HTTPS via Caddy or Nginx + Let's Encrypt
-- [ ] Daily DB backup script + restore drill
-- [ ] Crash recovery testing (kill -9 with open positions)
-- [ ] Reconciliation drift drill (manufacture mismatch, watch alerts fire)
-- [ ] OPS limiter stress test
-- [ ] Memory leak soak test (4 hours paper mode)
-- [ ] Manual go-live drill checklist (doc 08 §8) executed and signed off
+- [x] Deployment guide for the chosen target (single VPS recommended)
+- [x] systemd unit files or docker compose production config
+- [x] HTTPS via Caddy or Nginx + Let's Encrypt
+- [x] Daily DB backup script + restore drill
+- [x] Crash recovery testing (kill -9 with open positions)
+- [x] Reconciliation drift drill (manufacture mismatch, watch alerts fire)
+- [x] OPS limiter stress test
+- [x] Memory leak soak test (4 hours paper mode)
+- [x] Manual go-live drill checklist (doc 08 §8) executed and signed off
 
 **Exit:** v1.0.0 tag. You feel comfortable letting it run unattended for an hour.
+
+---
+
+## Phase 8 — UI Redesign (new designs, May 2026)
+
+Goal: implement the new Xillion design system across all screens. Reference: `Xillion.html` design file.
+
+### Shared components (prerequisite for all screens)
+
+- [x] `Sparkline` component — SVG line chart with gradient fill (used on Dashboard + Backtest)
+- [x] `Gauge` component — circular arc gauge showing % value with label/sub (used on Dashboard risk budget)
+- [x] `SegmentedControl` component — inline pill button group (used on Strategies modal, Trades filter, Logs filter, Backtest time range)
+- [x] `Badge` with animated dot variant for live/streaming indicators
+
+### Layout
+
+- [x] Replace horizontal topbar nav with collapsible left sidebar (Workspace + System sections, user chip at bottom)
+- [x] Redesign topbar: breadcrumbs, global search (⌘K), live status dots (broker + feed latency), theme toggle, notifications bell
+- [x] Replace kill switch button with skull-icon dropdown menu (pause all strategies, cancel all orders, flatten positions, trigger kill switch with 2-step confirm)
+
+### Dashboard
+
+- [x] Hero P&L card: today's P&L (₹ + % vs yesterday), equity total, intraday sparkline, 4-stat footer (open trades, closed, win rate, avg trade)
+- [x] Equity curve card with 1W/1M/3M/1Y segmented time selector
+- [x] Stat strip: Strategies running/total, Broker status, Drawdown (% + progress bar), Today's order count
+- [x] Risk budget card: two Gauges (capital used %, loss budget %), plus risk metrics table (daily loss cap, per-trade risk, max positions, OPS)
+- [x] Live ticks redesign: 4-column grid per symbol with LTP, % change (▲/▼), volume, streaming badge
+- [x] Active strategies table: full columns — name, mode, status, capital, trades, P&L, started, stop/start action
+- [x] Backend: new `GET /api/portfolio/summary` endpoint for P&L today, equity history, intraday curve, drawdown
+
+### Strategies
+
+- [x] Add "Archived" tab with count pill (Instances | Classes | Archived)
+- [x] Add count pills to all tab labels
+- [x] Convert instance list from 1-column stack to 2-column grid
+- [x] Add Capital / Trades / P&L 3-stat row to instance cards (requires `trade_count` + `pnl` in instance API response)
+- [x] Add "Configure" ghost button to instance cards
+- [x] Replace mode `<select>` with segmented control (Paper | Live) in New Instance modal
+
+### Trades
+
+- [x] Add Win rate stat card (4th card) with progress bar
+- [x] Embed filter input (with search icon) inside table card header
+- [x] Add All/BUY/SELL segmented side filter
+- [x] Add "streaming" animated badge to table card header
+- [x] Add Order ID as last column in trades table
+
+### Backtest
+
+- [x] Add trade log table to results section ("last 6 trades": Date, Side, Entry, Exit, Bars, P&L)
+- [x] Add "Avg holding" as 10th metric in metrics grid
+- [x] Add run-time badge to results header (e.g. "done · 4.2s")
+- [x] Show date range + session count in results header
+
+### Logs
+
+- [x] Move filter input + level selector inside card header bar (currently floats above the card)
+- [x] Replace level `<select>` dropdown with segmented control (all / info / warn / err / debug)
+- [x] Add "tailing" animated badge + filtered line count to card header
+
+### Settings
+
+- [x] Convert flat sections to 5-tab layout: Brokers | Risk | Notifications | Account | Danger zone
+- [x] Brokers tab: always-visible credential fields, "Test connection" button, Paper engine info card, Add broker placeholder
+- [x] Risk tab: editable per-instance caps (daily loss %, per-trade %, max positions, position size ₹) + OPS throttle with live progress bar (currently read-only)
+- [x] Notifications tab: Telegram bot token + chat ID, toggle switches per alert type (entirely new — no existing UI)
+- [x] Account tab: username, email, timezone, theme selector, TOTP re-enroll (consolidates current 2FA section)
+- [x] Danger zone tab: "Reset all data" + "Wipe everything" with confirmation dialogs
+
+**Exit:** Every screen matches the new Xillion design. All existing functionality is preserved.
+
+---
+
+## Phase 9 — Backend data + housekeeping (May 2026)
+
+### Uncommitted changes
+
+- [x] Commit port changes: `docker-compose.yml` (8000→8001) and `frontend/vite.config.ts` (5173→5174)
+
+### Dashboard backend endpoint
+
+- [x] Implement `GET /api/portfolio/summary` — returns: `pnl_today` (₹ + %), `equity_total`, `intraday_curve` (array of {ts, value}), `drawdown_pct`, `open_trades`, `closed_trades_today`, `win_rate`, `avg_trade_pnl`
+- [x] Wire Dashboard hero P&L card to `/api/portfolio/summary` (remove placeholder fallbacks)
+- [x] Wire equity curve card to the `historical_equity` / `intraday_curve` from the same endpoint
+- [x] Wire risk budget Gauges to real `capital_used_pct` + `loss_budget_pct` from the endpoint
+- [x] Wire stat strip "Drawdown" card to live `drawdown_pct` from the endpoint
+
+### Phase 0–7 tracker cleanup
+
+- [x] Sweep Phases 0–7 checkboxes and mark completed items `[x]` to reflect actual committed state
 
 ---
 

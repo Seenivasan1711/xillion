@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownRight, ArrowUpRight, Download, TrendingUp } from 'lucide-react'
+import { Download, Trash2, Search } from 'lucide-react'
 import { wsClient } from '../lib/ws'
+import { Badge, SegmentedControl, fmtINR, fmtTime } from '../components/ui'
 
 interface Trade {
   id: number
@@ -19,6 +20,7 @@ interface Trade {
 export default function Trades() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [filter, setFilter] = useState('')
+  const [side, setSide] = useState('all')
   const idRef = useRef(0)
 
   useEffect(() => {
@@ -37,36 +39,29 @@ export default function Trades() {
         mode: (event.mode as 'paper' | 'live') || 'paper',
         order_id: (event.order_id as string) || '',
       }
-      setTrades((prev) => [t, ...prev.slice(0, 499)])
+      setTrades(prev => [t, ...prev.slice(0, 499)])
     })
     return unsub
   }, [])
 
-  const filtered = filter
-    ? trades.filter(
-        (t) =>
-          t.symbol.toLowerCase().includes(filter.toLowerCase()) ||
-          t.instance_name.toLowerCase().includes(filter.toLowerCase())
-      )
-    : trades
+  const filtered = trades.filter(t => {
+    if (side !== 'all' && t.side !== side) return false
+    if (filter) {
+      const f = filter.toLowerCase()
+      if (!t.symbol.toLowerCase().includes(f) && !t.instance_name.toLowerCase().includes(f)) return false
+    }
+    return true
+  })
 
-  const totalPnl = filtered.reduce((sum, t) => sum + (t.pnl ?? 0), 0)
+  const total = filtered.reduce((s, t) => s + (t.pnl ?? 0), 0)
+  const buys = filtered.filter(t => t.side === 'BUY').length
+  const sells = filtered.length - buys
+  const wins = filtered.filter(t => (t.pnl ?? 0) > 0).length
+  const winRate = filtered.length > 0 ? Math.round((wins / filtered.length) * 100) : 0
 
   const exportCsv = () => {
     const header = 'Time,Instance,Symbol,Side,Qty,Price,PnL,Mode,OrderID'
-    const rows = filtered.map((t) =>
-      [
-        t.ts,
-        t.instance_name,
-        t.symbol,
-        t.side,
-        t.qty,
-        t.price,
-        t.pnl ?? '',
-        t.mode,
-        t.order_id,
-      ].join(',')
-    )
+    const rows = filtered.map(t => [t.ts, t.instance_name, t.symbol, t.side, t.qty, t.price, t.pnl ?? '', t.mode, t.order_id].join(','))
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -76,119 +71,121 @@ export default function Trades() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <TrendingUp size={22} />
-          Trades
-        </h1>
-        <div className="flex items-center gap-2">
-          {trades.length > 0 && (
-            <button onClick={exportCsv} className="p-2 text-gray-500 hover:text-gray-300" title="Export CSV">
-              <Download size={16} />
-            </button>
-          )}
-          {trades.length > 0 && (
-            <button onClick={() => setTrades([])} className="text-xs text-gray-500 hover:text-gray-300">
-              Clear
-            </button>
-          )}
+    <div className="stack">
+      <div className="h-page">
+        <div>
+          <h1>Trades</h1>
+          <div className="sub">Real-time order stream — paper + live combined</div>
+        </div>
+        <div className="row">
+          <button className="btn ghost" onClick={exportCsv} disabled={trades.length === 0}>
+            <Download size={13} /> Export CSV
+          </button>
+          <button className="btn ghost" onClick={() => setTrades([])} disabled={trades.length === 0}>
+            <Trash2 size={13} /> Clear feed
+          </button>
         </div>
       </div>
 
-      {/* Summary */}
-      {trades.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="card text-center">
-            <div className="text-2xl font-bold">{filtered.length}</div>
-            <div className="text-xs text-gray-500 mt-1">Trades</div>
-          </div>
-          <div className="card text-center">
-            <div className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {totalPnl >= 0 ? '+' : ''}₹{totalPnl.toFixed(2)}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Session P&amp;L</div>
-          </div>
-          <div className="card text-center">
-            <div className="text-2xl font-bold">
-              {filtered.filter((t) => t.side === 'BUY').length} /{' '}
-              {filtered.filter((t) => t.side === 'SELL').length}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">Buy / Sell</div>
+      {/* Stat strip */}
+      <div className="grid-4">
+        <div className="card card-pad">
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total trades</div>
+          <div className="hero-num sm">{filtered.length}</div>
+        </div>
+        <div className="card card-pad">
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Session P&L</div>
+          <div className={`hero-num sm ${total >= 0 ? 'pos' : 'neg'}`}>{fmtINR(total, { signed: true })}</div>
+        </div>
+        <div className="card card-pad">
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Buy / Sell</div>
+          <div className="hero-num sm">
+            <span className="pos">{buys}</span>
+            <span className="faint"> / </span>
+            <span className="neg">{sells}</span>
           </div>
         </div>
-      )}
+        <div className="card card-pad">
+          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Win rate</div>
+          <div className="hero-num sm">
+            {winRate}<span className="faint" style={{ fontSize: 18 }}>%</span>
+          </div>
+          <div className="prog" style={{ marginTop: 10 }}>
+            <span style={{ width: `${winRate}%` }} />
+          </div>
+        </div>
+      </div>
 
-      {/* Filter */}
-      <input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter by symbol or strategy…"
-        className="input w-full max-w-xs text-sm py-1.5"
-      />
+      {/* Table with embedded filter */}
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="card-head">
+          <div className="row" style={{ gap: 10 }}>
+            {/* Search input */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '0 10px', height: 28,
+            }}>
+              <Search size={12} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+              <input
+                placeholder="filter symbol or strategy…"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                style={{
+                  background: 'transparent', border: 0, outline: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                  color: 'var(--text)', width: 180,
+                }}
+              />
+            </div>
+            <SegmentedControl
+              options={[{ value: 'all', label: 'All' }, { value: 'BUY', label: 'BUY' }, { value: 'SELL', label: 'SELL' }]}
+              value={side}
+              onChange={setSide}
+            />
+          </div>
+          <Badge tone="pos" dot>streaming</Badge>
+        </div>
 
-      {/* Table */}
-      <div className="card overflow-x-auto p-0">
         {filtered.length === 0 ? (
-          <div className="py-16 text-center text-gray-600">
+          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
             {trades.length === 0
               ? 'No trades yet — trades appear here as strategies execute orders'
               : 'No trades match your filter'}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="tbl">
             <thead>
-              <tr className="border-b border-gray-800 text-gray-500 text-xs">
-                <th className="text-left px-4 py-2">Time</th>
-                <th className="text-left px-4 py-2">Strategy</th>
-                <th className="text-left px-4 py-2">Symbol</th>
-                <th className="text-left px-4 py-2">Side</th>
-                <th className="text-right px-4 py-2">Qty</th>
-                <th className="text-right px-4 py-2">Price</th>
-                <th className="text-right px-4 py-2">P&amp;L</th>
-                <th className="text-left px-4 py-2">Mode</th>
+              <tr>
+                <th>Time</th>
+                <th>Strategy</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th className="num">Qty</th>
+                <th className="num">Price</th>
+                <th className="num">P&amp;L</th>
+                <th>Mode</th>
+                <th>Order ID</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((t) => (
-                <tr key={t.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                  <td className="px-4 py-2 text-gray-500 font-mono text-xs tabular-nums">
-                    {new Date(t.ts).toLocaleTimeString()}
-                  </td>
-                  <td className="px-4 py-2 text-gray-300 max-w-[120px] truncate">{t.instance_name}</td>
-                  <td className="px-4 py-2 font-medium">{t.symbol}</td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`inline-flex items-center gap-1 text-xs font-bold ${
-                        t.side === 'BUY' ? 'text-emerald-400' : 'text-rose-400'
-                      }`}
-                    >
-                      {t.side === 'BUY' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                      {t.side}
+              {filtered.map(t => (
+                <tr key={t.id}>
+                  <td className="faint mono-num" style={{ fontSize: 11 }}>{fmtTime(t.ts)}</td>
+                  <td className="dim" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.instance_name}</td>
+                  <td style={{ fontWeight: 500 }}>{t.symbol}</td>
+                  <td>
+                    <span style={{ color: t.side === 'BUY' ? 'var(--pos)' : 'var(--neg)', fontWeight: 500, fontSize: 11 }}>
+                      {t.side === 'BUY' ? '▲' : '▼'} {t.side}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">{t.qty}</td>
-                  <td className="px-4 py-2 text-right tabular-nums font-mono">₹{t.price.toFixed(2)}</td>
-                  <td className="px-4 py-2 text-right tabular-nums font-mono">
-                    {t.pnl != null ? (
-                      <span className={t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                        {t.pnl >= 0 ? '+' : ''}₹{t.pnl.toFixed(2)}
-                      </span>
-                    ) : (
-                      <span className="text-gray-600">—</span>
-                    )}
+                  <td className="num mono-num">{t.qty}</td>
+                  <td className="num mono-num">₹{t.price.toFixed(2)}</td>
+                  <td className={`num mono-num ${t.pnl == null ? 'faint' : t.pnl >= 0 ? 'pos' : 'neg'}`}>
+                    {t.pnl == null ? '—' : fmtINR(t.pnl, { signed: true })}
                   </td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        t.mode === 'live'
-                          ? 'bg-emerald-900/40 text-emerald-400'
-                          : 'bg-gray-800 text-gray-500'
-                      }`}
-                    >
-                      {t.mode}
-                    </span>
-                  </td>
+                  <td><Badge tone={t.mode === 'live' ? 'pos' : undefined}>{t.mode}</Badge></td>
+                  <td className="faint mono-num" style={{ fontSize: 10.5 }}>{t.order_id || '—'}</td>
                 </tr>
               ))}
             </tbody>

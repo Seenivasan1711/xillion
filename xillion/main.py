@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from xillion import __version__
 from xillion.api import backtest, brokers, health, instances, risk as risk_router, strategies, ws
 from xillion.api import auth as auth_router
+from xillion.api import portfolio as portfolio_router
 from xillion.api import settings as settings_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
@@ -221,7 +222,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5174", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -235,6 +236,7 @@ app.include_router(risk_router.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
+app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(ws.router)
 
 # Serve React frontend (production build)
