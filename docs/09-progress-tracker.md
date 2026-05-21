@@ -381,6 +381,37 @@ Goal: every order, fill, and closed trade round-trip is persisted to DB; the Tra
 
 ---
 
+## Phase 11 — Validation, debt paydown & feature gaps (next)
+
+> **Start here at the beginning of the next session.**
+
+### P0 — Commit + validate first
+
+- [ ] Commit all Phase 10 changes: `execution.py`, `strategy_engine.py`, `instances.py`, `trades.py` (new), `portfolio.py`, `main.py`, `api.ts`, `Trades.tsx`, `09-progress-tracker.md`
+  - Suggested message: `feat(phase-10): DB persistence pipeline + trades API + trades page wiring`
+- [ ] Run Phase 10 exit criterion: start a paper strategy → trigger BUY+SELL → `GET /api/trades` returns the matched pair → Trades page shows it → Dashboard win_rate is non-zero
+  - If fills don't appear, check `_persist_order` logs in `execution.py` (fire-and-forget errors only surface there)
+
+### P1 — Technical debt
+
+- [ ] **Alembic migrations**: `init_db()` calls `create_all()` which is not migration-safe in production. Add proper Alembic migration file for all tables (`OrderRecord`, `FillRecord`, `PositionRecord`, `DailyStrategyPnl`, `DailyRiskState`, `AppUser`, `StrategyInstance`, `BrokerConnection`, etc.)
+- [ ] **Risk settings hot-reload**: `PUT /api/settings/risk-limits` exists in `settings_router.py` — verify it actually updates the in-memory `RiskManager` at runtime (not just persisted to DB). Fix if broken.
+
+### P2 — Feature gaps
+
+- [ ] **Logs page DB persistence**: Logs page is WS-stream-only; no `LogRecord` in DB; logs vanish on page refresh. Add `LogRecord` model, persist structured log events, add `GET /api/logs` endpoint with filters, wire Logs page to load history on mount (same pattern as Trades page).
+- [ ] **Positions endpoint + UI**: No `GET /api/positions` endpoint. Dashboard shows open-trade *count* but no detail. Add endpoint returning live open positions (from in-memory runners + `PositionRecord` for stopped ones), and either a new Positions page or an expandable table on Dashboard.
+
+### P3 — Nice to have
+
+- [ ] **Telegram end-to-end test**: `TelegramNotifier` is wired in `main.py` but never tested live. Set bot token + chat ID in Settings → Notifications → trigger a test alert (kill-switch or strategy start/stop event).
+- [ ] **Second broker plugin**: Drop a `brokers/upstox.py` (or Fyers) implementing the `Broker` ABC. No backend changes needed — plugin-first architecture handles the rest.
+- [ ] **Backtest custom date range**: Backtest page has 1W/1M/3M/1Y selector but no custom date picker for arbitrary ranges.
+
+**Exit criterion for Phase 11:** Alembic migration runs clean on a fresh DB; risk limit changes from the UI take effect immediately; Logs page shows historical entries after page reload.
+
+---
+
 ## Future / commercial — Phase 8+
 
 - [ ] Second broker plugin (Upstox / Fyers)

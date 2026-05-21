@@ -138,7 +138,6 @@ export default function Layout() {
   const [brokerStatus, setBrokerStatus] = useState<{ label: string; ok: boolean } | null>(null)
   const [feedLatency, setFeedLatency] = useState<number | null>(null)
   const [runnerCount, setRunnerCount] = useState(0)
-  const [totalInstances, setTotalInstances] = useState(0)
   const [tradeCount, setTradeCount] = useState(0)
 
   // Apply initial theme
@@ -171,7 +170,6 @@ export default function Layout() {
           setBrokerStatus({ label: `${b.broker_name} · ${b.status}`, ok: b.status === 'connected' })
         }
         if (instRes) {
-          setTotalInstances(instRes.instances.length)
           setRunnerCount(instRes.instances.filter(i => i.status === 'running').length)
         }
       } catch { /* ignore */ }

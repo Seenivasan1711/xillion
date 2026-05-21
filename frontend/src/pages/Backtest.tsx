@@ -171,7 +171,7 @@ export default function Backtest() {
                   <div>
                     <div className="title">Results · <span className="accent">{result.strategy_name}</span></div>
                     <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
-                      {result.timeframe ?? timeframe}
+                      {timeframe}
                       {dateRange && ` · ${dateRange}`}
                       {result.bars_loaded && ` · ${result.bars_loaded.toLocaleString()} bars`}
                     </div>

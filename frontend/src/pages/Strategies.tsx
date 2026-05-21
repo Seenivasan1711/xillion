@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, RefreshCw, Pause, Play, Trash2, X, Gear } from 'lucide-react'
+import { Plus, RefreshCw, Pause, Play, Trash2, X } from 'lucide-react'
 import { api, type CreateInstanceRequest, type ParamSpec, type StrategyClass, type StrategyInstance } from '../lib/api'
 import { Badge, SegmentedControl, fmtINR } from '../components/ui'
 
