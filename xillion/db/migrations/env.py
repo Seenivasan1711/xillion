@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from xillion.db.models import Base
+from xillion.db.session import sync_connect_args_for
 
 config = context.config
 if config.config_file_name is not None:
@@ -44,6 +45,7 @@ def run_migrations_online() -> None:
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=sync_connect_args_for(url),
     )
     with connectable.connect() as connection:
         context.configure(

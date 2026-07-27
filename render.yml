@@ -7,8 +7,21 @@
 # See "GO-LIVE UPGRADE" section near the bottom for the one-line edits to flip
 # this into a paid production-ready config when you're ready to trade real money.
 #
+# Database: this blueprint does NOT provision a Render Postgres — it connects
+# to an external Supabase Postgres instead. Create the Supabase project
+# yourself (supabase.com -> New project), then set DATABASE_URL below.
+#
 # After first deploy, set these secrets in the Render dashboard
 # (Service → Environment) — they are intentionally NOT in this file:
+#
+#   DATABASE_URL                ★ REQUIRED ★ Your Supabase connection string,
+#                               with "postgresql://" changed to
+#                               "postgresql+asyncpg://". From Supabase
+#                               dashboard → Project Settings → Database →
+#                               Connection string (URI). TLS is required by
+#                               Supabase; the app enables it automatically —
+#                               no "?sslmode=" needed in the URL itself.
+#                               See .env.example for the exact shape.
 #
 #   ENCRYPTION_KEY              ★ STRONGLY RECOMMENDED ★ Fernet base64 key —
 #                               generate once with:
@@ -33,18 +46,21 @@
 # ────────────────────────────────────────────────────────────────────────────────
 # FREE-TIER CAVEATS — read before deploying
 #
-# - The free web instance sleeps after 15 min of inactivity. While asleep, any
-#   running strategy loses ticks and the auto Zerodha reconnect at 6:15 AM IST
-#   may not fire. The free tier is fine for trying the UI / running backtests,
-#   but do NOT run live or paper strategies for any meaningful period on it.
+# - The free Render web instance sleeps after 15 min of inactivity. While
+#   asleep, any running strategy loses ticks and the auto Zerodha reconnect at
+#   6:15 AM IST may not fire. Fine for trying the UI / running backtests, but
+#   do NOT run live or paper strategies for any meaningful period on it.
 #
-# - The free Postgres database expires 30 days after creation. You'll need to
-#   recreate it (and lose its data) or upgrade. Trade history will be lost.
+# - Supabase's free-tier project pauses after 1 week with no API activity —
+#   you'll need to manually "restore" it from the Supabase dashboard before
+#   the app can reconnect. Upgrade to Supabase Pro to avoid this if you rely
+#   on it running unattended.
 #
-# - No persistent disk. On every redeploy/restart, /app/data is wiped. SQLite
-#   would lose all data, but we use Postgres so the DB is safe. The encryption
-#   key file is wiped though — set ENCRYPTION_KEY explicitly (above) to keep
-#   broker credentials decryptable across restarts.
+# - No persistent disk on Render's free plan. On every redeploy/restart,
+#   /app/data is wiped. SQLite would lose all data, but we use Supabase
+#   Postgres so the DB itself is safe. The encryption key file is wiped
+#   though — set ENCRYPTION_KEY explicitly (above) to keep broker credentials
+#   decryptable across restarts.
 #
 # ────────────────────────────────────────────────────────────────────────────────
 
@@ -81,11 +97,10 @@ services:
       - key: APP_BASE_URL
         sync: false              # Set to your render.com URL after first deploy
 
-      # Database — uses the managed Postgres provisioned below
+      # Database — external Supabase Postgres. Set this in the Render
+      # dashboard after first deploy (see notes at the top of this file).
       - key: DATABASE_URL
-        fromDatabase:
-          name: xillion-db
-          property: connectionString
+        sync: false
 
       # APP_SECRET_KEY — used for session signing only. Auto-generated; rotating
       # it just logs everyone out, no data is lost.
@@ -134,21 +149,14 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
 
-databases:
-  - name: xillion-db
-    databaseName: xillion
-    user: xillion
-    plan: free                   # 256 MB, EXPIRES 30 DAYS AFTER CREATION.
-                                 # Upgrade to `basic-256mb` ($6/mo) before going
-                                 # live to avoid losing trade history.
-    region: singapore            # Match the web service region
-
 # ────────────────────────────────────────────────────────────────────────────────
-# GO-LIVE UPGRADE — when ready to trade real money, make these three edits:
+# GO-LIVE UPGRADE — when ready to trade real money, make these edits:
 #
 #   1. services[0].plan:        free  →  starter      (~$7/mo, no sleep)
 #   2. services[0].disk:        uncomment the block above
-#   3. databases[0].plan:       free  →  basic-256mb  (~$6/mo, no expiry)
+#   3. Supabase project plan:   Free  →  Pro ($25/mo) — no auto-pause, higher
+#                               connection limits, daily backups. Done in the
+#                               Supabase dashboard, not this file.
 #
 # Then commit + push. Render picks up the blueprint changes on next deploy.
 # ────────────────────────────────────────────────────────────────────────────────

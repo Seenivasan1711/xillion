@@ -9,15 +9,35 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from xillion.config import settings
 
 
+def async_connect_args_for(url: str) -> dict:
+    """connect_args for the async (asyncpg/aiosqlite) engine used by the app."""
+    if url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if url.startswith("postgresql"):
+        # Hosted Postgres (Supabase, Render, ...) requires TLS. Prepared-
+        # statement caching is disabled because Supabase's pooled connection
+        # (PgBouncer in transaction mode) doesn't support server-side
+        # prepared statements -- harmless to disable on a direct connection too.
+        return {"ssl": True, "statement_cache_size": 0}
+    return {}
+
+
+def sync_connect_args_for(url: str) -> dict:
+    """connect_args for the sync (psycopg2) engine Alembic migrations use.
+    Shared here (rather than duplicated in migrations/env.py) so it's a
+    plain importable function -- env.py itself can't be imported outside
+    an active Alembic run."""
+    if url.startswith("postgresql"):
+        return {"sslmode": "require"}  # hosted Postgres (Supabase, Render, ...)
+    return {}
+
+
 def _make_engine():
     url = settings.get_async_database_url()
-    connect_args = {}
-    if url.startswith("sqlite"):
-        connect_args = {"check_same_thread": False}
     return create_async_engine(
         url,
         echo=not settings.is_production,
-        connect_args=connect_args,
+        connect_args=async_connect_args_for(url),
     )
 
 
