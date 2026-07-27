@@ -14,11 +14,13 @@ import structlog
 from xillion.core.broker_base import Broker
 from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Position, Side, Tick
 from xillion.core.execution import ExecutionRouter
+from xillion.core.market_calendar import is_market_open
 from xillion.core.plugin_loader import PluginRegistry
 from xillion.core.risk import RiskManager
 from xillion.core.strategy_base import Strategy, StrategyContext
 from xillion.data.bus import MarketDataBus
 from xillion.data.history import HistoryManager
+from xillion.notifications.telegram import TelegramNotifier
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +48,8 @@ class _StrategyContextImpl(StrategyContext):
         risk_manager: Optional[RiskManager] = None,
         db_factory=None,
         on_trade_close: Optional[Callable] = None,
+        notifier: Optional[TelegramNotifier] = None,
+        broker: Optional[Broker] = None,
     ) -> None:
         self.instance_id = instance_id
         self._instance_name = instance_name
@@ -58,6 +62,9 @@ class _StrategyContextImpl(StrategyContext):
         self._risk_mgr = risk_manager
         self._db_factory = db_factory
         self._on_trade_close = on_trade_close
+        self._notifier = notifier
+        self._broker = broker
+        self._runner: Optional["StrategyRunner"] = None  # bound by StrategyEngine.spawn
 
         self._positions: dict[str, Position] = {}
         self._position_open_ts: dict[str, str] = {}  # symbol → ISO ts when position opened
@@ -66,6 +73,8 @@ class _StrategyContextImpl(StrategyContext):
 
     async def place_order(self, request: OrderRequest) -> Order:
         request.strategy_instance_id = self.instance_id
+        if self.mode == "alert":
+            return await self._handle_alert_signal(request)
         order = await self._router.submit(request)
         closed = self._update_position_from_order(order)
         if closed is not None:
@@ -83,6 +92,72 @@ class _StrategyContextImpl(StrategyContext):
             if self._db_factory:
                 asyncio.create_task(self._persist_trade_close(closed, order))
         return order
+
+    # ── Alert mode ──────────────────────────────────────────────────────────────
+    # Alert mode's entire order-execution surface. Never calls
+    # self._router.submit(...) — ExecutionRouter and RiskManager are
+    # structurally unreachable from here, by design (build spec: no code path
+    # in this mode may place a broker order).
+
+    async def _handle_alert_signal(self, request: OrderRequest) -> Order:
+        now = _now()
+        message = f"{request.side.value} signal: {request.symbol}"
+        if request.tag:
+            message += f" [{request.tag}]"
+
+        notified = False
+        if self._notifier is not None:
+            try:
+                body = message
+                if request.price is not None:
+                    body += f"\nprice: {request.price}"
+                await self._notifier.alert(title=self._instance_name, body=body)
+                notified = True
+            except Exception as exc:
+                logger.error("alert notify failed", instance_id=self.instance_id, error=str(exc))
+
+        if self._db_factory:
+            try:
+                from xillion.db.models import SignalLog
+
+                async with self._db_factory()() as session:
+                    session.add(SignalLog(
+                        strategy_instance_id=self.instance_id,
+                        ts=now.isoformat(),
+                        underlying_symbol=request.symbol,
+                        resolved_tradingsymbol=None,
+                        signal_type=request.tag or "SIGNAL",
+                        side=request.side.value,
+                        price=float(request.price) if request.price is not None else None,
+                        message=message,
+                        mode=self.mode,
+                        notified=notified,
+                        notified_at=now.isoformat() if notified else None,
+                        context_json=None,
+                    ))
+                    await session.commit()
+            except Exception as exc:
+                logger.error("persist signal_log failed", instance_id=self.instance_id, error=str(exc))
+
+        self.log(
+            "info", "alert signal emitted",
+            symbol=request.symbol, side=request.side.value, tag=request.tag, notified=notified,
+        )
+
+        return Order(
+            client_order_id=request.client_order_id,
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.order_type,
+            status=OrderStatus.PENDING,
+            submitted_at=now,
+            updated_at=now,
+            price=request.price,
+            stop_price=request.stop_price,
+            strategy_instance_id=self.instance_id,
+            tag=f"{request.tag}|ALERT_ONLY" if request.tag else "ALERT_ONLY",
+        )
 
     async def cancel_order(self, client_order_id: str) -> bool:
         return await self._router.cancel(client_order_id)
@@ -116,6 +191,55 @@ class _StrategyContextImpl(StrategyContext):
     def log(self, level: str, message: str, **fields) -> None:
         log_fn = getattr(logger, level.lower(), logger.info)
         log_fn(message, instance_id=self.instance_id, **fields)
+
+    # ── Instrument resolution (options) ──────────────────────────────────────────
+
+    _INDEX_SPOT_SYMBOLS = {
+        "NIFTY": "NIFTY 50",
+        "BANKNIFTY": "NIFTY BANK",
+        "SENSEX": "SENSEX",
+    }
+
+    async def get_spot(self, underlying: str) -> Decimal:
+        if self._broker is None:
+            raise RuntimeError("get_spot requires a broker (no market-data connection)")
+        spot_symbol = self._INDEX_SPOT_SYMBOLS.get(underlying, underlying)
+        quotes = await self._broker.get_quote([spot_symbol])
+        tick = quotes.get(spot_symbol)
+        if tick is None:
+            raise RuntimeError(f"no quote returned for {spot_symbol!r}")
+        return tick.ltp
+
+    async def resolve_strike(
+        self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str,
+    ):
+        from xillion.core.instrument_cache import load_instrument_rows
+        from xillion.core.instruments import resolve_option
+
+        if self._db_factory is None:
+            raise RuntimeError("resolve_strike requires a db_factory (no instrument cache access)")
+        rows = await load_instrument_rows(self._db_factory, name=underlying)
+        spot = await self.get_spot(underlying)
+        return resolve_option(rows, underlying, expiry_selector, strike_offset, opt_type, spot)
+
+    async def get_option_price(self, symbol: str, exchange: str) -> Decimal:
+        if self._broker is None:
+            raise RuntimeError("get_option_price requires a broker (no market-data connection)")
+        qualified = f"{exchange}:{symbol}"
+        quotes = await self._broker.get_quote([qualified])
+        # Broker.get_quote's return-key convention isn't part of the ABC
+        # contract -- Zerodha strips the exchange prefix, other brokers may
+        # not -- so accept either.
+        tick = quotes.get(symbol) or quotes.get(qualified)
+        if tick is None:
+            raise RuntimeError(f"no quote returned for {qualified}")
+        return tick.ltp
+
+    async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
+        if self._broker is not None:
+            await self._broker.subscribe_ticks([f"{exchange}:{symbol}"])
+        if self._runner is not None:
+            self._runner.add_dynamic_symbol(symbol)
 
     # ── Position tracking ──────────────────────────────────────────────────────
 
@@ -289,6 +413,7 @@ class StrategyRunner:
         self._bus = bus
         self._instruments = instruments
         self._timeframe = timeframe
+        self._dynamic_instruments: list[str] = []
         self._task: Optional[asyncio.Task] = None
         self.status: str = "idle"
         self.last_error: Optional[str] = None
@@ -314,10 +439,23 @@ class StrategyRunner:
             self.last_error = str(exc)
             logger.error("strategy on_start failed", instance_id=self._instance_id, error=str(exc))
 
+    def add_dynamic_symbol(self, symbol: str) -> None:
+        """Subscribe this runner's tick handler to a symbol resolved at
+        runtime (e.g. via ctx.resolve_strike + ctx.subscribe_instrument) --
+        the static `instruments` list only covers what's known at
+        instance-creation time. Tracked so stop() unsubscribes it too."""
+        if symbol in self._instruments or symbol in self._dynamic_instruments:
+            return
+        self._dynamic_instruments.append(symbol)
+        self._bus.subscribe_ticks(symbol, self._handle_tick)
+
     async def stop(self, reason: str = "stopped") -> None:
         for sym in self._instruments:
             self._bus.unsubscribe_bars(sym, self._timeframe, self._handle_bar)
             self._bus.unsubscribe_ticks(sym, self._handle_tick)
+        for sym in self._dynamic_instruments:
+            self._bus.unsubscribe_ticks(sym, self._handle_tick)
+        self._dynamic_instruments.clear()
         try:
             await self._strategy.on_stop(self._ctx, reason)
         except Exception as exc:
@@ -326,6 +464,12 @@ class StrategyRunner:
         logger.info("strategy stopped", instance_id=self._instance_id, reason=reason)
 
     async def _handle_bar(self, bar: Bar) -> None:
+        # MVP simplification: alert mode gates processing on market hours by
+        # skipping dispatch inside an already-started runner, rather than
+        # auto-starting/stopping the DB-level instance daily. Paper/live
+        # gating is a reasonable fast-follow, not required for this phase.
+        if self._ctx.mode == "alert" and not is_market_open(_now()):
+            return
         try:
             await self._strategy.on_bar(bar, self._ctx)
         except Exception as exc:
@@ -339,6 +483,8 @@ class StrategyRunner:
             )
 
     async def _handle_tick(self, tick: Tick) -> None:
+        if self._ctx.mode == "alert" and not is_market_open(_now()):
+            return
         try:
             await self._strategy.on_tick(tick, self._ctx)
         except Exception as exc:
@@ -374,6 +520,7 @@ class StrategyEngine:
         broker_connection_id: Optional[int] = None,
         instance_name: Optional[str] = None,
         on_trade_close: Optional[Callable] = None,
+        notifier: Optional[TelegramNotifier] = None,
     ) -> StrategyRunner:
         if self._registry is None:
             raise RuntimeError("PluginRegistry not set on StrategyEngine")
@@ -402,6 +549,8 @@ class StrategyEngine:
             risk_manager=self._risk,
             db_factory=db_factory,
             on_trade_close=on_trade_close,
+            notifier=notifier,
+            broker=broker,
         )
         strategy = cls()
         runner = StrategyRunner(
@@ -412,6 +561,7 @@ class StrategyEngine:
             instruments=instruments,
             timeframe=timeframe,
         )
+        ctx._runner = runner  # bind before start() so on_start/on_tick can use subscribe_instrument
         self._runners[instance_id] = runner
         await runner.start()
         return runner

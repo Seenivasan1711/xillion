@@ -18,7 +18,7 @@ and TOTP. Review Zerodha's API developer terms before using this in production.
 """
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -39,6 +39,7 @@ from xillion.core.events import (
     Tick,
     TimeInForce,
 )
+from xillion.core.instruments import InstrumentRow
 
 logger = structlog.get_logger(__name__)
 
@@ -65,9 +66,10 @@ class ZerodhaBroker(Broker):
         supported_exchanges=["NSE", "BSE", "NFO", "MCX", "CDS"],
     )
 
-    def __init__(self):
+    def __init__(self, notifier=None):
         self._kite = None
         self._ticker = None
+        self._ticker_connected = False  # real socket state, separate from _connected (REST session)
         self._access_token: Optional[str] = None
         self._connected = False
         self._credentials: dict = {}
@@ -75,6 +77,7 @@ class ZerodhaBroker(Broker):
         self._order_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._token_to_symbol: dict[int, str] = {}  # instrument_token → trading symbol
+        self._notifier = notifier  # optional TelegramNotifier, for reconnect-exhausted alerts
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -206,11 +209,14 @@ class ZerodhaBroker(Broker):
             except Exception:
                 pass
             self._ticker = None
+        self._ticker_connected = False
         self._connected = False
         logger.info("zerodha: disconnected")
 
     async def healthcheck(self) -> bool:
         if not self._connected or not self._kite:
+            return False
+        if self._ticker is not None and not self._ticker_connected:
             return False
         return await self._token_valid()
 
@@ -358,13 +364,20 @@ class ZerodhaBroker(Broker):
 
     # ── Market data ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _qualify(symbol: str) -> str:
+        """Fully-qualify a symbol for Kite's ltp()/quote() calls. A symbol
+        already containing ':' (e.g. "NFO:NIFTY24D2624000CE") is passed
+        through as-is; bare symbols default to NSE for backward compatibility."""
+        return symbol if ":" in symbol else f"NSE:{symbol}"
+
     async def subscribe_ticks(self, symbols: list[str]) -> None:
         if not self._ticker:
             await self._start_ticker()
         loop = asyncio.get_event_loop()
         try:
             ltp = await loop.run_in_executor(
-                None, lambda: self._kite.ltp([f"NSE:{s}" for s in symbols])
+                None, lambda: self._kite.ltp([self._qualify(s) for s in symbols])
             )
             tokens = []
             for key, val in ltp.items():
@@ -384,7 +397,7 @@ class ZerodhaBroker(Broker):
         loop = asyncio.get_event_loop()
         try:
             ltp = await loop.run_in_executor(
-                None, lambda: self._kite.ltp([f"NSE:{s}" for s in symbols])
+                None, lambda: self._kite.ltp([self._qualify(s) for s in symbols])
             )
             tokens = [v["instrument_token"] for v in ltp.values()]
             self._ticker.unsubscribe(tokens)
@@ -416,14 +429,42 @@ class ZerodhaBroker(Broker):
                 asyncio.run_coroutine_threadsafe(self._tick_queue.put(tick), loop)
 
         def _on_connect(ws, response):
+            self._ticker_connected = True
             logger.info("zerodha: ticker connected")
 
         def _on_error(ws, code, reason):
             logger.error("zerodha: ticker error", code=code, reason=reason)
 
+        def _on_close(ws, code, reason):
+            self._ticker_connected = False
+            logger.warning("zerodha: ticker closed", code=code, reason=reason)
+
+        def _on_reconnect(ws, attempts_count):
+            # kiteconnect's own on_open handler resubscribes previously
+            # subscribed tokens automatically on reconnect -- nothing to do
+            # here beyond visibility.
+            logger.warning("zerodha: ticker reconnecting", attempt=attempts_count)
+
+        def _on_noreconnect(ws):
+            self._ticker_connected = False
+            logger.error("zerodha: ticker reconnect attempts exhausted -- feed is down")
+            if self._notifier is not None:
+                asyncio.run_coroutine_threadsafe(
+                    self._notifier.alert(
+                        title="Zerodha feed down",
+                        body="WebSocket reconnect attempts exhausted. Live ticks have stopped "
+                             "-- alerts will not fire until this is restarted.",
+                        severity="critical",
+                    ),
+                    loop,
+                )
+
         self._ticker.on_ticks = _on_ticks
         self._ticker.on_connect = _on_connect
         self._ticker.on_error = _on_error
+        self._ticker.on_close = _on_close
+        self._ticker.on_reconnect = _on_reconnect
+        self._ticker.on_noreconnect = _on_noreconnect
         self._ticker.connect(threaded=True)
 
     async def tick_stream(self) -> AsyncIterator[Tick]:
@@ -445,7 +486,7 @@ class ZerodhaBroker(Broker):
         loop = asyncio.get_event_loop()
         try:
             ltp = await loop.run_in_executor(
-                None, lambda: self._kite.ltp([f"NSE:{symbol}"])
+                None, lambda: self._kite.ltp([self._qualify(symbol)])
             )
             token = list(ltp.values())[0]["instrument_token"]
             rows = await loop.run_in_executor(
@@ -472,7 +513,7 @@ class ZerodhaBroker(Broker):
         loop = asyncio.get_event_loop()
         try:
             ltp = await loop.run_in_executor(
-                None, lambda: self._kite.ltp([f"NSE:{s}" for s in symbols])
+                None, lambda: self._kite.ltp([self._qualify(s) for s in symbols])
             )
             return {
                 key.split(":")[-1]: Tick(
@@ -485,3 +526,44 @@ class ZerodhaBroker(Broker):
         except Exception as exc:
             logger.error("get_quote failed", error=str(exc))
             return {}
+
+    # ── Instrument master (options resolution) ──────────────────────────────────
+
+    async def fetch_instrument_dump(
+        self, exchanges: Optional[list[str]] = None,
+    ) -> list[InstrumentRow]:
+        """Fetch Kite's instrument master for the given exchanges. Plain REST
+        metadata -- unlike live ticks/historical candles, this may not
+        require the paid Connect data plan; worth trying on a free plan first."""
+        exchanges = exchanges if exchanges is not None else ["NFO", "BFO"]
+        loop = asyncio.get_event_loop()
+        rows: list[InstrumentRow] = []
+        for exchange in exchanges:
+            items = await loop.run_in_executor(
+                None, lambda ex=exchange: self._kite.instruments(ex)
+            )
+            for item in items:
+                expiry_raw = item.get("expiry")
+                expiry: Optional[date] = None
+                if expiry_raw:
+                    expiry = (
+                        expiry_raw if isinstance(expiry_raw, date)
+                        else date.fromisoformat(str(expiry_raw)[:10])
+                    )
+                strike_raw = item.get("strike") or 0
+                strike = Decimal(str(strike_raw)) if strike_raw else None
+                instrument_type = item.get("instrument_type", "")
+                option_type = instrument_type if instrument_type in ("CE", "PE") else None
+                rows.append(InstrumentRow(
+                    instrument_token=int(item["instrument_token"]),
+                    exchange=item.get("exchange", exchange),
+                    tradingsymbol=item["tradingsymbol"],
+                    name=item.get("name") or item["tradingsymbol"],
+                    expiry=expiry,
+                    strike=strike,
+                    option_type=option_type,
+                    segment=item.get("segment", ""),
+                    lot_size=int(item.get("lot_size") or 1),
+                    tick_size=Decimal(str(item.get("tick_size") or "0.05")),
+                ))
+        return rows

@@ -82,7 +82,7 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
     try:
         from brokers.zerodha import ZerodhaBroker
 
-        broker = ZerodhaBroker()
+        broker = ZerodhaBroker(notifier=app.state.telegram)
         await broker.connect(creds)
         app.state.broker_instances["Zerodha Primary"] = {
             "name": "Zerodha Primary",
@@ -164,6 +164,36 @@ async def _daily_token_refresh(app: FastAPI) -> None:
             logger.error("daily token refresh failed", error=str(exc))
 
 
+async def _daily_instrument_refresh(app: FastAPI) -> None:
+    """At 8:45 AM IST (after the 6:15 AM token refresh, before 9:15 market
+    open), refresh the cached options instrument dump."""
+    import zoneinfo
+
+    from xillion.core.instrument_cache import refresh_instrument_cache
+    from xillion.db.session import get_session_factory
+
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    while True:
+        now = datetime.now(IST)
+        target = now.replace(hour=8, minute=45, second=0, microsecond=0)
+        if now >= target:
+            from datetime import timedelta
+            target = target + timedelta(days=1)
+        sleep_secs = (target - now).total_seconds()
+        logger.info("instrument cache refresh scheduled", sleep_seconds=int(sleep_secs))
+        await asyncio.sleep(sleep_secs)
+        try:
+            info = app.state.broker_instances.get("Zerodha Primary")
+            broker = info.get("instance") if info else None
+            if broker is None:
+                logger.warning("instrument cache refresh skipped — Zerodha not connected")
+                continue
+            count = await refresh_instrument_cache(broker, get_session_factory)
+            logger.info("instrument cache refresh complete", row_count=count)
+        except Exception as exc:
+            logger.error("instrument cache refresh failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("xillion starting", version=__version__, env=settings.app_env)
@@ -193,13 +223,15 @@ async def lifespan(app: FastAPI):
     # Connect configured brokers (non-blocking — errors are logged, not raised)
     await _try_connect_zerodha(app)
 
-    # Schedule daily token refresh
+    # Schedule daily token + instrument-dump refresh
     refresh_task = asyncio.create_task(_daily_token_refresh(app))
+    instrument_refresh_task = asyncio.create_task(_daily_instrument_refresh(app))
 
     logger.info("xillion ready")
     yield
 
     refresh_task.cancel()
+    instrument_refresh_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")

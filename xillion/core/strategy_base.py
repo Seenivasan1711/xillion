@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from xillion.core.events import Bar, Order, OrderRequest, OrderType, Position, Side, Tick
+from xillion.core.instruments import ResolvedInstrument
 
 
 @dataclass
@@ -109,6 +110,34 @@ class StrategyContext(ABC):
     async def history(self, symbol: str, timeframe: str, lookback: int) -> list[Bar]:
         """Returns up to `lookback` bars ending at the current moment.
         In backtest, returns up to the current simulated moment (no lookahead)."""
+        raise NotImplementedError
+
+    # ── Instrument resolution (options) ─────────────────────────────────────────
+    # Options-specific extensions -- not generic "trading" concepts. A future
+    # asset class (e.g. forex) should add its own equivalents (pip value, lot
+    # sizing, session calendar) rather than overload these.
+
+    async def get_spot(self, underlying: str) -> Decimal:
+        """Current spot/index price for an underlying (e.g. "NIFTY")."""
+        raise NotImplementedError
+
+    async def resolve_strike(
+        self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str,
+    ) -> ResolvedInstrument:
+        """Resolve an ATM/OTM/ITM strike request into a concrete, currently
+        listed instrument. expiry_selector: "this_week" | "next_week" |
+        "this_month" | "next_month". strike_offset: 0 = ATM, positive =
+        further from ATM in the OTM direction for a call / ITM for a put."""
+        raise NotImplementedError
+
+    async def get_option_price(self, symbol: str, exchange: str) -> Decimal:
+        """Current LTP for an already-resolved option tradingsymbol."""
+        raise NotImplementedError
+
+    async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
+        """Subscribe to live ticks for an instrument resolved at runtime (e.g.
+        via resolve_strike) -- the static `instruments` list on the Strategy
+        class only covers what's known at instance-creation time."""
         raise NotImplementedError
 
     # ── Logging ───────────────────────────────────────────────────────────────

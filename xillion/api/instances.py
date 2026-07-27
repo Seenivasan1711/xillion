@@ -275,9 +275,9 @@ async def start_instance(
 
     instruments = json.loads(inst.instruments_json)
 
-    # Subscribe to live ticks if Zerodha is connected (paper mode uses real ticks)
+    # Subscribe to live ticks if Zerodha is connected (paper/alert modes use real ticks)
     tick_source: str = "none"
-    if inst.mode in ("paper", "live"):
+    if inst.mode in ("paper", "live", "alert"):
         zerodha_info = getattr(request.app.state, "broker_instances", {}).get("Zerodha Primary")
         if zerodha_info and zerodha_info.get("status") == "connected":
             zerodha = zerodha_info["instance"]
@@ -309,6 +309,7 @@ async def start_instance(
         broker_connection_id=inst.broker_connection_id,
         instance_name=inst.name,
         on_trade_close=ws_broadcast,
+        notifier=getattr(request.app.state, "telegram", None),
     )
 
     inst.status = "running"
@@ -346,12 +347,18 @@ def _resolve_broker(mode: str, request: Request):
             # (not implemented in bus — handled at subscribe_ticks call instead)
         return broker
 
-    if mode == "live":
+    if mode in ("live", "alert"):
+        # Alert mode reuses the same connected-Zerodha lookup as live mode,
+        # but ONLY for market data (get_quote/subscribe_ticks). Its
+        # place_order path never reaches this broker — see
+        # _StrategyContextImpl._handle_alert_signal, which returns before
+        # ExecutionRouter.submit is ever called.
         instances = getattr(request.app.state, "broker_instances", {})
         info = instances.get("Zerodha Primary")
         if info and info.get("status") == "connected" and info.get("instance"):
             return info["instance"]
-        raise HTTPException(400, "Zerodha not connected. Cannot start in live mode.")
+        verb = "live" if mode == "live" else "alert"
+        raise HTTPException(400, f"Zerodha not connected. Cannot start in {verb} mode.")
 
     raise HTTPException(400, f"Unsupported mode: {mode!r}")
 

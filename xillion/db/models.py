@@ -103,6 +103,7 @@ class StrategyInstance(Base):
     broker_connection: Mapped[BrokerConnection] = relationship(back_populates="instances")
     orders: Mapped[list["OrderRecord"]] = relationship(back_populates="strategy_instance")
     positions: Mapped[list["PositionRecord"]] = relationship(back_populates="strategy_instance")
+    signal_logs: Mapped[list["SignalLog"]] = relationship(back_populates="strategy_instance")
 
     __table_args__ = (
         Index("idx_strategy_instance_status", "status"),
@@ -333,6 +334,61 @@ class BrokerCredential(Base):
     broker_name: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. "Zerodha"
     encrypted_payload: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet-encrypted JSON
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# ── Instrument master (options resolution) ────────────────────────────────────
+
+class Instrument(Base):
+    """Cached row from Kite's instrument dump. Refreshed daily. Nullable
+    strike/option_type/expiry so non-derivative rows (indices, equities,
+    futures, and any future asset class such as forex) fit the same table."""
+    __tablename__ = "instrument"
+
+    instrument_token: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
+    tradingsymbol: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)  # underlying, e.g. "NIFTY"
+    expiry: Mapped[str | None] = mapped_column(Text)  # ISO date
+    strike: Mapped[float | None] = mapped_column(Numeric)
+    option_type: Mapped[str | None] = mapped_column(Text)  # CE | PE
+    segment: Mapped[str] = mapped_column(Text, nullable=False)
+    lot_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    tick_size: Mapped[float] = mapped_column(Numeric, nullable=False)
+    last_updated: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_instrument_resolve", "name", "expiry", "option_type", "strike"),
+        Index("idx_instrument_symbol", "tradingsymbol", "exchange"),
+    )
+
+
+# ── Signal log (alert mode) ────────────────────────────────────────────────────
+
+class SignalLog(Base):
+    """Every signal emitted by an alert-mode strategy instance. No fill/price
+    execution data — this is the forward-test dataset the build spec calls for."""
+    __tablename__ = "signal_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_instance_id: Mapped[str] = mapped_column(ForeignKey("strategy_instance.id"), nullable=False)
+    ts: Mapped[str] = mapped_column(Text, nullable=False)
+    underlying_symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    resolved_tradingsymbol: Mapped[str | None] = mapped_column(Text)
+    signal_type: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. ENTER | EXIT
+    side: Mapped[str | None] = mapped_column(Text)  # BUY | SELL
+    price: Mapped[float | None] = mapped_column(Numeric)
+    message: Mapped[str] = mapped_column(Text, nullable=False)  # the "reason" text
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notified_at: Mapped[str | None] = mapped_column(Text)
+    context_json: Mapped[str | None] = mapped_column(Text)
+
+    strategy_instance: Mapped[StrategyInstance] = relationship(back_populates="signal_logs")
+
+    __table_args__ = (
+        Index("idx_signal_log_instance_ts", "strategy_instance_id", "ts"),
+        Index("idx_signal_log_underlying_ts", "underlying_symbol", "ts"),
+    )
 
 
 # ── Notifications ──────────────────────────────────────────────────────────────
