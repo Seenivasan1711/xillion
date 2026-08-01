@@ -1,6 +1,7 @@
 """
 Async SQLAlchemy session factory. Single source of truth for DB connections.
 """
+import ssl
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -14,11 +15,22 @@ def async_connect_args_for(url: str) -> dict:
     if url.startswith("sqlite"):
         return {"check_same_thread": False}
     if url.startswith("postgresql"):
-        # Hosted Postgres (Supabase, Render, ...) requires TLS. Prepared-
-        # statement caching is disabled because Supabase's pooled connection
-        # (PgBouncer in transaction mode) doesn't support server-side
-        # prepared statements -- harmless to disable on a direct connection too.
-        return {"ssl": True, "statement_cache_size": 0}
+        # Hosted Postgres (Supabase, Render, ...) requires TLS, but asyncpg's
+        # `ssl=True` shortcut means "encrypt AND verify against system-trusted
+        # CAs" -- stricter than the sslmode=require behavior used on the sync
+        # (Alembic) side below, which only requires encryption. Supabase's
+        # pooler cert isn't chained to a standard trusted root, so `ssl=True`
+        # fails verification even though the connection itself is fine.
+        # Build an explicit context that matches sslmode=require's semantics:
+        # encrypted, not verified.
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # Prepared-statement caching is disabled because Supabase's pooled
+        # connection (PgBouncer in transaction mode) doesn't support
+        # server-side prepared statements -- harmless to disable on a direct
+        # connection too.
+        return {"ssl": ctx, "statement_cache_size": 0}
     return {}
 
 
