@@ -212,7 +212,7 @@ function InstanceCard({
             </div>
           </div>
           <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-            <Badge tone={inst.mode === 'live' ? 'pos' : undefined}>{inst.mode}</Badge>
+            <Badge tone={inst.mode === 'live' ? 'pos' : inst.mode === 'alert' ? 'warn' : undefined}>{inst.mode}</Badge>
             <Badge
               tone={running ? 'pos' : errored ? 'neg' : undefined}
               dot={running}
@@ -287,7 +287,7 @@ function NewInstanceModal({
   onCreated: () => void
 }) {
   const [name, setName] = useState(`${strategy.name} — Paper`)
-  const [mode, setMode] = useState<'paper' | 'live'>('paper')
+  const [mode, setMode] = useState<'paper' | 'live' | 'alert'>('paper')
   const [instruments, setInstruments] = useState('NIFTY')
   const [timeframe, setTimeframe] = useState(strategy.timeframe)
   const [capital, setCapital] = useState('100000')
@@ -356,10 +356,21 @@ function NewInstanceModal({
           <div className="field">
             <label>Mode</label>
             <SegmentedControl
-              options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
+              options={[
+                { value: 'paper', label: 'Paper' },
+                { value: 'live', label: 'Live' },
+                { value: 'alert', label: 'Alert' },
+              ]}
               value={mode}
-              onChange={v => setMode(v as 'paper' | 'live')}
+              onChange={v => setMode(v as 'paper' | 'live' | 'alert')}
             />
+            {mode === 'alert' && (
+              <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
+                Alert mode never places a real or simulated order — it only sends a
+                Telegram notification and logs the signal. Requires a connected
+                Zerodha broker for live market data.
+              </div>
+            )}
           </div>
 
           <div className="field">

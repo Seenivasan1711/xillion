@@ -250,7 +250,7 @@ export interface StrategyInstance {
   name: string
   strategy_class_name: string
   strategy_class_version: string
-  mode: 'paper' | 'live' | 'backtest'
+  mode: 'paper' | 'live' | 'backtest' | 'alert'
   status: 'idle' | 'running' | 'paused' | 'error' | 'killed'
   last_error: string | null
   instruments: string[]
@@ -270,7 +270,7 @@ export interface StrategyInstance {
 export interface CreateInstanceRequest {
   name: string
   strategy_class_name: string
-  mode: 'paper' | 'live'
+  mode: 'paper' | 'live' | 'alert'
   instruments: string[]
   timeframe: string
   params: Record<string, unknown>
