@@ -4,7 +4,7 @@ resolve_strike/get_spot/get_option_price/subscribe_instrument -- against a
 stub broker and a pre-populated instrument cache. No FastAPI, no alert mode,
 no market hours involved.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -56,7 +56,13 @@ def _row(token: int, tradingsymbol: str, strike: Decimal, expiry: date) -> Instr
 async def test_resolve_strike_and_subscribe_instrument():
     await init_db()
 
-    expiry = date(2026, 7, 29)
+    # Relative to today (not a fixed calendar date) so this fixture can't go
+    # stale: resolve_option() correctly refuses to resolve an already-expired
+    # contract (real trading-safety behavior), so a hardcoded past date would
+    # make this test fail for a reason that has nothing to do with the code
+    # under test. 2 days out keeps it comfortably inside the "this_week"
+    # weekly-expiry window (_WEEKLY_MAX_DAYS_OUT = 10 in xillion/core/instruments.py).
+    expiry = date.today() + timedelta(days=2)
     rows = [
         _row(1001, "NIFTY26JUL2924950CE", Decimal(24950), expiry),
         _row(1002, "NIFTY26JUL2925000CE", Decimal(25000), expiry),

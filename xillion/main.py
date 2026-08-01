@@ -198,7 +198,16 @@ async def _daily_instrument_refresh(app: FastAPI) -> None:
 async def lifespan(app: FastAPI):
     logger.info("xillion starting", version=__version__, env=settings.app_env)
 
-    await init_db()
+    if settings.is_production:
+        # Production schema is owned by Alembic migrations (run before this
+        # process starts, see Dockerfile). Skipping create_all() here avoids
+        # a race: with --workers 2, every worker's lifespan runs concurrently,
+        # and concurrent CREATE TABLE statements for the same missing table
+        # can hit Postgres's "duplicate key value violates unique constraint
+        # pg_type_typname_nsp_index" (see migrations/versions/003_broker_credential.py).
+        logger.info("skipping create_all() in production — using Alembic-managed schema")
+    else:
+        await init_db()
 
     plugin_loader = PluginLoader()
     registry = await plugin_loader.discover_all()
