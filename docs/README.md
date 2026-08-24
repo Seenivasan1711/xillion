@@ -44,6 +44,7 @@ docs/
 | [asset-pipeline.md](process/asset-pipeline.md) | The 6 stages: build → backtest → paper → live → automate → document |
 | [testing-strategy.md](process/testing-strategy.md) | How we avoid blowing up the account |
 | [go-live-checklist.md](process/go-live-checklist.md) | Pre-flight before real money |
+| [automation-registry.md](process/automation-registry.md) | Every skill/hook/CLAUDE.md rule, why it exists, and the candidate watchlist for what to build next |
 
 ### `architecture/` — how it's built
 | Document | Purpose |
@@ -120,9 +121,10 @@ A FastAPI backend orchestrates everything. A simple React dashboard shows you wh
 
 If you just want to **start coding tomorrow**:
 
-1. Skim [01 PRD](product/prd.md) (10 min)
-2. Read [03 Architecture](architecture/overview.md) (15 min)
-3. Read [04 Plugin Contracts](architecture/plugin-contracts.md) (15 min)
-4. Open [09 Progress Tracker](archive/progress-tracker-phases-0-10.md) and start at Phase 0
+1. Skim [PRD](product/prd.md) (10 min)
+2. Read [Architecture overview](architecture/overview.md) (15 min)
+3. Read [Plugin contracts](architecture/plugin-contracts.md) (15 min)
+4. Open [task-tracker.md](status/task-tracker.md) and start at the current checkpoint
 
-If you want to **understand the full thinking** first, read 01 → 10 in order. ~90 minutes total.
+If you want to **understand the full thinking** first, read everything under
+`product/` and `architecture/` in order. ~90 minutes total.

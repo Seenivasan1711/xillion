@@ -25,7 +25,8 @@ docs/
 │   ├── task-tracker.md          ← 🔴 THE source of truth
 │   ├── deferred-backlog.md      ← what we're deliberately NOT building
 │   └── decisions-and-open-questions.md
-├── process/        ← asset-pipeline, testing-strategy, go-live-checklist
+├── process/        ← asset-pipeline, testing-strategy, go-live-checklist,
+│                     automation-registry (skills/hooks inventory)
 ├── architecture/   ← overview, plugin-contracts, data-model, risk-and-compliance
 ├── product/        ← prd, functional-requirements, ui-ux, user-guide, roadmap
 ├── strategies/     ← one file per strategy (RAG-ingested, incl. failure logs)
