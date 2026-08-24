@@ -279,6 +279,18 @@ being unreachable here):
 - [ ] Order state machine — `Strategy.on_order_update` is **never called**
 - [ ] **Position reconciliation on startup** — a restart currently loses all
       in-memory positions. Hard gate before real money
+- [ ] **Live/paper real-time bar aggregation into `ctx.history()` — found
+      2026-08-24 while building CP5.** `HistoryManager.add_bar()` exists but
+      is **never called anywhere** in `strategy_engine.py` — nothing turns
+      live ticks into bars and pushes them into the in-memory cache. CP2's
+      DB-repository fallback (`xillion/data/history.py`) means an `on_bar`
+      strategy still gets real historical bars via the warehouse, so this
+      isn't a total blank — but it means **today's still-forming candles
+      never show up**, only whatever was last backfilled. Any `on_bar`
+      strategy (RSI Threshold, Condition Strategy, anything from CP5's
+      builder) checking an intraday condition mid-session is working off
+      stale data until this is built. Tick-only strategies (`on_tick`, e.g.
+      Nifty Spot Alert) are unaffected
 - [ ] Auto start/stop instances at market open/close
 - [ ] Logs DB persistence + `GET /api/positions`
 - [ ] Self-failure alerting — if the *system* breaks, you get told
