@@ -5,7 +5,7 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 (code done, real backfill run needs you — see Blocked on you #6) → **CP4 is next.** CP4's engineering (signal lifecycle, EXIT rows, Alerts page) doesn't need real credentials — same DummyBroker/fake-notifier pattern as the existing alert-mode test. Only its live end-to-end proof needs Kite Connect + Telegram (Blocked on you #1)
+**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 (both only missing a real-credentials proof, not code — see Blocked on you #1 and #6) → **CP5 is next.** CP5 (strategy builder: condition-builder UI, generic `ConditionStrategy`, indicator library, parameter optimisation) is pure platform engineering — not blocked on anything. Your trading-course strategy rules (Blocked on you #2) are needed later, to actually *use* the builder for Options Stage 1 in Track B, not to build it
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -153,14 +153,32 @@ actually proven, not just unit-tested.
 
 ---
 
-### ⬜ CP4 — Signal lifecycle (~9 hrs)
+### 🟡 CP4 — Signal lifecycle `ENGINEERING DONE 2026-08-24 — Telegram proof needs YOU`
 - [ ] **[YOU]** Buy Kite Connect (₹500/mo) + create Telegram bot (@BotFather)
-      — `ZERODHA_*` and `TELEGRAM_*` env vars are currently **empty**
-- [ ] Entry + **target + stop-loss + EXIT** signals with parent-child linkage.
-      Today `signal_log` is entry-only and **never writes an EXIT row**
-- [ ] Signals read API + Alerts page + Telegram formatting
+      — `ZERODHA_*` and `TELEGRAM_*` env vars are currently **empty**. Blocks
+      only the *real* Telegram proof below, not anything already built
+- [x] Entry + **target + stop-loss + EXIT** signals with parent-child linkage.
+      `signal_log` was entry-only with no ENTER/EXIT distinction at all — its
+      `signal_type` column actually held the free-text tag, not a lifecycle
+      stage (migration `006`). New `ctx.alert_entry()`/`ctx.alert_exit()` on
+      `StrategyContext`; an EXIT auto-links to the most recent **still-open**
+      ENTER sharing its `(instance, symbol, tag)` — verified a same-tag
+      entry/exit/entry/exit sequence links each exit to *its own* entry, not
+      the earlier closed one
+- [x] `GET /signals` (+ instance filter) + Alerts page + Telegram-body
+      formatting (target/stop-loss lines, "closing entry #N")
 
-**Verify:** paper alert fires BUY with target+SL, then a correctly-timed SELL.
+**Verified two ways:**
+1. `pytest` — 6 new tests (`test_signal_lifecycle.py`,
+   `test_signals_api.py`), incl. the repeated-tag-doesn't-cross-link case.
+2. **Browser, real engine code path, not a mocked UI:** drove
+   `StrategyEngine.spawn()` + `ctx.alert_entry`/`alert_exit` for real against
+   a disposable local DB (same Supabase-unreachable reason as CP2/CP3),
+   confirmed the Alerts page renders exactly what was expected — an open
+   ENTER with target/SL, an EXIT correctly linked to entry #1, a second
+   ENTER still open. Notifier used was a fake (`_FakeNotifier`) since no
+   real Telegram bot token exists yet — **that's the one thing not proven
+   end-to-end**: real Telegram delivery, blocked on item #1 above.
 
 ---
 

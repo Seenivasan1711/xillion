@@ -425,7 +425,13 @@ class Instrument(Base):
 
 class SignalLog(Base):
     """Every signal emitted by an alert-mode strategy instance. No fill/price
-    execution data — this is the forward-test dataset the build spec calls for."""
+    execution data — this is the forward-test dataset the build spec calls for.
+
+    `signal_type` is the lifecycle stage (ENTER | EXIT | SIGNAL for a
+    one-shot alert with no exit leg); `tag` is the setup identifier a
+    strategy uses to pair an EXIT back to the ENTER it closes, via
+    `parent_signal_id` (CP4 -- before this, `signal_type` held the tag
+    string and there was no ENTER/EXIT distinction or linkage at all)."""
     __tablename__ = "signal_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -433,7 +439,11 @@ class SignalLog(Base):
     ts: Mapped[str] = mapped_column(Text, nullable=False)
     underlying_symbol: Mapped[str] = mapped_column(Text, nullable=False)
     resolved_tradingsymbol: Mapped[str | None] = mapped_column(Text)
-    signal_type: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. ENTER | EXIT
+    signal_type: Mapped[str] = mapped_column(Text, nullable=False)  # ENTER | EXIT | SIGNAL
+    tag: Mapped[str | None] = mapped_column(Text)  # setup identifier, pairs ENTER <-> EXIT
+    parent_signal_id: Mapped[int | None] = mapped_column(ForeignKey("signal_log.id"))
+    target_price: Mapped[float | None] = mapped_column(Numeric)
+    stop_loss_price: Mapped[float | None] = mapped_column(Numeric)
     side: Mapped[str | None] = mapped_column(Text)  # BUY | SELL
     price: Mapped[float | None] = mapped_column(Numeric)
     message: Mapped[str] = mapped_column(Text, nullable=False)  # the "reason" text
@@ -447,6 +457,7 @@ class SignalLog(Base):
     __table_args__ = (
         Index("idx_signal_log_instance_ts", "strategy_instance_id", "ts"),
         Index("idx_signal_log_underlying_ts", "underlying_symbol", "ts"),
+        Index("idx_signal_log_open_entry", "strategy_instance_id", "underlying_symbol", "tag", "signal_type"),
     )
 
 

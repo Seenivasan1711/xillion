@@ -102,17 +102,62 @@ class _StrategyContextImpl(StrategyContext):
 
     async def _handle_alert_signal(self, request: OrderRequest) -> Order:
         now = _now()
-        message = f"{request.side.value} signal: {request.symbol}"
+        signal_type = request.signal_type or "SIGNAL"
+
+        message = f"{request.side.value} {signal_type}: {request.symbol}"
         if request.tag:
             message += f" [{request.tag}]"
+        if request.price is not None:
+            message += f"\nprice: {request.price}"
+        if request.target_price is not None:
+            message += f"\ntarget: {request.target_price}"
+        if request.stop_loss_price is not None:
+            message += f"\nstop-loss: {request.stop_loss_price}"
+
+        parent_signal_id = None
+        if self._db_factory:
+            try:
+                from sqlalchemy import select
+
+                from xillion.db.models import SignalLog
+
+                async with self._db_factory()() as session:
+                    if signal_type == "EXIT" and request.tag:
+                        # Most recent ENTER for this (instance, symbol, tag)
+                        # not already closed by an earlier EXIT -- so a tag
+                        # reused across repeated setups over time still
+                        # links each exit to the entry it actually closes.
+                        closed_ids = select(SignalLog.parent_signal_id).where(
+                            SignalLog.parent_signal_id.is_not(None)
+                        )
+                        result = await session.execute(
+                            select(SignalLog.id)
+                            .where(
+                                SignalLog.strategy_instance_id == self.instance_id,
+                                SignalLog.underlying_symbol == request.symbol,
+                                SignalLog.tag == request.tag,
+                                SignalLog.signal_type == "ENTER",
+                                SignalLog.id.not_in(closed_ids),
+                            )
+                            .order_by(SignalLog.id.desc())
+                            .limit(1)
+                        )
+                        parent_signal_id = result.scalar_one_or_none()
+                        if parent_signal_id is None:
+                            self.log(
+                                "warning", "EXIT signal has no matching open ENTER",
+                                symbol=request.symbol, tag=request.tag,
+                            )
+
+                    if parent_signal_id is not None:
+                        message += f"\nclosing entry #{parent_signal_id}"
+            except Exception as exc:
+                logger.error("signal_log parent lookup failed", instance_id=self.instance_id, error=str(exc))
 
         notified = False
         if self._notifier is not None:
             try:
-                body = message
-                if request.price is not None:
-                    body += f"\nprice: {request.price}"
-                await self._notifier.alert(title=self._instance_name, body=body)
+                await self._notifier.alert(title=self._instance_name, body=message)
                 notified = True
             except Exception as exc:
                 logger.error("alert notify failed", instance_id=self.instance_id, error=str(exc))
@@ -127,7 +172,11 @@ class _StrategyContextImpl(StrategyContext):
                         ts=now.isoformat(),
                         underlying_symbol=request.symbol,
                         resolved_tradingsymbol=None,
-                        signal_type=request.tag or "SIGNAL",
+                        signal_type=signal_type,
+                        tag=request.tag,
+                        parent_signal_id=parent_signal_id,
+                        target_price=float(request.target_price) if request.target_price is not None else None,
+                        stop_loss_price=float(request.stop_loss_price) if request.stop_loss_price is not None else None,
                         side=request.side.value,
                         price=float(request.price) if request.price is not None else None,
                         message=message,
@@ -142,7 +191,8 @@ class _StrategyContextImpl(StrategyContext):
 
         self.log(
             "info", "alert signal emitted",
-            symbol=request.symbol, side=request.side.value, tag=request.tag, notified=notified,
+            symbol=request.symbol, side=request.side.value, tag=request.tag,
+            signal_type=signal_type, parent_signal_id=parent_signal_id, notified=notified,
         )
 
         return Order(

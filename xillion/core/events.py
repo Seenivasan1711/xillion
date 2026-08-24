@@ -74,6 +74,14 @@ class OrderRequest:
     tag: Optional[str] = None
     strategy_instance_id: Optional[str] = None
     client_order_id: str = field(default_factory=lambda: str(uuid4()))
+    # Alert-mode-only fields (ignored by Risk/Execution/Broker -- alert mode
+    # never reaches them, see _StrategyContextImpl._handle_alert_signal).
+    # signal_type distinguishes an ENTER from the EXIT that later closes it;
+    # target_price/stop_loss_price are informational levels shown in the
+    # alert, not real broker stop orders (that's `stop_price`, above).
+    signal_type: Optional[str] = None
+    target_price: Optional[Decimal] = None
+    stop_loss_price: Optional[Decimal] = None
 
 
 @dataclass

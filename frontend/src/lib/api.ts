@@ -195,6 +195,16 @@ export const api = {
       }),
   },
 
+  signals: {
+    list: (opts?: { instance_id?: string; limit?: number }) => {
+      const params = new URLSearchParams()
+      if (opts?.instance_id) params.set('instance_id', opts.instance_id)
+      if (opts?.limit) params.set('limit', String(opts.limit))
+      const qs = params.toString()
+      return request<{ signals: SignalLogEntry[] }>(`/signals${qs ? `?${qs}` : ''}`)
+    },
+  },
+
   data: {
     coverage: () => request<{ coverage: BarCoverage[] }>('/data/coverage'),
     backfill: (body: BackfillRequest) =>
@@ -375,6 +385,26 @@ export interface BacktestProviderRequest {
   initial_capital?: number
   slippage_bps?: number
   params?: Record<string, unknown>
+}
+
+export interface SignalLogEntry {
+  id: number
+  strategy_instance_id: string
+  strategy_instance_name: string | null
+  ts: string
+  underlying_symbol: string
+  resolved_tradingsymbol: string | null
+  signal_type: 'ENTER' | 'EXIT' | 'SIGNAL'
+  tag: string | null
+  parent_signal_id: number | null
+  target_price: number | null
+  stop_loss_price: number | null
+  side: 'BUY' | 'SELL' | null
+  price: number | null
+  message: string
+  mode: string
+  notified: boolean
+  notified_at: string | null
 }
 
 export interface BarCoverage {

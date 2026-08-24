@@ -88,6 +88,59 @@ class StrategyContext(ABC):
             )
         )
 
+    # ── Alert-mode lifecycle helpers ──────────────────────────────────────────
+    # Alert mode's signals form entry/exit pairs (target + stop-loss on entry,
+    # then a later exit), unlike backtest/paper/live's single fire-and-forget
+    # buy()/sell(). `tag` is the pairing key: pass the SAME tag to
+    # alert_entry() and the later alert_exit() for the same setup instance
+    # (e.g. f"{symbol}_{entry_ts}" if more than one concurrent setup on the
+    # same symbol is possible) and the framework links them in signal_log
+    # automatically -- no signal id to track in ctx.state yourself.
+
+    async def alert_entry(
+        self,
+        symbol: str,
+        side: Side,
+        *,
+        price: Optional[Decimal] = None,
+        target: Optional[Decimal] = None,
+        stop_loss: Optional[Decimal] = None,
+        tag: Optional[str] = None,
+    ) -> Order:
+        return await self.place_order(
+            OrderRequest(
+                symbol=symbol,
+                side=side,
+                quantity=1,
+                order_type=OrderType.LIMIT if price else OrderType.MARKET,
+                price=price,
+                tag=tag,
+                signal_type="ENTER",
+                target_price=target,
+                stop_loss_price=stop_loss,
+            )
+        )
+
+    async def alert_exit(
+        self,
+        symbol: str,
+        side: Side,
+        *,
+        price: Optional[Decimal] = None,
+        tag: Optional[str] = None,
+    ) -> Order:
+        return await self.place_order(
+            OrderRequest(
+                symbol=symbol,
+                side=side,
+                quantity=1,
+                order_type=OrderType.LIMIT if price else OrderType.MARKET,
+                price=price,
+                tag=tag,
+                signal_type="EXIT",
+            )
+        )
+
     # ── State queries ──────────────────────────────────────────────────────────
 
     def position(self, symbol: str) -> Optional[Position]:
