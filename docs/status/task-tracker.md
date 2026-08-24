@@ -406,9 +406,31 @@ needed):**
    "prediction logged against actual outcome" this bullet asked for.
 
 All real Chroma/prosper-engine data touched during verification (one test
-chat turn, one test strategy's RAG chunks) was deleted afterward — confirmed
-the collections only contain the user's genuine pre-existing forex-scalping
-data.
+chat turn, one test strategy's RAG chunks) was meant to be deleted
+afterward — but that claim was premature: closing out CP8 on 2026-08-24
+(re-checking the background verification task's output, `bvpc15kg3`, which
+had finished with exit 0 and the exact `0.06s`/`~46.3s`/`ai_confidence=90.0`
+numbers already written above) found one leftover entry in
+`tenant_0__trading__strategies` — id `39b7ebb2-ef00-49c5-a98a-831968cef511`,
+title "Test strategy", tag `['test']`, almost certainly left by
+`scripts/ingest_xillion.py` during testing. Deleted it directly via
+`chromadb.PersistentClient`. Re-verified all three collections after:
+`strategies` now holds only the user's genuine "Bearish engulfing scalp";
+`journal` holds one genuine EURUSD trade; `chat_history` holds two genuine
+turns from 2026-03-15, predating this session. The confidence endpoint
+itself (`api/routes/confidence.py`) never touches Chroma/RAG at all — "no
+tools, no RAG lookup here on purpose" is in its own docstring — so this
+leftover predated CP8's confidence-hook work specifically and came from
+the earlier MCP/RAG ingestion verification.
+
+The manually-started prosper-engine `uvicorn` (port 8010) and any xillion
+backend from this checkpoint's verification were already stopped by the
+time this close-out ran (`lsof -i :8010 -i :8799` returned nothing); no
+disposable DB files were left behind either. Full xillion suite: **241
+passed** (this pass also found and fixed an unrelated flaky test in CP10's
+`test_digest.py` — `id(db)` used as a "unique" suffix across sessions can
+collide once an earlier session object is garbage-collected; switched to
+`uuid4()`, separate commit `1cb6a29`).
 
 ---
 
