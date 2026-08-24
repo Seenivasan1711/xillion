@@ -154,7 +154,7 @@ export default function Journal() {
               <tr>
                 <th>Date</th><th>Source</th><th>Symbol</th><th>Side</th>
                 <th className="num">Entry</th><th className="num">Exit</th><th className="num">P&amp;L</th>
-                <th>Outcome</th><th></th>
+                <th className="num">AI conf.</th><th>Outcome</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -171,6 +171,9 @@ export default function Journal() {
                       <td className="num mono-num">{e.entry_price != null ? `₹${e.entry_price.toFixed(2)}` : '—'}</td>
                       <td className="num mono-num">{e.exit_price != null ? `₹${e.exit_price.toFixed(2)}` : '—'}</td>
                       <td className={`num mono-num ${(e.pnl ?? 0) >= 0 ? 'pos' : 'neg'}`}>{e.pnl != null ? fmtINR(e.pnl, { signed: true }) : '—'}</td>
+                      <td className="num mono-num faint" title="Predicted before the trade — compare against the outcome column">
+                        {e.ai_confidence != null ? `${e.ai_confidence.toFixed(0)}%` : '—'}
+                      </td>
                       <td>
                         <Badge tone={OUTCOME_TONE[e.outcome]}>{e.manual_failure_mode || e.outcome}</Badge>
                       </td>
@@ -178,7 +181,7 @@ export default function Journal() {
                     </tr>
                     {editingKey === key && (
                       <tr>
-                        <td colSpan={9} style={{ background: 'var(--surface-2)', padding: '0 16px' }}>
+                        <td colSpan={10} style={{ background: 'var(--surface-2)', padding: '0 16px' }}>
                           <NoteEditor entry={e} onSaved={() => { setEditingKey(null); load() }} />
                         </td>
                       </tr>

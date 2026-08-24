@@ -17,7 +17,7 @@ def _entry(outcome: str, symbol="TEST", side="BUY", entry_price=100.0, exit_pric
         strategy_instance_id="inst-1", symbol=symbol, side=side,
         entry_price=entry_price, exit_price=exit_price,
         entry_ts="2026-06-14T00:00:00", exit_ts=exit_ts,
-        pnl=None, target_price=110.0, stop_loss_price=95.0,
+        pnl=None, target_price=110.0, stop_loss_price=95.0, ai_confidence=None,
         outcome=outcome, tag="setup_1",
     )
 
@@ -78,7 +78,8 @@ def test_wins_and_open_signals_are_excluded_from_failure_log():
             source="signal_log", source_id="2", strategy_name="Test Strategy",
             strategy_instance_id="inst-1", symbol="TEST", side="BUY",
             entry_price=100.0, exit_price=None, entry_ts="2026-06-14T00:00:00", exit_ts=None,
-            pnl=None, target_price=110.0, stop_loss_price=95.0, outcome="still_open", tag="setup_2",
+            pnl=None, target_price=110.0, stop_loss_price=95.0, ai_confidence=None,
+            outcome="still_open", tag="setup_2",
         ),
         _entry("stopped_out"),  # this one should show up
     ]

@@ -51,6 +51,7 @@ class JournalEntry:
     pnl: Optional[float]
     target_price: Optional[float]
     stop_loss_price: Optional[float]
+    ai_confidence: Optional[float]  # CP8 pre-trade hook's prediction, if one was made -- compare against `outcome`
     outcome: str
     tag: Optional[str]
 
@@ -122,6 +123,7 @@ async def _signal_log_entries(session_factory, strategy_instance_id: Optional[st
             pnl=None,
             target_price=float(entry.target_price) if entry.target_price is not None else None,
             stop_loss_price=float(entry.stop_loss_price) if entry.stop_loss_price is not None else None,
+            ai_confidence=float(entry.ai_confidence) if entry.ai_confidence is not None else None,
             outcome=outcome, tag=entry.tag,
         ))
     return out
@@ -146,7 +148,7 @@ async def _backtest_trade_entries(session_factory, strategy_class_id: Optional[i
             symbol=trade.symbol, side=trade.side,
             entry_price=float(trade.entry_price), exit_price=float(trade.exit_price),
             entry_ts=trade.entry_ts, exit_ts=trade.exit_ts,
-            pnl=pnl, target_price=None, stop_loss_price=None,
+            pnl=pnl, target_price=None, stop_loss_price=None, ai_confidence=None,
             outcome=classify_trade_outcome(pnl), tag=trade.tag,
         ))
     return out

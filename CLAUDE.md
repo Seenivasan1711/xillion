@@ -100,6 +100,33 @@ The kill switch tool asks for a fresh TOTP code on every call regardless of
 login — that gate is never bypassed. Point a local MCP client (Claude
 Desktop, etc.) at `xillion-mcp` with those env vars set in its config.
 
+## AI assistant + pre-trade confidence (CP8, cross-repo)
+
+`prosper-engine` (`~/Documents/personal/Projects/Learnings/prosper-engine`,
+a separate repo — **not covered by xillion's commit standing-authorization**,
+review and commit those changes yourself) is now an MCP *client* of xillion's
+MCP server: its `TradingAgent` runs a tool loop (`chat_full()` + xillion's 9
+tools) so the chat assistant can actually check/control the real system, not
+just talk about it. Verified for real against local Ollama (`qwen3:8b`,
+which genuinely supports tool-calling — `ollama_url/api/tags` reports
+`"tools"` in its capabilities).
+
+**Pre-trade confidence hook:** set `AI_CONFIDENCE_URL` (e.g.
+`http://localhost:8010/api/v1/confidence`, prosper-engine's new endpoint) and
+alert-mode ENTER signals get a 0-100 confidence score written to
+`signal_log.ai_confidence` — surfaced in the Journal next to the signal's
+real outcome, so the prediction can be checked against reality, not trusted
+on faith. **Runs as a background task, after the alert already fired and the
+signal_log row already persisted** — a local "thinking" model measured at
+30-60s+ per call is far too slow to sit in an alert's critical path. Empty
+`AI_CONFIDENCE_URL` (the default) means zero network calls, alert mode
+behaves exactly as before this existed.
+
+`prosper-engine` also gained `scripts/ingest_xillion.py`, which reads
+`docs/strategies/*.md` (rules → RAG "strategies" collection, Failure log
+rows → "journal" collection) into the trading agent's Chroma memory —
+idempotent, safe to re-run after a strategy doc changes.
+
 ## Operational gotchas (learned the hard way, 2026-08-02)
 
 - **`render.yml`'s `branch:` field pins the actual deployed branch**,

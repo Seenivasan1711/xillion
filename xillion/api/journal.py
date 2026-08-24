@@ -30,6 +30,7 @@ def _entry_dict(e: JournalEntry) -> dict:
         "entry_price": e.entry_price, "exit_price": e.exit_price,
         "entry_ts": e.entry_ts, "exit_ts": e.exit_ts,
         "pnl": e.pnl, "target_price": e.target_price, "stop_loss_price": e.stop_loss_price,
+        "ai_confidence": e.ai_confidence,
         "outcome": e.outcome, "tag": e.tag,
     }
 

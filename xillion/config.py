@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     brokers_dir: str = "./brokers"
     data_providers_dir: str = "./data_providers"
 
+    # AI confidence hook (CP8) -- empty means disabled, alert mode behaves
+    # exactly as before this existed. Points at prosper-engine's /confidence
+    # endpoint when configured.
+    ai_confidence_url: str = ""
+    # 90s: this call runs as a background task (see _fetch_and_store_confidence
+    # in strategy_engine.py), never in an alert's critical path, so there's no
+    # pressure to keep the timeout tight. A local "thinking" model measured
+    # for real against qwen3:8b via Ollama took 30-60s+ per call -- a hosted
+    # cloud API would answer far faster, but this has to work for whichever
+    # backend prosper-engine's tenant config actually points at.
+    ai_confidence_timeout_seconds: float = 90.0
+
     class Config:
         env_file = ".env"
         case_sensitive = False

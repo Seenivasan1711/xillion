@@ -6,13 +6,15 @@
 
 **Last updated:** 2026-08-24
 **Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 + CP6 ✅
-+ CP7 ✅ → **CP8 is next** (AI assistant + RAG — wire prosper-engine's
-`TradingAgent` as an MCP *client* against CP7's server, ingest
-`docs/strategies/*.md` + journal exports into Chroma, hosted LLM,
-pre-trade confidence scoring). CP3/CP4/CP5 are each "engineering done, one
-item needs something only you can supply" (real backfill run, real
-Telegram bot, a real options strategy to design multi-leg support against
-— see Blocked on you). None of that blocks CP8.
++ CP7 ✅ + CP8 🟡 → **CP9 is next** (Automation + hardening — order state
+machine, position reconciliation on restart, the live/paper real-time bar
+gap found while building CP5, auto start/stop, risk-limit hot-reload
+verification). CP3/CP4/CP5/CP8 are each "engineering done, one item needs
+something only you can supply" (real backfill run, real Telegram bot, a
+real options strategy to design multi-leg support against, a cloud LLM key
+— see Blocked on you). None of that blocks CP9. **Note:** CP8's code lives
+mostly in the separate `prosper-engine` repo and is uncommitted there —
+xillion's commit standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -331,13 +333,80 @@ crashing the server.
 
 ---
 
-### ⬜ CP8 — AI assistant + RAG (~11 hrs) → *Goal #6*
-- [ ] MCP **client** + tool loop in prosper-engine's `TradingAgent` (it has
-      `chat_full()` with tool support but **never passes tools**)
-- [ ] Ingest `docs/strategies/*.md` + journal exports into Chroma RAG
-- [ ] Hosted LLM (Gemini/Groq free tier)
-- [ ] Pre-trade hook: AI reviews signal → confidence % on alert → **prediction
-      logged against actual outcome** so you can tell signal from noise
+### 🟡 CP8 — AI assistant + RAG `MOSTLY DONE 2026-08-24 — cloud LLM key needs YOU`
+**Cross-repo:** most of this checkpoint's work is in `prosper-engine`
+(`~/Documents/personal/Projects/Learnings/prosper-engine`), a separate repo.
+**Its changes are uncommitted** — xillion's commit standing-authorization
+doesn't extend there; review and commit them yourself.
+
+- [x] MCP **client** + tool loop in prosper-engine's `TradingAgent`
+      (`agents/trading/agent.py::_chat_with_tool_loop`, new
+      `agents/trading/xillion_mcp.py`) — `chat_full()` had tool support
+      since 22 days before this session but nothing ever called it with
+      `tools=`; now it loops (capped at 5 rounds) executing xillion's real
+      MCP tools until the model stops calling them
+- [x] **Real local tool-calling, not just a mock:** `core/llm_client.py`'s
+      `_ollama()` silently dropped `tools` entirely before this — verified
+      live that Ollama's `/api/chat` genuinely supports tool-calling for
+      qwen3:8b (its `/api/tags` capabilities include `"tools"`) and wired
+      it through properly (Ollama returns already-parsed dict arguments,
+      not a JSON string like the OpenAI-compatible backends — this needed
+      its own code path, not reuse of the existing parsing)
+- [x] Ingest `docs/strategies/*.md` + journal exports into Chroma RAG
+      (`prosper-engine/scripts/ingest_xillion.py`) — CP6's markdown export
+      already writes real failure-log/version-history data into these
+      files, so ingesting them covers "journal exports" too, not a second
+      pipeline. Idempotent (stable ids from strategy slug + section/row)
+- [ ] **Hosted LLM (Gemini/Groq free tier) — NOT done, needs you.** The
+      swappable backend code already existed (built 22 days before this
+      session) and still works; no cloud API key has ever been configured
+      (`prosper-engine/.env` has only Ollama settings). Not a blocker for
+      anything above — Ollama's real tool-calling made full verification
+      possible without one. Get a free-tier key (Gemini via Google AI
+      Studio is the earlier recommendation) and set it in `prosper-engine/.env`
+      whenever you want a faster/hosted option instead of local Ollama
+- [x] Pre-trade hook: AI reviews signal → confidence % → **prediction logged
+      against actual outcome**. `signal_log.ai_confidence` (migration 008)
+      + prosper-engine's new `POST /confidence` endpoint. **Runs as a
+      background task** (`_fetch_and_store_confidence` in
+      `strategy_engine.py`), strictly after the alert has already fired and
+      the signal_log row already persisted — real qwen3:8b calls measured
+      at 30-60s+, far too slow to sit in a live alert's critical path.
+      Journal (CP6) surfaces `ai_confidence` next to the real outcome
+
+**🐛 Two real bugs found only by running this for real, not by unit tests:**
+1. `mcp>=1.2.0` resolved to `mcp==2.0.0`, which needs `starlette>=1.x` —
+   breaking prosper-engine's pinned `fastapi==0.115.0` (`APIRouter()` itself
+   raised `TypeError: unexpected keyword argument 'on_startup'`) for **every
+   route in the app**, not just the new one. None of the test suite caught
+   it because no test imported `api.routes.*` or `api.main`. Fixed by
+   pinning `mcp==1.9.4` (needs only `starlette>=0.27`) +
+   `starlette==0.38.6` + `sse-starlette==1.6.5`, verified with `pip check`
+   and a real `uvicorn api.main:app` boot.
+2. The confidence-endpoint's regex parser didn't accept a leading `-` sign,
+   so `CONFIDENCE: -10` silently fell through to the neutral-50 fallback
+   instead of parsing and clamping to 0 — caught by
+   `test_clamps_out_of_range_confidence`, one of this checkpoint's own new
+   tests, not by manual inspection.
+
+**Verified for real, twice, against live local Ollama (no cloud key
+needed):**
+1. Asked the real `TradingAgent.chat()` "what strategies are available" —
+   it correctly chose to call `list_strategies` (not guess), got the real
+   tool result over a real MCP stdio connection to xillion's real running
+   server, and synthesized an accurate, complete answer naming all 4 real
+   strategies.
+2. Spawned a real alert-mode instance, fired a real ENTER signal: the alert
+   sent and the signal_log row persisted in **0.06s**, then ~46s later the
+   background task filled in `ai_confidence=90.0` with real reasoning about
+   the setup's 3:1 risk/reward — confirmed via the journal that the
+   prediction and the (still-open) outcome sit side by side, exactly the
+   "prediction logged against actual outcome" this bullet asked for.
+
+All real Chroma/prosper-engine data touched during verification (one test
+chat turn, one test strategy's RAG chunks) was deleted afterward — confirmed
+the collections only contain the user's genuine pre-existing forex-scalping
+data.
 
 ---
 
@@ -417,6 +486,7 @@ Infrastructure each asset needs before its pipeline can start:
 | 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 |
 | 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 |
 | 7 | A real multi-leg options strategy (straddle/strangle/spread) to design CP5's multi-leg support against — same trading-course source as #2 | CP5 close-out, Options S1 |
+| 8 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out |
 
 ---
 

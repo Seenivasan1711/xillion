@@ -162,12 +162,13 @@ class _StrategyContextImpl(StrategyContext):
             except Exception as exc:
                 logger.error("alert notify failed", instance_id=self.instance_id, error=str(exc))
 
+        new_signal_id = None
         if self._db_factory:
             try:
                 from xillion.db.models import SignalLog
 
                 async with self._db_factory()() as session:
-                    session.add(SignalLog(
+                    row = SignalLog(
                         strategy_instance_id=self.instance_id,
                         ts=now.isoformat(),
                         underlying_symbol=request.symbol,
@@ -177,6 +178,7 @@ class _StrategyContextImpl(StrategyContext):
                         parent_signal_id=parent_signal_id,
                         target_price=float(request.target_price) if request.target_price is not None else None,
                         stop_loss_price=float(request.stop_loss_price) if request.stop_loss_price is not None else None,
+                        ai_confidence=None,  # filled in asynchronously below, if configured
                         side=request.side.value,
                         price=float(request.price) if request.price is not None else None,
                         message=message,
@@ -184,10 +186,22 @@ class _StrategyContextImpl(StrategyContext):
                         notified=notified,
                         notified_at=now.isoformat() if notified else None,
                         context_json=None,
-                    ))
+                    )
+                    session.add(row)
                     await session.commit()
+                    new_signal_id = row.id
             except Exception as exc:
                 logger.error("persist signal_log failed", instance_id=self.instance_id, error=str(exc))
+
+        # Pre-trade AI confidence hook (CP8) -- ENTER signals only (an EXIT
+        # is reporting what already happened, nothing to review beforehand).
+        # Runs AFTER the alert is already sent and the row already
+        # persisted, as a background task that updates ai_confidence in
+        # place once it resolves. A local "thinking" model can genuinely
+        # take 30-60s+ (measured against qwen3:8b via Ollama) -- an alert
+        # must never wait that long, so this never sits in the critical path.
+        if signal_type == "ENTER" and new_signal_id is not None and self._db_factory:
+            asyncio.create_task(self._fetch_and_store_confidence(new_signal_id, request))
 
         self.log(
             "info", "alert signal emitted",
@@ -209,6 +223,35 @@ class _StrategyContextImpl(StrategyContext):
             strategy_instance_id=self.instance_id,
             tag=f"{request.tag}|ALERT_ONLY" if request.tag else "ALERT_ONLY",
         )
+
+    async def _fetch_and_store_confidence(self, signal_id: int, request: OrderRequest) -> None:
+        """Background companion to _handle_alert_signal's ENTER path -- runs
+        after the alert already went out, never delays it. Errors here are
+        logged, never raised (this is a fire-and-forget asyncio task with no
+        caller to propagate to)."""
+        from xillion.notifications.ai_confidence import get_confidence
+
+        try:
+            confidence = await get_confidence(
+                symbol=request.symbol,
+                side=request.side.value,
+                price=float(request.price) if request.price is not None else None,
+                target_price=float(request.target_price) if request.target_price is not None else None,
+                stop_loss_price=float(request.stop_loss_price) if request.stop_loss_price is not None else None,
+                tag=request.tag,
+            )
+            if confidence is None or self._db_factory is None:
+                return
+            from xillion.db.models import SignalLog
+
+            async with self._db_factory()() as session:
+                row = await session.get(SignalLog, signal_id)
+                if row is not None:
+                    row.ai_confidence = confidence
+                    await session.commit()
+            self.log("info", "AI confidence stored", signal_id=signal_id, ai_confidence=confidence)
+        except Exception as exc:
+            logger.error("AI confidence background task failed", instance_id=self.instance_id, error=str(exc))
 
     async def cancel_order(self, client_order_id: str) -> bool:
         return await self._router.cancel(client_order_id)

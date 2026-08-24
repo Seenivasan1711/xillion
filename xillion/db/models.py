@@ -478,6 +478,7 @@ class SignalLog(Base):
     parent_signal_id: Mapped[int | None] = mapped_column(ForeignKey("signal_log.id"))
     target_price: Mapped[float | None] = mapped_column(Numeric)
     stop_loss_price: Mapped[float | None] = mapped_column(Numeric)
+    ai_confidence: Mapped[float | None] = mapped_column(Numeric)  # 0-100, CP8 pre-trade hook; NULL if not configured
     side: Mapped[str | None] = mapped_column(Text)  # BUY | SELL
     price: Mapped[float | None] = mapped_column(Numeric)
     message: Mapped[str] = mapped_column(Text, nullable=False)  # the "reason" text

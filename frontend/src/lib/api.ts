@@ -518,6 +518,7 @@ export interface JournalEntryRow {
   pnl: number | null
   target_price: number | null
   stop_loss_price: number | null
+  ai_confidence: number | null
   outcome: 'stopped_out' | 'target_hit' | 'win' | 'loss' | 'unclassified' | 'still_open'
   tag: string | null
   manual_failure_mode?: string | null
