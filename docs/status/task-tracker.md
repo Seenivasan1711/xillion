@@ -5,7 +5,7 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + CP2 ✅ → **CP3 is next**
+**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 (code done, real backfill run needs you — see Blocked on you #6) → **CP4 is next.** CP4's engineering (signal lifecycle, EXIT rows, Alerts page) doesn't need real credentials — same DummyBroker/fake-notifier pattern as the existing alert-mode test. Only its live end-to-end proof needs Kite Connect + Telegram (Blocked on you #1)
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -117,15 +117,39 @@ call makes 0.
 
 ---
 
-### ⬜ CP3 — Backfill + run history (~9 hrs)
-- [ ] Backfill CLI + `POST /api/data/backfill` + `GET /api/data/coverage` + UI
-- [ ] **Run the real 2–5 year backfill** (unattended)
-- [ ] Persist `BacktestRun`/`BacktestTrade` — tables exist but **nothing ever
-      writes to them**, so no backtest history is queryable
-- [ ] `GET /api/backtest/runs` + runs history UI
+### 🟡 CP3 — Backfill + run history `MOSTLY DONE 2026-08-24 — one item needs YOU`
+- [x] Backfill CLI (`scripts/backfill.py`, resumable year-by-year) +
+      `POST /api/data/backfill` + `GET /api/data/backfill` (job status) +
+      `GET /api/data/coverage`, plus a Coverage & backfill panel under
+      Settings → Data Providers
+- [ ] **Run the real 2–5 year backfill — NOT DONE, needs you.** This sandbox
+      can't reach Supabase directly (`db.<project>.supabase.co` doesn't
+      resolve from here — general internet works fine, just not that host;
+      see note below). Run it from your own machine once CP3 is pulled:
+      `python scripts/backfill.py --provider "NSE Bhavcopy (Free)" --symbol <full tradingsymbol> --exchange NFO --instrument-type option --from-date 2021-01-01 --to-date 2026-08-24`
+      — safe to re-run, already-covered years are skipped
+- [x] Persist `BacktestRun`/`BacktestTrade` — tables existed since migration
+      001/002 but nothing ever wrote to them; wired into all three
+      `/backtest/run*` endpoints
+- [x] `GET /api/backtest/runs` + `GET /api/backtest/runs/{id}` + Run history
+      panel on the Backtest page
 
-**Verify:** 2+ years of NIFTY/BANKNIFTY option history queryable locally; a
-6-month backtest completes in seconds with no network.
+**Verify:** Browser-verified end-to-end against a disposable local SQLite DB
+(same Supabase-unreachable reason above) — real login, real click-through,
+real NSE network fetch. **2+ years of NIFTY/BANKNIFTY option history
+queryable locally** is not yet true for the real Supabase DB — that's
+exactly the one unchecked item above.
+
+**🐛 Real bug caught by the browser check, not the unit tests:** the CP2
+bulk `upsert_bars` blew past SQLite's default 999-bound-parameter limit
+("too many SQL variables") the moment a real whole-file bhavcopy fetch tried
+to persist hundreds of contracts in one statement — every unit test used 1-2
+bars, so this never surfaced there. Fixed by batching at 100 rows/statement
+(dialect-agnostic, so Postgres gets the same safety margin even though its
+own limit is far higher). Confirmed fixed against real NSE data: one
+two-day backfill request persisted **124,012 bars across 62,402 distinct
+F&O contracts** from 2 real bhavcopy files — this is the CP2 "big lever"
+actually proven, not just unit-tested.
 
 ---
 
@@ -248,6 +272,7 @@ Infrastructure each asset needs before its pipeline can start:
 | 3 | CA opinion on Funding Pips prop-firm income | Gold/Forex S4 |
 | 4 | Funding Pips account + challenge | Gold S3 onward |
 | 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 |
+| 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 |
 
 ---
 

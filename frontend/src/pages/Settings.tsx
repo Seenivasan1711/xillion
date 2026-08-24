@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle, QrCode, Shield, Smartphone, Bell, User, AlertTriangle, Wifi, Database } from 'lucide-react'
 import { api } from '../lib/api'
-import type { ZerodhaCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass } from '../lib/api'
+import type { ZerodhaCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge } from '../components/ui'
 
@@ -408,6 +408,8 @@ function DataProvidersTab() {
         </div>
       )}
 
+      <CoverageAndBackfill providers={providers} />
+
       {msg && (
         <div style={{
           fontSize: 12, padding: '8px 12px', borderRadius: 7,
@@ -417,6 +419,188 @@ function DataProvidersTab() {
           {msg}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Coverage & backfill (CP3: "own the data") ───────────────────────────────
+
+function CoverageAndBackfill({ providers }: { providers: DataProviderClass[] }) {
+  const [coverage, setCoverage] = useState<BarCoverage[]>([])
+  const [jobs, setJobs] = useState<BackfillJob[]>([])
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState('')
+
+  const [provider, setProvider] = useState('')
+  const [symbol, setSymbol] = useState('')
+  const [exchange, setExchange] = useState('NFO')
+  const [instrumentType, setInstrumentType] = useState('option')
+  const [timeframe, setTimeframe] = useState('1d')
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date(); d.setFullYear(d.getFullYear() - 2)
+    return d.toISOString().slice(0, 10)
+  })
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [starting, setStarting] = useState(false)
+
+  const load = () => {
+    Promise.all([api.data.coverage(), api.data.backfillJobs()])
+      .then(([c, j]) => { setCoverage(c.coverage); setJobs(j.jobs) })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    load()
+    if (providers.length > 0 && !provider) setProvider(providers[0].name)
+    // Poll while any job is still in flight — cheap, and the only way to see
+    // a long backfill (2-5 years) progress without a websocket for it.
+    const interval = setInterval(() => {
+      setJobs(prev => {
+        if (prev.some(j => j.status === 'queued' || j.status === 'running')) load()
+        return prev
+      })
+    }, 3000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const startBackfill = async () => {
+    if (!provider || !symbol.trim()) return
+    setStarting(true)
+    setMsg('')
+    try {
+      await api.data.backfill({
+        provider_name: provider, symbol: symbol.trim(), exchange,
+        instrument_type: instrumentType, timeframe, from_date: fromDate, to_date: toDate,
+      })
+      setMsg('Backfill started — check status below.')
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed to start backfill')
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const jobTone = (status: BackfillJob['status']) =>
+    status === 'done' ? 'pos' : status === 'failed' ? 'neg' : 'warn'
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="title">Coverage &amp; backfill</span>
+      </div>
+      <div className="card-pad stack" style={{ gap: 14 }}>
+        <div className="faint" style={{ fontSize: 11.5 }}>
+          What's already cached locally (zero provider calls on repeat backtests over the same range), and a way
+          to pull years of history in one go instead of one backtest at a time. Long ranges run in the background
+          — for a real multi-year run, <code>scripts/backfill.py</code> is resumable if it gets interrupted.
+        </div>
+
+        <div className="grid-2">
+          <div className="field">
+            <label>Provider</label>
+            <select className="input" value={provider} onChange={e => setProvider(e.target.value)}>
+              {providers.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Symbol</label>
+            <input className="input" value={symbol} onChange={e => setSymbol(e.target.value)} placeholder="NIFTY26AUGFUT" />
+          </div>
+        </div>
+        <div className="grid-2">
+          <div className="field">
+            <label>Exchange</label>
+            <input className="input" value={exchange} onChange={e => setExchange(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Instrument type</label>
+            <select className="input" value={instrumentType} onChange={e => setInstrumentType(e.target.value)}>
+              {['equity', 'future', 'option'].map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="field">
+          <label>Timeframe</label>
+          <select className="input" value={timeframe} onChange={e => setTimeframe(e.target.value)}>
+            {['1d', '1h', '15m', '5m', '1m'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
+          </select>
+        </div>
+        <div className="grid-2">
+          <div className="field">
+            <label>From</label>
+            <input type="date" className="input" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>To</label>
+            <input type="date" className="input" value={toDate} onChange={e => setToDate(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <button className="btn primary sm" onClick={startBackfill} disabled={starting || !provider || !symbol.trim()}>
+            {starting ? 'Starting…' : 'Start backfill'}
+          </button>
+        </div>
+
+        {jobs.length > 0 && (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Provider</th><th>Symbol</th><th>Range</th><th>Status</th><th className="num">Bars</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.slice().reverse().slice(0, 8).map(j => (
+                <tr key={j.id}>
+                  <td className="faint" style={{ fontSize: 11 }}>{j.provider_name}</td>
+                  <td style={{ fontSize: 11 }}>{j.symbol}</td>
+                  <td className="faint mono-num" style={{ fontSize: 10.5 }}>{j.from_date} → {j.to_date}</td>
+                  <td><Badge tone={jobTone(j.status)}>{j.status}</Badge></td>
+                  <td className="num mono-num">{j.bars_fetched ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {!loading && coverage.length > 0 && (
+          <>
+            <div className="faint" style={{ fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 4 }}>
+              Cached ranges
+            </div>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Symbol</th><th>Exchange</th><th>Timeframe</th><th>Provider</th><th>Range</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coverage.slice(0, 20).map(c => (
+                  <tr key={`${c.symbol}-${c.exchange}-${c.timeframe}-${c.provider_name}`}>
+                    <td style={{ fontSize: 11 }}>{c.symbol === '*' ? <span className="faint">all (whole-file)</span> : c.symbol}</td>
+                    <td className="faint" style={{ fontSize: 11 }}>{c.exchange}</td>
+                    <td className="faint" style={{ fontSize: 11 }}>{c.timeframe}</td>
+                    <td className="faint" style={{ fontSize: 11 }}>{c.provider_name}</td>
+                    <td className="mono-num" style={{ fontSize: 10.5 }}>{c.from_date} → {c.to_date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {msg && (
+          <div style={{
+            fontSize: 12, padding: '8px 12px', borderRadius: 7,
+            background: msg.includes('started') ? 'var(--pos-dim)' : 'var(--neg-dim)',
+            color: msg.includes('started') ? 'var(--pos)' : 'var(--neg)',
+          }}>
+            {msg}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

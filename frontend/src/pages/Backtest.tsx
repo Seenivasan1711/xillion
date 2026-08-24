@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Play, Upload } from 'lucide-react'
-import { api, type BacktestResponse, type BacktestTrade, type StrategyClass, type DataProviderClass } from '../lib/api'
+import { Play, Upload, History } from 'lucide-react'
+import { api, type BacktestResponse, type BacktestTrade, type BacktestRunSummary, type BacktestRunDetail, type StrategyClass, type DataProviderClass } from '../lib/api'
 import { Sparkline, Badge, SegmentedControl, fmtINR } from '../components/ui'
 
 function isoDaysAgo(days: number): string {
@@ -32,7 +32,23 @@ export default function Backtest() {
   const [fromDate, setFromDate] = useState(isoDaysAgo(60))
   const [toDate, setToDate] = useState(isoDaysAgo(0))
 
+  // Run history (CP3) — persisted server-side, so it survives a page reload.
+  const [runs, setRuns] = useState<BacktestRunSummary[]>([])
+  const [selectedRun, setSelectedRun] = useState<BacktestRunDetail | null>(null)
+  const [runsLoading, setRunsLoading] = useState(false)
+
+  const loadRuns = () => {
+    setRunsLoading(true)
+    api.backtest.runs(20).then(r => setRuns(r.runs)).catch(() => {}).finally(() => setRunsLoading(false))
+  }
+
+  const openRun = (id: string) => {
+    setSelectedRun(null)
+    api.backtest.runDetail(id).then(setSelectedRun).catch(() => {})
+  }
+
   useEffect(() => {
+    loadRuns()
     api.strategies.classes().then(r => {
       setStrategies(r.strategies)
       if (r.strategies.length > 0) {
@@ -86,6 +102,7 @@ export default function Backtest() {
       // Inject elapsed_seconds if backend didn't return it
       if (!res.elapsed_seconds) (res as BacktestResponse).elapsed_seconds = (Date.now() - t0) / 1000
       setResult(res)
+      loadRuns()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
@@ -356,6 +373,74 @@ export default function Backtest() {
               )}
             </>
           )}
+
+          {/* Run history (CP3) — persisted, survives a page reload */}
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div className="card-head">
+              <span className="title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <History size={13} /> Run history
+              </span>
+              {runsLoading && <span className="faint" style={{ fontSize: 11 }}>Loading…</span>}
+            </div>
+            {runs.length === 0 && !runsLoading && (
+              <div className="card-pad faint" style={{ fontSize: 11.5 }}>No past runs yet.</div>
+            )}
+            {runs.length > 0 && (
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Started</th><th>Timeframe</th><th>Range</th><th className="num">Return</th>
+                    <th className="num">Sharpe</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map(r => (
+                    <tr key={r.id} onClick={() => openRun(r.id)} style={{ cursor: 'pointer' }}>
+                      <td className="faint mono-num" style={{ fontSize: 10.5 }}>
+                        {new Date(r.started_at).toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ fontSize: 11 }}>{r.timeframe}</td>
+                      <td className="faint mono-num" style={{ fontSize: 10.5 }}>
+                        {new Date(r.from_ts).toLocaleDateString('en-IN')} → {new Date(r.to_ts).toLocaleDateString('en-IN')}
+                      </td>
+                      <td className={`num mono-num ${(r.metrics.total_return_pct ?? 0) >= 0 ? 'pos' : 'neg'}`}>
+                        {r.metrics.total_return_pct != null ? `${r.metrics.total_return_pct.toFixed(1)}%` : '—'}
+                      </td>
+                      <td className="num mono-num">{r.metrics.sharpe_ratio != null ? r.metrics.sharpe_ratio.toFixed(2) : '—'}</td>
+                      <td><Badge tone={r.status === 'done' ? 'pos' : r.status === 'failed' ? 'neg' : 'warn'}>{r.status}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {selectedRun && (
+              <div className="card-pad stack" style={{ gap: 10, borderTop: '1px solid var(--border)' }}>
+                <div className="title" style={{ fontSize: 12 }}>Run {selectedRun.id.slice(0, 8)} detail</div>
+                {selectedRun.equity_curve.length > 0 && <Sparkline data={selectedRun.equity_curve} height={100} />}
+                {selectedRun.trades.length > 0 && (
+                  <table className="tbl">
+                    <thead>
+                      <tr><th>Symbol</th><th>Side</th><th className="num">Entry</th><th className="num">Exit</th><th className="num">P&amp;L</th></tr>
+                    </thead>
+                    <tbody>
+                      {selectedRun.trades.slice(0, 10).map((t, i) => (
+                        <tr key={i}>
+                          <td style={{ fontSize: 11 }}>{t.symbol}</td>
+                          <td style={{ fontSize: 11 }}>{t.side}</td>
+                          <td className="num mono-num">₹{t.entry_price.toFixed(2)}</td>
+                          <td className="num mono-num">{t.exit_price != null ? `₹${t.exit_price.toFixed(2)}` : '—'}</td>
+                          <td className={`num mono-num ${(t.pnl ?? 0) >= 0 ? 'pos' : 'neg'}`}>
+                            {t.pnl != null ? fmtINR(t.pnl, { signed: true }) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

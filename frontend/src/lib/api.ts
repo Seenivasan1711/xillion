@@ -177,6 +177,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    runs: (limit = 50) => request<{ runs: BacktestRunSummary[] }>(`/backtest/runs?limit=${limit}`),
+    runDetail: (runId: string) => request<BacktestRunDetail>(`/backtest/runs/${encodeURIComponent(runId)}`),
   },
 
   dataProviders: {
@@ -191,6 +193,17 @@ export const api = {
       request<{ deleted: boolean }>(`/data-providers/${encodeURIComponent(name)}/credentials`, {
         method: 'DELETE',
       }),
+  },
+
+  data: {
+    coverage: () => request<{ coverage: BarCoverage[] }>('/data/coverage'),
+    backfill: (body: BackfillRequest) =>
+      request<{ job_id: string; status: string }>('/data/backfill', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    backfillJobs: () => request<{ jobs: BackfillJob[] }>('/data/backfill'),
+    backfillStatus: (jobId: string) => request<BackfillJob>(`/data/backfill/${encodeURIComponent(jobId)}`),
   },
 }
 
@@ -362,6 +375,74 @@ export interface BacktestProviderRequest {
   initial_capital?: number
   slippage_bps?: number
   params?: Record<string, unknown>
+}
+
+export interface BarCoverage {
+  symbol: string
+  exchange: string
+  timeframe: string
+  provider_name: string
+  from_date: string
+  to_date: string
+  updated_at: string
+}
+
+export interface BackfillRequest {
+  provider_name: string
+  symbol: string
+  exchange?: string
+  instrument_type?: string
+  timeframe?: string
+  from_date: string
+  to_date: string
+}
+
+export interface BackfillJob {
+  id: string
+  provider_name: string
+  symbol: string
+  exchange: string
+  timeframe: string
+  from_date: string
+  to_date: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  bars_fetched: number | null
+  error: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface BacktestRunSummary {
+  id: string
+  strategy_class_id: number
+  status: string
+  timeframe: string
+  from_ts: string
+  to_ts: string
+  initial_capital: number
+  started_at: string
+  finished_at: string | null
+  metrics: Record<string, number | null>
+  error: string | null
+}
+
+export interface BacktestRunDetail extends BacktestRunSummary {
+  strategy_class_version: string
+  params: Record<string, unknown>
+  instruments: string[]
+  slippage_bps: number
+  equity_curve: number[]
+  trades: {
+    symbol: string
+    side: string
+    quantity: number
+    entry_ts: string
+    entry_price: number
+    exit_ts: string | null
+    exit_price: number | null
+    pnl: number | null
+    tag: string | null
+  }[]
 }
 
 export interface DataProviderCapabilities {

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xillion.api.deps import db_dep, get_current_user
 from xillion.auth.data_provider_credstore import load_provider_credentials
 from xillion.core.events import Bar
+from xillion.data.backtest_runs import get_backtest_run, list_backtest_runs, persist_backtest_run
 from xillion.data.coverage import BarCoverageRepository
 from xillion.data.repository import BarRepository
 from xillion.data.warehouse import BarWarehouse
@@ -100,6 +101,7 @@ async def run_backtest(body: RunBacktestRequest, request: Request):
         params=body.params,
         slippage_bps=body.slippage_bps,
     )
+    await persist_backtest_run(get_session_factory(), result)
 
     return {
         "run_id": result.run_id,
@@ -161,6 +163,7 @@ async def run_backtest_csv(
         params=params_dict,
         slippage_bps=slippage_bps,
     )
+    await persist_backtest_run(get_session_factory(), result)
 
     return {
         "run_id": result.run_id,
@@ -276,6 +279,7 @@ async def run_backtest_provider(
         params=body.params,
         slippage_bps=body.slippage_bps,
     )
+    await persist_backtest_run(session_factory, result)
 
     return {
         "run_id": result.run_id,
@@ -288,4 +292,82 @@ async def run_backtest_provider(
         "from_ts": result.from_ts.isoformat(),
         "to_ts": result.to_ts.isoformat(),
         "bars_loaded": len(bars),
+    }
+
+
+class BacktestRunSummary(BaseModel):
+    id: str
+    strategy_class_id: int
+    status: str
+    timeframe: str
+    from_ts: str
+    to_ts: str
+    initial_capital: float
+    started_at: str
+    finished_at: Optional[str]
+    metrics: dict
+    error: Optional[str] = None
+
+
+@router.get("/runs")
+async def get_backtest_runs(limit: int = 50):
+    """Recent backtest run history -- persisted since CP3 (previously every
+    result was gone the moment the response left the server)."""
+    runs = await list_backtest_runs(get_session_factory(), limit=limit)
+    return {
+        "runs": [
+            BacktestRunSummary(
+                id=r.id,
+                strategy_class_id=r.strategy_class_id,
+                status=r.status,
+                timeframe=r.timeframe,
+                from_ts=r.from_ts,
+                to_ts=r.to_ts,
+                initial_capital=float(r.initial_capital),
+                started_at=r.started_at,
+                finished_at=r.finished_at,
+                metrics=json.loads(r.metrics_json) if r.metrics_json else {},
+                error=r.error,
+            )
+            for r in runs
+        ]
+    }
+
+
+@router.get("/runs/{run_id}")
+async def get_backtest_run_detail(run_id: str):
+    run, trades = await get_backtest_run(get_session_factory(), run_id)
+    if run is None:
+        raise HTTPException(404, f"Backtest run '{run_id}' not found")
+    return {
+        "id": run.id,
+        "strategy_class_id": run.strategy_class_id,
+        "strategy_class_version": run.strategy_class_version,
+        "params": json.loads(run.params_json),
+        "instruments": json.loads(run.instruments_json),
+        "timeframe": run.timeframe,
+        "from_ts": run.from_ts,
+        "to_ts": run.to_ts,
+        "initial_capital": float(run.initial_capital),
+        "slippage_bps": run.slippage_bps,
+        "status": run.status,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "error": run.error,
+        "metrics": json.loads(run.metrics_json) if run.metrics_json else {},
+        "equity_curve": json.loads(run.equity_curve_json) if run.equity_curve_json else [],
+        "trades": [
+            {
+                "symbol": t.symbol,
+                "side": t.side,
+                "quantity": t.quantity,
+                "entry_ts": t.entry_ts,
+                "entry_price": float(t.entry_price),
+                "exit_ts": t.exit_ts,
+                "exit_price": float(t.exit_price) if t.exit_price is not None else None,
+                "pnl": float(t.pnl) if t.pnl is not None else None,
+                "tag": t.tag,
+            }
+            for t in trades
+        ],
     }

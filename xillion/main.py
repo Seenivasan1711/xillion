@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from xillion import __version__
-from xillion.api import backtest, brokers, data_providers, health, instances, risk as risk_router, strategies, ws
+from xillion.api import backtest, brokers, data, data_providers, health, instances, risk as risk_router, strategies, ws
 from xillion.api import auth as auth_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import settings as settings_router
@@ -231,6 +231,7 @@ async def lifespan(app: FastAPI):
     app.state.strategy_engine = engine
 
     app.state.broker_instances: dict = {}
+    app.state.backfill_jobs: dict = {}
 
     # Connect configured brokers (non-blocking — errors are logged, not raised)
     await _try_connect_zerodha(app)
@@ -281,6 +282,7 @@ app.include_router(risk_router.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
 app.include_router(data_providers.router, prefix="/api")
+app.include_router(data.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(trades_router.router, prefix="/api")
