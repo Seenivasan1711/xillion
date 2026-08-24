@@ -5,7 +5,7 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + session infrastructure ✅ → **CP2 is next**
+**Current position:** Track A · CP1 ✅ + CP2 ✅ → **CP3 is next**
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -73,28 +73,47 @@ Fixed bugs that made every backtest number untrustworthy.
 
 ---
 
-### ⬜ CP2 — Data warehouse `NEXT` (~14 hrs)
+### ✅ CP2 — Data warehouse `DONE 2026-08-24`
 Stop re-fetching. Own the data. → *Goal: no third-party historical fees.*
 
-- [ ] Fix `BarRepository.get_bars` — it **ignores its `exchange` argument**, so
-      NSE/NFO rows cross-contaminate (`xillion/data/repository.py:50-58`)
-- [ ] Replace per-row `session.merge` with bulk `on_conflict_do_update`
-      (`pg_insert`/`sqlite_insert` are already imported but unused) — current
-      form is unusable for years of backfill
-- [ ] Migration `005`: `bar_coverage` + `market_holiday` tables, plus a
-      `(symbol, exchange, timeframe, ts)` range index
-- [ ] `xillion/data/warehouse.py::BarWarehouse` — check cache → fetch only
-      missing ranges → persist → re-read. Coverage table distinguishes
-      "never fetched" from "holiday, legitimately empty"
-- [ ] **Whole-file bhavcopy persistence** 💡 — `nse_bhavcopy.py` downloads a
-      whole-market daily ZIP then throws away all but one symbol. Persisting
-      every row means **one fetch per trading day = every F&O contract's OHLC
-      for that day.** This is most of the "own our data" goal
-- [ ] Wire `/run-provider` + `HistoryManager` to the warehouse
-      (`HistoryManager` already takes a `repository` arg it never uses)
+- [x] Fixed `BarRepository.get_bars` — it **ignored its `exchange` argument**,
+      so NSE/NFO rows could cross-contaminate. Now filters on it.
+- [x] Replaced per-row `session.merge` with a single bulk
+      `INSERT .. ON CONFLICT DO UPDATE` (dialect-aware: `pg_insert` on
+      Postgres, `sqlite_insert` in tests) — the old per-row loop would have
+      made a years-long backfill take one DB round-trip per bar
+- [x] Migration `005`: `bar_coverage` + `market_holiday` tables. No new bar
+      index needed — `bar`'s existing PK is `(symbol, exchange, timeframe, ts)`
+      in exactly the order `get_bars` filters on, so it already serves as the
+      range index
+- [x] `xillion/data/warehouse.py::BarWarehouse` + `xillion/data/coverage.py`
+      — check cache → fetch only the missing date range → persist → re-read
+      from DB. A gap that comes back empty (holiday) is still marked
+      covered, so it isn't re-requested forever
+- [x] **Whole-file bhavcopy persistence** 💡 — `nse_bhavcopy.py` now exposes
+      `fetch_all_bars_for_day` (parses every instrument in that day's ZIP,
+      not just the one requested) behind a `supports_whole_file_bulk`
+      capability flag. `BarWarehouse` uses a wildcard coverage key for such
+      providers, so **one fetch covers every symbol on that exchange/day** —
+      a second symbol on an already-fetched day costs zero network calls
+- [x] Wired `POST /backtest/run-provider` through `BarWarehouse` instead of
+      calling `provider.fetch_bars` directly
+- [x] Wired `HistoryManager(repository=...)` in `StrategyEngine.spawn` — it
+      accepted a `repository` arg since it was written but never read it, so
+      a live/paper strategy needing e.g. a 200-bar SMA got nothing for its
+      first 200 ticks even with years of DB history sitting right there.
+      **Known gap, not fixed here:** the DB fallback defaults to
+      `exchange="NSE"` — an NFO/BFO options instance won't get backfilled
+      until the exchange-hardcoding audit lands in CP10. Falls back to
+      in-memory-only (today's behaviour) for those, no regression either way
+- [x] 11 new regression tests (`test_bar_repository.py`, `test_bar_warehouse.py`,
+      `test_history_manager.py`) — includes the exact "second run, zero
+      provider calls" check and a whole-file-bulk cross-symbol check
 
-**Verify:** run the same backtest twice — second run sub-second with **zero**
-provider HTTP calls (assert with a counting fake provider).
+**Verified:** `pytest tests/` → **107 passed** (96 prior + 11 new). Ran the
+counting-fake-provider scenario from the Verify line directly: first
+`BarWarehouse.get_bars()` call makes 1 provider call, an identical second
+call makes 0.
 
 ---
 

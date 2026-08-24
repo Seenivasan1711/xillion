@@ -20,6 +20,7 @@ from xillion.core.risk import RiskManager
 from xillion.core.strategy_base import Strategy, StrategyContext
 from xillion.data.bus import MarketDataBus
 from xillion.data.history import HistoryManager
+from xillion.data.repository import BarRepository
 from xillion.notifications.telegram import TelegramNotifier
 
 logger = structlog.get_logger(__name__)
@@ -537,7 +538,7 @@ class StrategyEngine:
             db_factory=db_factory,
             broker_connection_id=broker_connection_id,
         )
-        history = HistoryManager()
+        history = HistoryManager(repository=BarRepository(db_factory()))
         ctx = _StrategyContextImpl(
             instance_id=instance_id,
             instance_name=instance_name or instance_id,

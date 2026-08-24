@@ -49,6 +49,7 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         requires_credentials=False,
         requires_broker=False,
         max_lookback_days=None,  # NSE archives go back to 1994
+        supports_whole_file_bulk=True,
     )
 
     async def fetch_bars(
@@ -73,35 +74,66 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             day = from_date
             while day <= to_date:
                 if day.weekday() < 5:  # skip weekends outright, no point requesting
-                    bar = await self._fetch_one_day(client, symbol, day)
+                    day_bars = await self._fetch_and_parse_day(client, day)
+                    bar = day_bars.get(symbol)
                     if bar is not None:
                         bars.append(bar)
                 day += timedelta(days=1)
         return bars
 
-    async def _fetch_one_day(self, client: httpx.AsyncClient, symbol: str, day: date) -> Bar | None:
+    async def fetch_all_bars_for_day(
+        self,
+        exchange: str,
+        timeframe: str,
+        day: date,
+        *,
+        credentials=None,
+        broker=None,
+    ) -> list[Bar]:
+        """The whole-file lever: one ZIP download covers every F&O
+        instrument traded that day, not just the one symbol asked for.
+        BarWarehouse persists all of them so later requests for any other
+        symbol on this same day cost zero provider calls."""
+        if timeframe != "1d":
+            raise ValueError(
+                f"NSE Bhavcopy (Free) only provides daily bars — got timeframe={timeframe!r}"
+            )
+        if day.weekday() >= 5:
+            return []
+        async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
+            day_bars = await self._fetch_and_parse_day(client, day)
+        return list(day_bars.values())
+
+    async def _fetch_and_parse_day(self, client: httpx.AsyncClient, day: date) -> dict[str, Bar]:
+        """Download and parse one day's whole-market ZIP once, returning
+        every instrument's bar keyed by tradingsymbol."""
         url = _URL_TEMPLATE.format(ymd=day.strftime("%Y%m%d"))
         try:
             resp = await client.get(url)
             if resp.status_code == 404:
-                return None  # holiday / no trading that day
+                return {}  # holiday / no trading that day
             resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("nse bhavcopy fetch failed", date=str(day), error=str(exc))
-            return None
+            return {}
 
+        result: dict[str, Bar] = {}
         try:
             with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
                 csv_name = next(n for n in zf.namelist() if n.lower().endswith(".csv"))
                 with zf.open(csv_name) as f:
                     reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
                     for row in reader:
-                        if row.get("FinInstrmNm") == symbol or row.get("TckrSymb") == symbol:
-                            return self._row_to_bar(row, symbol, day)
+                        sym = row.get("FinInstrmNm") or row.get("TckrSymb")
+                        if not sym or sym in result:
+                            continue
+                        bar = self._row_to_bar(row, sym, day)
+                        if bar is not None:
+                            result[sym] = bar
         except (zipfile.BadZipFile, StopIteration) as exc:
             logger.warning("nse bhavcopy parse failed", date=str(day), error=str(exc))
-            return None
-        return None  # symbol not found in that day's file
+            return {}
+        return result
 
     @staticmethod
     def _row_to_bar(row: dict, symbol: str, day: date) -> Bar | None:

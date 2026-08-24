@@ -32,6 +32,12 @@ class DataProviderCapabilities:
     requires_credentials: bool = True
     requires_broker: bool = False       # True for providers that piggyback on a connected Broker (e.g. Kite)
     max_lookback_days: Optional[int] = None  # None = no known hard limit
+    # True when one fetch_all_bars_for_day() call returns every instrument's
+    # bar for that exchange/day (e.g. NSE bhavcopy's whole-market ZIP), so
+    # BarWarehouse should persist the whole batch instead of the one symbol
+    # asked for -- the next request for *any* other symbol on that day then
+    # costs zero provider calls. See docs/process/asset-pipeline.md "Goal #1".
+    supports_whole_file_bulk: bool = False
 
 
 class HistoricalDataProvider(ABC):
@@ -75,4 +81,19 @@ class HistoricalDataProvider(ABC):
         matching broker is connected -- such providers should raise a clear
         error rather than fail silently.
         """
+        raise NotImplementedError
+
+    async def fetch_all_bars_for_day(
+        self,
+        exchange: str,
+        timeframe: str,
+        day: date,
+        *,
+        credentials: Optional[dict] = None,
+        broker=None,
+    ) -> list[Bar]:
+        """Fetch every instrument's bar for one exchange/day in a single
+        request. Only implemented by providers with
+        capabilities.supports_whole_file_bulk=True (e.g. NSE bhavcopy);
+        others should never have this called."""
         raise NotImplementedError

@@ -275,6 +275,37 @@ class BarRecord(Base):
     __table_args__ = (Index("idx_bar_symbol_tf", "symbol", "timeframe"),)
 
 
+class BarCoverage(Base):
+    """Tracks which contiguous date range is already fetched for a
+    (symbol, exchange, timeframe, provider) combination, so BarWarehouse can
+    fetch only the gap instead of re-requesting a range it already has --
+    including holidays inside that range, which never produce a bar but are
+    still "covered" once the range containing them has been fetched once.
+
+    `symbol="*"` is a wildcard row used by whole-file-bulk providers (e.g.
+    NSE bhavcopy): one fetch persists every instrument's bar for that day, so
+    coverage is tracked per exchange/day rather than per symbol."""
+    __tablename__ = "bar_coverage"
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    exchange: Mapped[str] = mapped_column(Text, primary_key=True)
+    timeframe: Mapped[str] = mapped_column(Text, primary_key=True)
+    provider_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    from_date: Mapped[str] = mapped_column(Text, nullable=False)  # ISO date
+    to_date: Mapped[str] = mapped_column(Text, nullable=False)  # ISO date
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class MarketHoliday(Base):
+    """Known non-trading days per exchange, so a backfill or paper-session
+    scheduler can skip them without hitting the provider to find out."""
+    __tablename__ = "market_holiday"
+
+    exchange: Mapped[str] = mapped_column(Text, primary_key=True)
+    holiday_date: Mapped[str] = mapped_column(Text, primary_key=True)  # ISO date
+    description: Mapped[str | None] = mapped_column(Text)
+
+
 # ── Backtest runs ──────────────────────────────────────────────────────────────
 
 class BacktestRun(Base):

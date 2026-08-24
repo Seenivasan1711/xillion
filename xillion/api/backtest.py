@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xillion.api.deps import db_dep, get_current_user
 from xillion.auth.data_provider_credstore import load_provider_credentials
 from xillion.core.events import Bar
+from xillion.data.coverage import BarCoverageRepository
+from xillion.data.repository import BarRepository
+from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser
+from xillion.db.session import get_session_factory
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -234,8 +238,14 @@ async def run_backtest_provider(
             )
         broker = connected
 
+    session_factory = get_session_factory()
+    warehouse = BarWarehouse(
+        BarRepository(session_factory),
+        BarCoverageRepository(session_factory),
+    )
     try:
-        bars = await provider.fetch_bars(
+        bars = await warehouse.get_bars(
+            provider,
             body.symbol,
             body.exchange,
             body.timeframe,

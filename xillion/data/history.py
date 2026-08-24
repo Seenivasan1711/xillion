@@ -2,7 +2,7 @@
 Historical data manager: fetches bars from the DB or broker and caches them.
 In backtest mode, the data is loaded upfront. In live mode, it's fetched on demand.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
@@ -18,9 +18,15 @@ class HistoryManager:
     Wraps the DB repository with optional broker fallback.
     """
 
-    def __init__(self, repository=None, broker=None) -> None:
+    def __init__(self, repository=None, broker=None, exchange: str = "NSE") -> None:
         self._repo = repository
         self._broker = broker
+        # NOTE: single exchange for the whole manager, defaulting to "NSE" --
+        # matches the exchange hardcoding elsewhere in the live path (see
+        # docs/status/task-tracker.md CP10). An options instance trading NFO
+        # won't get a DB backfill until that's threaded through properly;
+        # it just falls back to in-memory-only bars, same as before this.
+        self._exchange = exchange
         # In-memory cache: (symbol, timeframe) -> sorted list[Bar]
         self._cache: dict[tuple[str, str], list[Bar]] = {}
 
@@ -41,6 +47,11 @@ class HistoryManager:
         """
         Return up to `lookback` bars for (symbol, timeframe) ending at `as_of`.
         `as_of` is None in live mode (means now), and the simulated current time in backtest.
+
+        If the in-memory cache doesn't have `lookback` bars yet (e.g. a
+        strategy just started and wants a 200-bar SMA), and a `repository`
+        was supplied, backfill from the DB warehouse so the strategy isn't
+        silently starved for its first `lookback` live ticks.
         """
         key = (symbol, timeframe)
         bars = self._cache.get(key, [])
@@ -48,7 +59,18 @@ class HistoryManager:
         if as_of is not None:
             bars = [b for b in bars if b.ts < as_of]
 
-        return bars[-lookback:] if lookback < len(bars) else bars
+        if len(bars) >= lookback or self._repo is None:
+            return bars[-lookback:] if lookback < len(bars) else bars
+
+        earliest = bars[0].ts if bars else (as_of or datetime.utcnow())
+        db_bars = await self._repo.get_bars(
+            symbol, timeframe,
+            from_ts=datetime.min,
+            to_ts=earliest - timedelta(microseconds=1),
+            exchange=self._exchange,
+        )
+        merged = db_bars + bars  # db_bars end strictly before the in-memory tail starts
+        return merged[-lookback:] if lookback < len(merged) else merged
 
     def add_bar(self, bar: Bar) -> None:
         key = (bar.symbol, bar.timeframe)
