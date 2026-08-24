@@ -7,6 +7,7 @@ Telegram-facing rendering -- hand-checked against real numbers, not just
 "doesn't crash".
 """
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -20,14 +21,18 @@ def _now() -> str:
 
 
 async def _seed_broker_connection(db) -> int:
+    # id(db) collides across sessions once the earlier object is GC'd and a
+    # new one is allocated at the same address -- genuinely observed as a
+    # flaky UNIQUE-constraint failure across test functions in this file.
+    unique = uuid4().hex
     bc = BrokerClass(
-        name=f"Digest Test Broker {id(db)}", module_path="x", class_name="X", version="1.0.0",
+        name=f"Digest Test Broker {unique}", module_path="x", class_name="X", version="1.0.0",
         capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
     )
     db.add(bc)
     await db.flush()
     conn = BrokerConnection(
-        broker_class_id=bc.id, name=f"digest-conn-{id(db)}", credentials_ref="PAPER",
+        broker_class_id=bc.id, name=f"digest-conn-{unique}", credentials_ref="PAPER",
         is_active=True, created_at=_now(), updated_at=_now(),
     )
     db.add(conn)
