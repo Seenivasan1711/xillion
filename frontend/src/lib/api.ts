@@ -86,7 +86,7 @@ export const api = {
         body: JSON.stringify(body),
       }),
     get: (id: string) => request<StrategyInstance>(`/instances/${id}`),
-    update: (id: string, body: Partial<CreateInstanceRequest>) =>
+    update: (id: string, body: Partial<CreateInstanceRequest> & { auto_start?: boolean }) =>
       request<{ updated: boolean }>(`/instances/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -98,6 +98,16 @@ export const api = {
       ),
     stop: (id: string) => request<{ stopped: boolean }>(`/instances/${id}/stop`, { method: 'POST' }),
     delete: (id: string) => request<{ deleted: boolean }>(`/instances/${id}`, { method: 'DELETE' }),
+  },
+
+  logs: {
+    list: (opts?: { limit?: number; level?: string }) => {
+      const params = new URLSearchParams()
+      if (opts?.limit) params.set('limit', String(opts.limit))
+      if (opts?.level) params.set('level', opts.level)
+      const qs = params.toString()
+      return request<{ logs: LogEntry[] }>(`/logs${qs ? `?${qs}` : ''}`)
+    },
   },
 
   brokers: {
@@ -312,6 +322,15 @@ export interface BarData {
   timeframe?: string
 }
 
+export interface LogEntry {
+  id: number
+  ts: string
+  level: string
+  source: string
+  message: string
+  fields: Record<string, unknown>
+}
+
 export interface StrategyInstance {
   id: string
   name: string
@@ -327,6 +346,7 @@ export interface StrategyInstance {
   risk_limits: Record<string, unknown>
   last_started_at: string | null
   last_stopped_at: string | null
+  auto_start: boolean
   created_at: string
   updated_at: string
   // Extended fields (populated when backend supports them)

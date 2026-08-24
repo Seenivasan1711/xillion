@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Download, Trash2, Search } from 'lucide-react'
+import { api } from '../lib/api'
 import { wsClient } from '../lib/ws'
 import { Badge, SegmentedControl } from '../components/ui'
 
@@ -28,6 +29,19 @@ export default function Logs() {
   const [paused, setPaused] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const idRef = useRef(0)
+
+  useEffect(() => {
+    api.logs.list({ limit: 500 })
+      .then(res => {
+        const history: LogLine[] = res.logs.map(l => ({
+          id: l.id, ts: l.ts, level: l.level, source: l.source,
+          message: l.message, fields: l.fields,
+        }))
+        idRef.current = history.reduce((max, l) => Math.max(max, l.id), 0)
+        setLogs(history)
+      })
+      .catch(e => console.error('failed to load log history', e))
+  }, [])
 
   useEffect(() => {
     const unsub = wsClient.subscribe((event) => {

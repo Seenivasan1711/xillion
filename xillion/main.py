@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from xillion import __version__
-from xillion.api import backtest, brokers, data, data_providers, health, instances, journal as journal_router, positions as positions_router, risk as risk_router, signals, strategies, ws
+from xillion.api import backtest, brokers, data, data_providers, health, instances, journal as journal_router, logs as logs_router, positions as positions_router, risk as risk_router, signals, strategies, ws
 from xillion.api import auth as auth_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import settings as settings_router
@@ -24,11 +24,15 @@ from xillion.api import trades as trades_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
 from xillion.core.risk import RiskManager
+from xillion.data.bar_aggregator import BarAggregator
 from xillion.data.bus import MarketDataBus
 from xillion.db.plugin_sync import sync_registry_to_db
 from xillion.db.session import get_session_factory, init_db
+from xillion.engine.market_scheduler import run_market_hours_scheduler
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
+from xillion.observability.log_capture import capture_processor, run_log_persistence
+from xillion.observability.task_supervisor import supervise
 
 settings = get_settings()
 
@@ -36,6 +40,16 @@ structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(
         logging.DEBUG if not settings.is_production else logging.INFO
     ),
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.CallsiteParameterAdder([structlog.processors.CallsiteParameter.MODULE]),
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        capture_processor,
+        structlog.dev.ConsoleRenderer(),
+    ],
 )
 logger = structlog.get_logger(__name__)
 
@@ -96,9 +110,14 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         logger.info("zerodha: connected successfully")
 
         # Start broadcasting ticks to WebSocket clients + MarketDataBus
-        asyncio.create_task(_tick_broadcaster(broker, app.state.bus))
+        supervise("tick_broadcaster", _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
     except Exception as exc:
         logger.error("zerodha: failed to connect", error=str(exc))
+        asyncio.create_task(app.state.telegram.alert(
+            title="Zerodha connect failed",
+            body=f"No live prices/orders until this is fixed: {exc}",
+            severity="critical",
+        ))
         app.state.broker_instances["Zerodha Primary"] = {
             "name": "Zerodha Primary",
             "broker_name": "Zerodha",
@@ -112,10 +131,14 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
 async def _tick_broadcaster(broker, bus: "MarketDataBus") -> None:
     """Forward broker ticks to the MarketDataBus (strategies) and WebSocket clients (UI)."""
     logger.info("tick broadcaster started")
+    bar_aggregator = BarAggregator(bus)
     try:
         async for tick in broker.tick_stream():
             # Publish to strategy runners via the data bus
             await bus.publish_tick(tick)
+            # Turn ticks into bars for on_bar-subscribed strategies -- see
+            # xillion/data/bar_aggregator.py's docstring for why this exists.
+            await bar_aggregator.on_tick(tick)
             # Broadcast to connected UI clients
             await ws.broadcast(
                 {
@@ -237,14 +260,18 @@ async def lifespan(app: FastAPI):
     await _try_connect_zerodha(app)
 
     # Schedule daily token + instrument-dump refresh
-    refresh_task = asyncio.create_task(_daily_token_refresh(app))
-    instrument_refresh_task = asyncio.create_task(_daily_instrument_refresh(app))
+    refresh_task = supervise("daily_token_refresh", _daily_token_refresh(app), notifier=telegram)
+    instrument_refresh_task = supervise("daily_instrument_refresh", _daily_instrument_refresh(app), notifier=telegram)
+    market_scheduler_task = supervise("market_hours_scheduler", run_market_hours_scheduler(app), notifier=telegram)
+    log_persistence_task = supervise("log_persistence", run_log_persistence(), notifier=telegram)
 
     logger.info("xillion ready")
     yield
 
     refresh_task.cancel()
     instrument_refresh_task.cancel()
+    market_scheduler_task.cancel()
+    log_persistence_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")
@@ -285,6 +312,7 @@ app.include_router(data_providers.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
 app.include_router(signals.router, prefix="/api")
 app.include_router(journal_router.router, prefix="/api")
+app.include_router(logs_router.router, prefix="/api")
 app.include_router(positions_router.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")

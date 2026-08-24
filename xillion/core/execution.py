@@ -11,7 +11,7 @@ import structlog
 
 from xillion.core.broker_base import Broker
 from xillion.core.events import Order, OrderRequest, OrderStatus, Position
-from xillion.core.risk import RiskDecision, RiskManager, RiskRejected
+from xillion.core.risk import RiskDecision, RiskManager, RiskRejected, StrategyRiskConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -36,15 +36,28 @@ class ExecutionRouter:
         risk_manager: RiskManager,
         db_factory=None,
         broker_connection_id: Optional[int] = None,
+        risk_config: Optional[StrategyRiskConfig] = None,
     ) -> None:
         self._broker = broker
         self._risk = risk_manager
         self._db_factory = db_factory
         self._broker_connection_id = broker_connection_id
         self._orders: dict[str, Order] = {}
+        # Was previously never passed to risk.check() at all, silently
+        # disabling per-strategy daily-loss and max-open-positions gates for
+        # every live/paper order regardless of what the UI showed as
+        # configured (see docs/status/task-tracker.md CP9). set_risk_config()
+        # is the hot-reload path -- PATCH /instances/{id} updates this same
+        # object in place on the running instance, no restart needed.
+        self.risk_config = risk_config
 
-    async def submit(self, request: OrderRequest) -> Order:
-        decision: RiskDecision = self._risk.check(request)
+    def set_risk_config(self, risk_config: StrategyRiskConfig) -> None:
+        self.risk_config = risk_config
+
+    async def submit(self, request: OrderRequest, current_positions: Optional[int] = None) -> Order:
+        decision: RiskDecision = self._risk.check(
+            request, strategy_config=self.risk_config, current_positions=current_positions
+        )
         if isinstance(decision, RiskRejected):
             logger.warning(
                 "order rejected by risk manager",

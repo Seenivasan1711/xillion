@@ -16,7 +16,7 @@ from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Position,
 from xillion.core.execution import ExecutionRouter
 from xillion.core.market_calendar import is_market_open
 from xillion.core.plugin_loader import PluginRegistry
-from xillion.core.risk import RiskManager
+from xillion.core.risk import RiskManager, StrategyRiskConfig
 from xillion.core.strategy_base import Strategy, StrategyContext
 from xillion.data.bus import MarketDataBus
 from xillion.data.history import HistoryManager
@@ -72,11 +72,74 @@ class _StrategyContextImpl(StrategyContext):
         self._trade_count: int = 0
         self._win_count: int = 0
 
+    async def reconcile_positions(self) -> None:
+        """Rebuild self._positions from the broker's real current holdings
+        (CP9 -- "hard gate before real money"). Without this, restarting a
+        live instance always started believing it was flat, even with real
+        money sitting in a real position: self._positions is always
+        constructed empty above, and PositionRecord in the DB is only ever
+        written when a trade CLOSES (_persist_trade_close), never while one
+        is still open -- so there was no reliable source at all to rebuild
+        from before this queried the broker directly.
+
+        live mode only: paper's PositionRecord is this process's own
+        simulation and correctly starts flat on restart; backtest never
+        calls this.
+
+        Attribution is by symbol match against this instance's configured
+        instruments (static + any dynamically resolved via
+        ctx.subscribe_instrument) -- the broker has no concept of "which
+        xillion instance" a position belongs to. If two running instances
+        trade the same symbol on the same broker connection, this cannot
+        tell them apart; logs loudly rather than guessing silently.
+        """
+        if self.mode != "live" or self._broker is None:
+            return
+        try:
+            broker_positions = await self._broker.get_positions()
+        except Exception as exc:
+            logger.error(
+                "position reconciliation: broker fetch failed",
+                instance_id=self.instance_id, error=str(exc),
+            )
+            return
+
+        known_symbols: set[str] = set()
+        if self._runner is not None:
+            known_symbols = set(self._runner._instruments) | set(self._runner._dynamic_instruments)
+
+        reconciled = 0
+        for pos in broker_positions:
+            if pos.symbol not in known_symbols or pos.quantity == 0:
+                continue
+            self._positions[pos.symbol] = Position(
+                symbol=pos.symbol, quantity=pos.quantity, avg_price=pos.avg_price,
+                realised_pnl=pos.realised_pnl, unrealised_pnl=pos.unrealised_pnl,
+                last_price=pos.last_price, strategy_instance_id=self.instance_id,
+            )
+            reconciled += 1
+            logger.warning(
+                "position reconciled from broker on startup",
+                instance_id=self.instance_id, symbol=pos.symbol,
+                quantity=pos.quantity, avg_price=str(pos.avg_price),
+            )
+        if reconciled:
+            self.log("warning", "positions reconciled from broker", count=reconciled)
+        else:
+            self.log("info", "position reconciliation found nothing to restore")
+
     async def place_order(self, request: OrderRequest) -> Order:
         request.strategy_instance_id = self.instance_id
         if self.mode == "alert":
             return await self._handle_alert_signal(request)
-        order = await self._router.submit(request)
+        open_position_count = sum(1 for p in self._positions.values() if p.quantity != 0)
+        order = await self._router.submit(request, current_positions=open_position_count)
+        # Strategy.on_order_update was declared in the base class since
+        # before this session but never actually called by anything --
+        # fire-and-forget (matching on_trade_close below) so a slow or
+        # buggy override can't block subsequent order handling.
+        if self._runner is not None:
+            asyncio.create_task(self._notify_order_update(order))
         closed = self._update_position_from_order(order)
         if closed is not None:
             # Feed realised loss back into the risk manager's daily gate
@@ -93,6 +156,12 @@ class _StrategyContextImpl(StrategyContext):
             if self._db_factory:
                 asyncio.create_task(self._persist_trade_close(closed, order))
         return order
+
+    async def _notify_order_update(self, order: Order) -> None:
+        try:
+            await self._runner._strategy.on_order_update(order, self)
+        except Exception as exc:
+            logger.error("strategy on_order_update raised", instance_id=self.instance_id, error=str(exc))
 
     # ── Alert mode ──────────────────────────────────────────────────────────────
     # Alert mode's entire order-execution surface. Never calls
@@ -523,6 +592,10 @@ class StrategyRunner:
     async def start(self) -> None:
         self.status = "running"
         try:
+            # Before the strategy's own on_start (which may itself check
+            # ctx.position()) so it never sees a falsely-flat state after a
+            # live-mode restart -- see reconcile_positions()'s docstring.
+            await self._ctx.reconcile_positions()
             await self._strategy.on_start(self._ctx)
             for sym in self._instruments:
                 self._bus.subscribe_bars(sym, self._timeframe, self._handle_bar)
@@ -532,6 +605,7 @@ class StrategyRunner:
             self.status = "error"
             self.last_error = str(exc)
             logger.error("strategy on_start failed", instance_id=self._instance_id, error=str(exc))
+            self._notify_failure("failed to start", str(exc))
 
     def add_dynamic_symbol(self, symbol: str) -> None:
         """Subscribe this runner's tick handler to a symbol resolved at
@@ -564,6 +638,10 @@ class StrategyRunner:
         # gating is a reasonable fast-follow, not required for this phase.
         if self._ctx.mode == "alert" and not is_market_open(_now()):
             return
+        # ctx.history() reads from HistoryManager's in-memory cache; without
+        # this, every bar this runner is dispatched (below) would still be
+        # invisible to ctx.history() until the next DB backfill.
+        self._ctx._history.add_bar(bar)
         try:
             await self._strategy.on_bar(bar, self._ctx)
         except Exception as exc:
@@ -575,6 +653,7 @@ class StrategyRunner:
                 symbol=bar.symbol,
                 error=str(exc),
             )
+            self._notify_failure("on_bar raised an exception", f"{bar.symbol}: {exc}")
 
     async def _handle_tick(self, tick: Tick) -> None:
         if self._ctx.mode == "alert" and not is_market_open(_now()):
@@ -582,11 +661,29 @@ class StrategyRunner:
         try:
             await self._strategy.on_tick(tick, self._ctx)
         except Exception as exc:
+            self.status = "error"
+            self.last_error = str(exc)
             logger.error(
                 "strategy on_tick raised exception",
                 instance_id=self._instance_id,
                 error=str(exc),
             )
+            self._notify_failure("on_tick raised an exception", f"{tick.symbol}: {exc}")
+
+    def _notify_failure(self, summary: str, detail: str) -> None:
+        """Fire-and-forget Telegram alert -- if the *system* breaks (a
+        strategy crashes mid-session with real orders possibly still
+        pending), the user finds out immediately instead of only noticing
+        next time they happen to check the UI or Logs page. Same
+        fire-and-forget precedent as on_trade_close/_persist_order/
+        _notify_order_update: never let a notification failure affect
+        strategy execution."""
+        notifier = getattr(self._ctx, "_notifier", None)
+        if notifier is None:
+            return
+        instance_name = getattr(self._ctx, "_instance_name", None) or self._instance_id
+        title = f"{instance_name}: {summary}"
+        asyncio.create_task(notifier.alert(title=title, body=detail, severity="error"))
 
 
 class StrategyEngine:
@@ -615,6 +712,7 @@ class StrategyEngine:
         instance_name: Optional[str] = None,
         on_trade_close: Optional[Callable] = None,
         notifier: Optional[TelegramNotifier] = None,
+        risk_limits: Optional[dict] = None,
     ) -> StrategyRunner:
         if self._registry is None:
             raise RuntimeError("PluginRegistry not set on StrategyEngine")
@@ -625,11 +723,18 @@ class StrategyEngine:
         from xillion.db.session import get_session_factory
         db_factory = get_session_factory
 
+        risk_limits = risk_limits or {}
+        risk_config = StrategyRiskConfig(
+            capital_allocation=capital,
+            daily_loss_pct=float(risk_limits.get("daily_loss_pct") or 0.0),
+            max_open_positions=int(risk_limits.get("max_open_positions") or 0),
+        )
         router = ExecutionRouter(
             broker,
             self._risk,
             db_factory=db_factory,
             broker_connection_id=broker_connection_id,
+            risk_config=risk_config,
         )
         history = HistoryManager(repository=BarRepository(db_factory()))
         ctx = _StrategyContextImpl(
@@ -668,6 +773,23 @@ class StrategyEngine:
 
     def get_runner(self, instance_id: str) -> Optional[StrategyRunner]:
         return self._runners.get(instance_id)
+
+    def update_risk_config(self, instance_id: str, risk_limits: dict) -> bool:
+        """Hot-reload path for PATCH /instances/{id}: mutate the ALREADY-
+        RUNNING instance's risk config in place, no restart needed. Returns
+        False if the instance isn't currently running (nothing to update --
+        the new limits still land in the DB and apply whenever it starts)."""
+        runner = self._runners.get(instance_id)
+        if runner is None:
+            return False
+        router = runner._ctx._router
+        new_config = StrategyRiskConfig(
+            capital_allocation=runner._ctx.capital_allocated,
+            daily_loss_pct=float(risk_limits.get("daily_loss_pct") or 0.0),
+            max_open_positions=int(risk_limits.get("max_open_positions") or 0),
+        )
+        router.set_risk_config(new_config)
+        return True
 
     def list_runners(self) -> list[StrategyRunner]:
         return list(self._runners.values())

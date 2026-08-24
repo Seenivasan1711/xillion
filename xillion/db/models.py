@@ -124,6 +124,7 @@ class StrategyInstance(Base):
     last_started_at: Mapped[str | None] = mapped_column(Text)
     last_stopped_at: Mapped[str | None] = mapped_column(Text)
     last_error: Mapped[str | None] = mapped_column(Text)
+    auto_start: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -520,3 +521,26 @@ class NotificationRule(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     channel: Mapped[NotificationChannel] = relationship(back_populates="rules")
+
+
+# ── System logs ──────────────────────────────────────────────────────────────
+
+class SystemLog(Base):
+    """Every structlog event app-wide, captured by
+    xillion/observability/log_capture.py so the Logs page (CP9) has
+    something to load on mount instead of starting blank and losing
+    everything on reload -- see that module's docstring for the full
+    pipeline."""
+    __tablename__ = "system_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    fields_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_system_log_ts", "ts"),
+        Index("idx_system_log_level", "level"),
+    )

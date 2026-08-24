@@ -6,15 +6,14 @@
 
 **Last updated:** 2026-08-24
 **Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 + CP6 ✅
-+ CP7 ✅ + CP8 🟡 → **CP9 is next** (Automation + hardening — order state
-machine, position reconciliation on restart, the live/paper real-time bar
-gap found while building CP5, auto start/stop, risk-limit hot-reload
-verification). CP3/CP4/CP5/CP8 are each "engineering done, one item needs
-something only you can supply" (real backfill run, real Telegram bot, a
-real options strategy to design multi-leg support against, a cloud LLM key
-— see Blocked on you). None of that blocks CP9. **Note:** CP8's code lives
-mostly in the separate `prosper-engine` repo and is uncommitted there —
-xillion's commit standing-authorization doesn't extend to it.
++ CP7 ✅ + CP8 🟡 + CP9 ✅ → **CP10 is next** (Maintenance mode — daily/weekly
+digest, self-healing/auto-recovery, runbook). CP3/CP4/CP5/CP8 are each
+"engineering done, one item needs something only you can supply" (real
+backfill run, real Telegram bot, a real options strategy to design
+multi-leg support against, a cloud LLM key — see Blocked on you). None of
+that blocks CP10. **Note:** CP8's code lives mostly in the separate
+`prosper-engine` repo and is uncommitted there — xillion's commit
+standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -410,32 +409,101 @@ data.
 
 ---
 
-### ⬜ CP9 — Automation + hardening (~17 hrs) → *Goal #7*
-- [ ] Order state machine — `Strategy.on_order_update` is **never called**
-- [ ] **Position reconciliation on startup** — a restart currently loses all
-      in-memory positions. Hard gate before real money
-- [ ] **Live/paper real-time bar aggregation into `ctx.history()` — found
-      2026-08-24 while building CP5.** `HistoryManager.add_bar()` exists but
-      is **never called anywhere** in `strategy_engine.py` — nothing turns
-      live ticks into bars and pushes them into the in-memory cache. CP2's
-      DB-repository fallback (`xillion/data/history.py`) means an `on_bar`
-      strategy still gets real historical bars via the warehouse, so this
-      isn't a total blank — but it means **today's still-forming candles
-      never show up**, only whatever was last backfilled. Any `on_bar`
-      strategy (RSI Threshold, Condition Strategy, anything from CP5's
-      builder) checking an intraday condition mid-session is working off
-      stale data until this is built. Tick-only strategies (`on_tick`, e.g.
-      Nifty Spot Alert) are unaffected
-- [ ] Auto start/stop instances at market open/close
-- [ ] Logs DB persistence + `GET /api/positions`
-- [ ] Self-failure alerting — if the *system* breaks, you get told
-- [ ] **Verify risk-limit hot-reload** — `PUT /api/settings/risk-limits`
-      persists to DB, but it's unconfirmed whether it updates the in-memory
-      `RiskManager` at runtime. If it doesn't, changing a limit in the UI
-      silently does nothing until restart (carried over from
-      `09-progress-tracker.md` P1)
+### ✅ CP9 — Automation + hardening (~17 hrs) → *Goal #7* `DONE 2026-08-24`
+- [x] Order state machine — `Strategy.on_order_update` is now called as a
+      fire-and-forget task right after `place_order()`'s own order-state
+      transition, same pattern as `on_trade_close`
+- [x] **Position reconciliation on startup** — a `live`-mode instance now
+      queries the broker's real open positions before `on_start` runs, so a
+      restart with real money in an open position no longer looks flat.
+      Symbols outside the instance's configured instruments are ignored;
+      paper mode is untouched (its own simulated positions correctly start
+      flat); a broker fetch failure doesn't crash startup, it just restores
+      nothing
+- [x] **Live/paper real-time bar aggregation into `ctx.history()`** — found
+      2026-08-24 while building CP5, fixed same day. New
+      `xillion/data/bar_aggregator.py::BarAggregator` turns the live tick
+      stream into bars (bucket-aligned OHLC, cumulative-volume-delta
+      handling for Zerodha-shaped ticks) and publishes them onto
+      `MarketDataBus`; `_tick_broadcaster` in `main.py` feeds it every tick
+      alongside the existing WS broadcast. `StrategyRunner._handle_bar` now
+      also pushes the bar into `ctx.history()`'s in-memory cache before
+      dispatch, so `on_bar` strategies see the candle that just closed
+      immediately, not just on the next DB backfill
+- [x] **Risk limits were silently never enforced at all** (found while
+      building this checkpoint, more severe than anything on the original
+      list) — `ExecutionRouter.submit()` never passed `strategy_config`/
+      `current_positions` to `risk.check()`, so every real order skipped
+      the daily-loss and max-open-positions gates regardless of what was
+      configured. `RiskManager.check()`'s own tests were correct and always
+      had been — the bug was purely in the wiring layer between the router
+      and the risk manager, which had zero test coverage before this.
+      Separately, `StrategyEngine.spawn()` didn't read `risk_limits` from
+      the DB at all, so even a fresh instance start ignored configured
+      limits. Both fixed; `ExecutionRouter` now carries a `risk_config` +
+      `set_risk_config()` for hot-reload
+- [x] Auto start/stop instances at market open/close — opt-in per instance
+      via a new `auto_start` column (migration `009`), toggled from the
+      Strategies page. `xillion/engine/market_scheduler.py` polls
+      `is_market_open()` and reacts only to open↔closed *transitions*
+      (never on the first observation after process start, which would
+      fire a start/stop based on an assumed prior state never actually
+      observed) — chosen over hardcoding 9:15/15:30 IST like the existing
+      daily-refresh tasks because `is_market_open()` already encodes the
+      NSE holiday calendar, so no separate holiday awareness is needed here
+- [x] Logs DB persistence + `GET /api/positions` — `GET /api/positions` was
+      already done in CP7. The DB-persistence half turned out to be a
+      bigger gap than expected: the Logs page was built to render a live
+      `"log"` WebSocket event and claimed "scrollback retained for 24h",
+      but **nothing in the backend had ever emitted that event type at
+      all** — the page was live-tailing nothing and had nothing to load on
+      reload either way. New `xillion/observability/log_capture.py` wires
+      a structlog processor into `main.py`'s `structlog.configure()` that
+      captures every `logger.*()` call app-wide (via
+      `CallsiteParameterAdder` for the source module) into a bounded
+      queue, drained by a background task that persists to a new
+      `system_log` table (migration `010`) and broadcasts the same event
+      live, with a 24h retention prune. New `GET /api/logs` for history on
+      mount. Hand-verified end-to-end in a real browser: history loads on
+      page load, then the line count updated live in real time after
+      triggering a real backend action. **Found and fixed while wiring
+      this in:** the console output's timestamp briefly regressed to a raw
+      unix-epoch float — structlog's actual built-in default `TimeStamper`
+      uses `fmt="%Y-%m-%d %H:%M:%S", utc=False`, not the bare
+      `TimeStamper()` constructor's own default (`fmt=None` → epoch
+      float); had to match the built-in default explicitly since
+      overriding `processors=` replaces it silently
+- [x] Self-failure alerting — if the *system* breaks, you get told. Two
+      halves: (1) `xillion/observability/task_supervisor.py::supervise()`
+      wraps the long-running background loops (tick broadcaster, daily
+      refreshes, market-hours scheduler, log persistence) and Telegram-
+      alerts on any exit that isn't a clean shutdown cancellation —
+      **deliberately alerts on a clean `return` too, not just an
+      exception**, because `_tick_broadcaster`'s own try/except already
+      swallows its own errors and just returns, so exception-only
+      detection would miss the most likely real failure (the broker's tick
+      stream ending on a disconnect); (2) a strategy crashing in
+      `on_start`/`on_bar`/`on_tick` now fires a Telegram alert in addition
+      to the logging that already existed. Found in passing: `on_tick`'s
+      exception handler never set `status="error"`/`last_error` the way
+      `on_bar` and `on_start` already did — a crashed tick-only strategy
+      (e.g. Nifty Spot Alert) looked identical to one running fine. Fixed
+      to match. Also added a Telegram alert on a failed Zerodha connect
+      attempt at startup/daily-refresh (previously logged only)
+- [x] **Verify risk-limit hot-reload** — already covered by
+      `test_hot_reload_tightens_limit_on_a_running_instance_without_restart`
+      as a side effect of the "risk limits never enforced" fix above: an
+      order approved under a limit of 5, then rejected after
+      `engine.update_risk_config()` tightens it to 1 — no restart, same
+      running instance. The `PUT /api/settings/risk-limits` endpoint this
+      bullet originally named (from `09-progress-tracker.md`) doesn't
+      exist in the current codebase; the real mechanism is
+      `PATCH /instances/{id}` with `risk_limits` in the body, which was
+      already wired to `engine.update_risk_config()` before this session
 
-**Verify:** kill the process mid-position, restart, positions rebuild correctly.
+**Verify:** kill the process mid-position, restart, positions rebuild
+correctly — confirmed via `test_live_instance_restores_a_real_open_position_on_start`
+and friends. 234 tests passing (up from 175 at the start of this checkpoint).
 
 ---
 

@@ -64,3 +64,9 @@ class MarketDataBus:
         tick_syms = set(self._tick_subscribers.keys())
         bar_syms = {sym for sym, _ in self._bar_subscribers.keys()}
         return tick_syms | bar_syms
+
+    def subscribed_bar_timeframes(self, symbol: str) -> set[str]:
+        """Every timeframe with at least one active subscriber for `symbol`
+        -- what BarAggregator needs to know which buckets to form, without
+        having to know anything about strategies itself."""
+        return {tf for sym, tf in self._bar_subscribers.keys() if sym == symbol}

@@ -9,7 +9,7 @@ from typing import Optional
 from uuid import uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +54,7 @@ def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> di
         "risk_limits": json.loads(inst.risk_limits_json),
         "last_started_at": inst.last_started_at,
         "last_stopped_at": inst.last_stopped_at,
+        "auto_start": inst.auto_start,
         "created_at": inst.created_at,
         "updated_at": inst.updated_at,
         "pnl": pnl,
@@ -200,6 +201,7 @@ class UpdateInstanceRequest(BaseModel):
     params: Optional[dict] = None
     capital_allocation: Optional[float] = None
     risk_limits: Optional[dict] = None
+    auto_start: Optional[bool] = None
 
 
 @router.patch("/{instance_id}")
@@ -217,8 +219,17 @@ async def update_instance(
 
     engine = getattr(request.app.state, "strategy_engine", None)
     runner = engine.get_runner(instance_id) if engine else None
-    if runner and runner.status == "running":
-        raise HTTPException(400, "Stop the instance before changing its config")
+    is_running = bool(runner and runner.status == "running")
+
+    # name/params/capital_allocation can change a running strategy's
+    # in-flight assumptions (position sizing math, on_bar/on_tick logic
+    # already mid-execution) -- still require a stop first. risk_limits are
+    # pure gate parameters with no bearing on strategy state, so they're
+    # safe to hot-reload on a live instance (and genuinely useful to: you
+    # can tighten a limit without losing the position tracking a restart
+    # would cost until CP9's reconciliation-on-startup work lands).
+    if is_running and (body.name is not None or body.params is not None or body.capital_allocation is not None):
+        raise HTTPException(400, "Stop the instance before changing name, params, or capital allocation")
 
     if body.name is not None:
         inst.name = body.name
@@ -228,6 +239,11 @@ async def update_instance(
         inst.capital_allocation = body.capital_allocation
     if body.risk_limits is not None:
         inst.risk_limits_json = json.dumps(body.risk_limits)
+        if is_running and engine:
+            engine.update_risk_config(instance_id, body.risk_limits)
+            logger.info("risk limits hot-reloaded on running instance", id=instance_id)
+    if body.auto_start is not None:
+        inst.auto_start = body.auto_start
     inst.updated_at = _now()
     await db.commit()
     return {"updated": True, "id": instance_id}
@@ -243,19 +259,28 @@ async def start_instance(
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
+    return await start_instance_core(request.app, db, instance_id)
+
+
+async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) -> dict:
+    """Core start logic, shared by the API route and the market-hours
+    auto-start scheduler (xillion/engine/market_scheduler.py). Raises
+    HTTPException on any failure -- the route re-raises it as-is; the
+    scheduler catches it and logs, since a single instance failing to
+    auto-start must not take down the others."""
     result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == instance_id))
     inst = result.scalar_one_or_none()
     if inst is None:
         raise HTTPException(404, "Instance not found")
 
-    engine = getattr(request.app.state, "strategy_engine", None)
+    engine = getattr(app.state, "strategy_engine", None)
     if engine is None:
         raise HTTPException(503, "Strategy engine not available")
 
     if engine.get_runner(instance_id):
         raise HTTPException(400, "Instance is already running")
 
-    loader = getattr(request.app.state, "plugin_loader", None)
+    loader = getattr(app.state, "plugin_loader", None)
     if loader is None:
         raise HTTPException(503, "Plugin loader not available")
 
@@ -270,7 +295,7 @@ async def start_instance(
         raise HTTPException(404, f"Strategy '{sc.name}' not found in loaded plugins")
 
     # Build broker
-    broker = _resolve_broker(inst.mode, request)
+    broker = _resolve_broker(inst.mode, app)
     await broker.connect({})
 
     instruments = json.loads(inst.instruments_json)
@@ -278,7 +303,7 @@ async def start_instance(
     # Subscribe to live ticks if Zerodha is connected (paper/alert modes use real ticks)
     tick_source: str = "none"
     if inst.mode in ("paper", "live", "alert"):
-        zerodha_info = getattr(request.app.state, "broker_instances", {}).get("Zerodha Primary")
+        zerodha_info = getattr(app.state, "broker_instances", {}).get("Zerodha Primary")
         if zerodha_info and zerodha_info.get("status") == "connected":
             zerodha = zerodha_info["instance"]
             try:
@@ -309,7 +334,8 @@ async def start_instance(
         broker_connection_id=inst.broker_connection_id,
         instance_name=inst.name,
         on_trade_close=ws_broadcast,
-        notifier=getattr(request.app.state, "telegram", None),
+        notifier=getattr(app.state, "telegram", None),
+        risk_limits=json.loads(inst.risk_limits_json),
     )
 
     inst.status = "running"
@@ -331,14 +357,14 @@ async def start_instance(
     }
 
 
-def _resolve_broker(mode: str, request: Request):
+def _resolve_broker(mode: str, app: FastAPI):
     """Return the right broker object for the given mode."""
     from brokers.paper import PaperBroker
 
     if mode == "paper":
         broker = PaperBroker(slippage_bps=10)
         # Wire MarketDataBus ticks to update PaperBroker's last prices
-        bus = getattr(request.app.state, "bus", None)
+        bus = getattr(app.state, "bus", None)
         if bus:
             async def _on_bus_tick(tick):
                 broker.on_tick(tick)
@@ -353,7 +379,7 @@ def _resolve_broker(mode: str, request: Request):
         # place_order path never reaches this broker — see
         # _StrategyContextImpl._handle_alert_signal, which returns before
         # ExecutionRouter.submit is ever called.
-        instances = getattr(request.app.state, "broker_instances", {})
+        instances = getattr(app.state, "broker_instances", {})
         info = instances.get("Zerodha Primary")
         if info and info.get("status") == "connected" and info.get("instance"):
             return info["instance"]
@@ -370,20 +396,26 @@ async def stop_instance(
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
+    return await stop_instance_core(request.app, db, instance_id, reason="user_stopped")
+
+
+async def stop_instance_core(app: FastAPI, db: AsyncSession, instance_id: str, reason: str = "stopped") -> dict:
+    """Core stop logic, shared by the API route and the market-hours
+    auto-stop scheduler."""
     result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == instance_id))
     inst = result.scalar_one_or_none()
     if inst is None:
         raise HTTPException(404, "Instance not found")
 
-    engine = getattr(request.app.state, "strategy_engine", None)
+    engine = getattr(app.state, "strategy_engine", None)
     if engine:
-        await engine.stop_instance(instance_id, reason="user_stopped")
+        await engine.stop_instance(instance_id, reason=reason)
 
     inst.status = "idle"
     inst.last_stopped_at = _now()
     inst.updated_at = _now()
     await db.commit()
-    logger.info("instance stopped", id=instance_id)
+    logger.info("instance stopped", id=instance_id, reason=reason)
     return {"stopped": True, "instance_id": instance_id}
 
 

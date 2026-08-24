@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, RefreshCw, Pause, Play, Trash2, X } from 'lucide-react'
+import { Plus, RefreshCw, Pause, Play, Trash2, X, Clock } from 'lucide-react'
 import { api, type CreateInstanceRequest, type ParamSpec, type StrategyClass, type StrategyInstance } from '../lib/api'
 import { Badge, SegmentedControl, fmtINR } from '../components/ui'
 
@@ -57,6 +57,11 @@ export default function Strategies() {
     if (!confirm(`Delete instance "${name}"?`)) return
     try { await api.instances.delete(id); await loadAll() }
     catch (e) { alert(e instanceof Error ? e.message : 'Delete failed') }
+  }
+
+  const handleToggleAutoStart = async (id: string, next: boolean) => {
+    try { await api.instances.update(id, { auto_start: next }); await loadAll() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Update failed') }
   }
 
   return (
@@ -121,6 +126,7 @@ export default function Strategies() {
                 onStart={() => handleStart(inst.id)}
                 onStop={() => handleStop(inst.id)}
                 onDelete={() => handleDelete(inst.id, inst.name)}
+                onToggleAutoStart={() => handleToggleAutoStart(inst.id, !inst.auto_start)}
                 onConfigure={() => {
                   const cls = strategies.find(s => s.name === inst.strategy_class_name)
                   if (cls) setNewInstanceFor(cls)
@@ -191,12 +197,14 @@ function InstanceCard({
   onStop,
   onDelete,
   onConfigure,
+  onToggleAutoStart,
 }: {
   inst: StrategyInstance
   onStart: () => void
   onStop: () => void
   onDelete: () => void
   onConfigure: () => void
+  onToggleAutoStart: () => void
 }) {
   const running = inst.status === 'running'
   const errored = inst.status === 'error'
@@ -259,6 +267,13 @@ function InstanceCard({
           ? <button className="btn sm" onClick={onStop}><Pause size={11} /> Stop</button>
           : <button className="btn sm primary" onClick={onStart}><Play size={11} /> Start</button>}
         <button className="btn ghost sm" onClick={onConfigure}><GearIcon size={11} /> Configure</button>
+        <button
+          className={`btn sm ${inst.auto_start ? 'primary' : 'ghost'}`}
+          onClick={onToggleAutoStart}
+          title={inst.auto_start ? 'Auto start/stop at market hours: on' : 'Auto start/stop at market hours: off'}
+        >
+          <Clock size={11} /> Auto
+        </button>
         <div style={{ flex: 1 }} />
         {!running && (
           <button
