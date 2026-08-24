@@ -44,6 +44,7 @@ docs/
 | [asset-pipeline.md](process/asset-pipeline.md) | The 6 stages: build → backtest → paper → live → automate → document |
 | [testing-strategy.md](process/testing-strategy.md) | How we avoid blowing up the account |
 | [go-live-checklist.md](process/go-live-checklist.md) | Pre-flight before real money |
+| [runbook.md](process/runbook.md) | Ongoing operations: what each alert means, what to ignore, when to intervene |
 | [automation-registry.md](process/automation-registry.md) | Every skill/hook/CLAUDE.md rule, why it exists, and the candidate watchlist for what to build next |
 
 ### `architecture/` — how it's built

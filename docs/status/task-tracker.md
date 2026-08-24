@@ -5,13 +5,16 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 + CP6 ✅
-+ CP7 ✅ + CP8 🟡 + CP9 ✅ → **CP10 is next** (Maintenance mode — daily/weekly
-digest, self-healing/auto-recovery, runbook). CP3/CP4/CP5/CP8 are each
-"engineering done, one item needs something only you can supply" (real
-backfill run, real Telegram bot, a real options strategy to design
-multi-leg support against, a cloud LLM key — see Blocked on you). None of
-that blocks CP10. **Note:** CP8's code lives mostly in the separate
+**Current position:** Track A is **fully done** — CP1 ✅ + CP2 ✅ + CP3 🟡 +
+CP4 🟡 + CP5 🟡 + CP6 ✅ + CP7 ✅ + CP8 🟡 + CP9 ✅ + CP10 ✅. CP3/CP4/CP5/CP8
+are each "engineering done, one item needs something only you can supply"
+(real backfill run, real Telegram bot, a real options strategy to design
+multi-leg support against, a cloud LLM key — see Blocked on you). **Track B
+(asset pipelines) is next, and every path into it is genuinely blocked on
+you** — see Blocked on you #1/#2 below. There is no more engineering to do
+autonomously until at least one of those lands; the platform itself has no
+more known gaps to close without a real strategy or real credentials to
+build against. **Note:** CP8's code lives mostly in the separate
 `prosper-engine` repo and is uncommitted there — xillion's commit
 standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
@@ -507,10 +510,51 @@ and friends. 234 tests passing (up from 175 at the start of this checkpoint).
 
 ---
 
-### ⬜ CP10 — Maintenance mode (~9 hrs) → *Goal #10*
-- [ ] Daily/weekly digest — the thing that makes 3–6 hrs/week real
-- [ ] Self-healing / auto-recovery
-- [ ] Runbook: what to check, what to ignore, when to intervene
+### ✅ CP10 — Maintenance mode (~9 hrs) → *Goal #10* `DONE 2026-08-24`
+- [x] Daily/weekly digest — the thing that makes 3–6 hrs/week real.
+      `xillion/engine/digest.py::build_digest` reuses the exact same FIFO
+      fill-matching `GET /api/trades` already does
+      (`xillion/api/trades.py::_match_fills`), since that's the only place
+      real live/paper P&L actually lives — CP6's journal (`build_journal`)
+      was deliberately *not* reused here: it mixes in backtest-only data
+      and alert-mode signals never carry a real fill. Sent via Telegram at
+      ~4pm IST daily (after market close) and Sunday ~6pm IST weekly
+      (`xillion/engine/digest_scheduler.py`), same fixed-clock-time pattern
+      as the existing daily token/instrument refreshes — deliberately not
+      the market-hours scheduler's transition-detection style, since a
+      digest is a calendar event, not a reaction to market state
+- [x] Self-healing / auto-recovery — `task_supervisor.py`'s CP9 alerting
+      now actually restarts the crashed background task (tick broadcaster,
+      daily refreshes, market-hours scheduler, log persistence, both
+      digest schedulers), bounded to 5 restarts per 10 minutes so a
+      crash-looping task doesn't spin forever; alerts on every restart
+      *and* gives up with a distinct "gave up" alert once the budget is
+      exceeded, explicitly telling you it won't retry again. Required
+      changing `supervise()`'s signature from a bare coroutine to a
+      zero-arg factory (`lambda: _daily_token_refresh(app)`), since a
+      coroutine object can only be awaited once and restarting needs a
+      fresh one each time — updated all 6 call sites in `main.py`
+- [x] Runbook (`docs/process/runbook.md`) — every alert title quoted in it
+      is copy-pasted from the actual code that sends it (cross-checked
+      against `risk.py`, `zerodha.py`, `strategy_engine.py`,
+      `task_supervisor.py`), not written from memory of what the alerts
+      were *supposed* to say. Documents one real gap found while writing
+      it: a daily-loss-limit rejection (`RiskRejected`) does **not** fire a
+      Telegram alert today — it only shows up as a `REJECTED` order in
+      Trades/Journal, so "strategy stopped trading, no alert fired" is a
+      real, expected (if not ideal) state, not a bug to chase
+- [x] 6 new tests (`test_digest.py`) + rewrote `test_task_supervisor.py`'s
+      6 tests for the factory-based restart behavior (raises-and-restarts,
+      clean-return-and-restarts, cancel-means-no-restart, no-notifier
+      doesn't crash, crash-loop gives up after budget, gave-up alert body
+      explicitly says it won't retry)
+
+**Verified:** 241 tests passing (234 at the start of this checkpoint). Real
+boot against a disposable local SQLite DB with the full supervised-task +
+digest-scheduler stack wired in, zero startup errors. `build_digest` +
+`format_digest_message` hand-run against that same live DB, correctly
+reported "No closed trades" / "Nothing currently running" for the empty
+state.
 
 ---
 

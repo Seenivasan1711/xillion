@@ -28,6 +28,7 @@ from xillion.data.bar_aggregator import BarAggregator
 from xillion.data.bus import MarketDataBus
 from xillion.db.plugin_sync import sync_registry_to_db
 from xillion.db.session import get_session_factory, init_db
+from xillion.engine.digest_scheduler import run_daily_digest, run_weekly_digest
 from xillion.engine.market_scheduler import run_market_hours_scheduler
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
@@ -110,7 +111,7 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         logger.info("zerodha: connected successfully")
 
         # Start broadcasting ticks to WebSocket clients + MarketDataBus
-        supervise("tick_broadcaster", _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
+        supervise("tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
     except Exception as exc:
         logger.error("zerodha: failed to connect", error=str(exc))
         asyncio.create_task(app.state.telegram.alert(
@@ -260,10 +261,12 @@ async def lifespan(app: FastAPI):
     await _try_connect_zerodha(app)
 
     # Schedule daily token + instrument-dump refresh
-    refresh_task = supervise("daily_token_refresh", _daily_token_refresh(app), notifier=telegram)
-    instrument_refresh_task = supervise("daily_instrument_refresh", _daily_instrument_refresh(app), notifier=telegram)
-    market_scheduler_task = supervise("market_hours_scheduler", run_market_hours_scheduler(app), notifier=telegram)
-    log_persistence_task = supervise("log_persistence", run_log_persistence(), notifier=telegram)
+    refresh_task = supervise("daily_token_refresh", lambda: _daily_token_refresh(app), notifier=telegram)
+    instrument_refresh_task = supervise("daily_instrument_refresh", lambda: _daily_instrument_refresh(app), notifier=telegram)
+    market_scheduler_task = supervise("market_hours_scheduler", lambda: run_market_hours_scheduler(app), notifier=telegram)
+    log_persistence_task = supervise("log_persistence", run_log_persistence, notifier=telegram)
+    daily_digest_task = supervise("daily_digest", lambda: run_daily_digest(app), notifier=telegram)
+    weekly_digest_task = supervise("weekly_digest", lambda: run_weekly_digest(app), notifier=telegram)
 
     logger.info("xillion ready")
     yield
@@ -272,6 +275,8 @@ async def lifespan(app: FastAPI):
     instrument_refresh_task.cancel()
     market_scheduler_task.cancel()
     log_persistence_task.cancel()
+    daily_digest_task.cancel()
+    weekly_digest_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")
