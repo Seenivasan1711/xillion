@@ -126,7 +126,7 @@ The start command runs `alembic upgrade head` then starts uvicorn.
 | 6 | ✅ | Dashboard polish + mobile (Trades, Logs, Settings pages) |
 | 7 | ✅ | Hardening (Docker, systemd, HTTPS, backup, tests) |
 
-See `docs/09-progress-tracker.md` for task-level detail.
+See `docs/archive/progress-tracker-phases-0-10.md` for task-level detail.
 
 ### First-run flow
 
@@ -158,7 +158,7 @@ xillion/
 
 ## Risk & compliance
 
-This platform is for **personal use** on your own trading account. Read `docs/07-risk-and-compliance.md` before going live. In particular:
+This platform is for **personal use** on your own trading account. Read `docs/architecture/risk-and-compliance.md` before going live. In particular:
 - Never go live before completing a paper-trade soak (Phase 4 exit criterion)
 - Keep your SEBI OPS rate under 10/second (configured via `OPS_LIMIT_PER_SECOND`)
 - Keep your `.env` file **out of git** — it contains broker API secrets

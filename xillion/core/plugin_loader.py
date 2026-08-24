@@ -14,6 +14,7 @@ import structlog
 
 from xillion.config import get_settings
 from xillion.core.broker_base import Broker
+from xillion.core.data_provider_base import HistoricalDataProvider
 from xillion.core.strategy_base import Strategy
 
 logger = structlog.get_logger(__name__)
@@ -57,12 +58,22 @@ def _validate_broker_class(cls: Type[Broker]) -> None:
         raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
 
 
+def _validate_data_provider_class(cls: Type[HistoricalDataProvider]) -> None:
+    if not cls.name:
+        raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
+
+
 class PluginRegistry:
     def __init__(self) -> None:
         self.strategies: dict[str, Type[Strategy]] = {}
         self.brokers: dict[str, Type[Broker]] = {}
+        self.data_providers: dict[str, Type[HistoricalDataProvider]] = {}
         self.strategy_file_hashes: dict[str, str] = {}
         self.broker_file_hashes: dict[str, str] = {}
+        self.data_provider_file_hashes: dict[str, str] = {}
+        self.strategy_file_paths: dict[str, str] = {}
+        self.broker_file_paths: dict[str, str] = {}
+        self.data_provider_file_paths: dict[str, str] = {}
         self.errors: dict[str, str] = {}
 
 
@@ -72,15 +83,18 @@ class PluginLoader:
         s = get_settings()
         self._strategies_dir = Path(s.strategies_dir)
         self._brokers_dir = Path(s.brokers_dir)
+        self._data_providers_dir = Path(s.data_providers_dir)
 
     async def discover_all(self) -> PluginRegistry:
         self.registry = PluginRegistry()
         self._discover_strategies()
         self._discover_brokers()
+        self._discover_data_providers()
         logger.info(
             "plugin discovery complete",
             strategies=list(self.registry.strategies.keys()),
             brokers=list(self.registry.brokers.keys()),
+            data_providers=list(self.registry.data_providers.keys()),
             errors=self.registry.errors,
         )
         return self.registry
@@ -103,6 +117,15 @@ class PluginLoader:
                 continue
             self._load_broker_file(py_file)
 
+    def _discover_data_providers(self) -> None:
+        if not self._data_providers_dir.exists():
+            logger.warning("data_providers dir not found", path=str(self._data_providers_dir))
+            return
+        for py_file in sorted(self._data_providers_dir.glob("*.py")):
+            if py_file.name.startswith("_"):
+                continue
+            self._load_data_provider_file(py_file)
+
     def _load_strategy_file(self, path: Path) -> None:
         try:
             module = _import_module_from_file(path)
@@ -119,6 +142,7 @@ class PluginLoader:
                         continue
                     self.registry.strategies[obj.name] = obj
                     self.registry.strategy_file_hashes[obj.name] = _file_hash(path)
+                    self.registry.strategy_file_paths[obj.name] = str(path)
                     logger.info("strategy loaded", name=obj.name, file=path.name)
                     found += 1
             if found == 0:
@@ -144,6 +168,7 @@ class PluginLoader:
                         continue
                     self.registry.brokers[obj.name] = obj
                     self.registry.broker_file_hashes[obj.name] = _file_hash(path)
+                    self.registry.broker_file_paths[obj.name] = str(path)
                     logger.info("broker loaded", name=obj.name, file=path.name)
                     found += 1
             if found == 0:
@@ -152,3 +177,29 @@ class PluginLoader:
             key = f"broker:{path.stem}"
             self.registry.errors[key] = str(exc)
             logger.error("broker load failed", file=str(path), error=str(exc))
+
+    def _load_data_provider_file(self, path: Path) -> None:
+        try:
+            module = _import_module_from_file(path)
+            found = 0
+            for _, obj in inspect.getmembers(module, inspect.isclass):
+                if issubclass(obj, HistoricalDataProvider) and obj is not HistoricalDataProvider:
+                    _validate_data_provider_class(obj)
+                    if obj.name in self.registry.data_providers:
+                        logger.warning(
+                            "duplicate data provider name, skipping",
+                            name=obj.name,
+                            file=str(path),
+                        )
+                        continue
+                    self.registry.data_providers[obj.name] = obj
+                    self.registry.data_provider_file_hashes[obj.name] = _file_hash(path)
+                    self.registry.data_provider_file_paths[obj.name] = str(path)
+                    logger.info("data provider loaded", name=obj.name, file=path.name)
+                    found += 1
+            if found == 0:
+                logger.warning("no HistoricalDataProvider subclass found", file=str(path))
+        except Exception as exc:
+            key = f"data_provider:{path.stem}"
+            self.registry.errors[key] = str(exc)
+            logger.error("data provider load failed", file=str(path), error=str(exc))

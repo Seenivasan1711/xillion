@@ -26,6 +26,11 @@ data/*.sqlite
 *.pem
 *.key
 
+# Cached instrument masters — large (30MB+), refetched automatically on demand
+# (see data_providers/dhanhq.py, xillion/core/instrument_cache.py)
+data/*.csv
+data/.encryption_key
+
 # Testing & coverage
 .pytest_cache/
 .coverage

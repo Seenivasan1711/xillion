@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from xillion import __version__
-from xillion.api import backtest, brokers, health, instances, risk as risk_router, strategies, ws
+from xillion.api import backtest, brokers, data_providers, health, instances, risk as risk_router, strategies, ws
 from xillion.api import auth as auth_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import settings as settings_router
@@ -25,7 +25,8 @@ from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
 from xillion.core.risk import RiskManager
 from xillion.data.bus import MarketDataBus
-from xillion.db.session import init_db
+from xillion.db.plugin_sync import sync_registry_to_db
+from xillion.db.session import get_session_factory, init_db
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
 
@@ -212,6 +213,8 @@ async def lifespan(app: FastAPI):
     plugin_loader = PluginLoader()
     registry = await plugin_loader.discover_all()
     app.state.plugin_loader = plugin_loader
+    async with get_session_factory()() as session:
+        await sync_registry_to_db(registry, session)
 
     bus = MarketDataBus()
     app.state.bus = bus
@@ -277,6 +280,7 @@ app.include_router(instances.router, prefix="/api")
 app.include_router(risk_router.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")
+app.include_router(data_providers.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(trades_router.router, prefix="/api")

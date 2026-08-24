@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # Plugin paths
     strategies_dir: str = "./strategies"
     brokers_dir: str = "./brokers"
+    data_providers_dir: str = "./data_providers"
 
     class Config:
         env_file = ".env"

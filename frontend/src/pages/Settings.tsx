@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, QrCode, Shield, Smartphone, Bell, User, AlertTriangle, Wifi } from 'lucide-react'
+import { CheckCircle, QrCode, Shield, Smartphone, Bell, User, AlertTriangle, Wifi, Database } from 'lucide-react'
 import { api } from '../lib/api'
-import type { ZerodhaCredentials, NotificationSettings, RiskLimits, BrokerStatus } from '../lib/api'
+import type { ZerodhaCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge } from '../components/ui'
 
-type Tab = 'brokers' | 'risk' | 'notifications' | 'account' | 'danger'
+type Tab = 'brokers' | 'data' | 'risk' | 'notifications' | 'account' | 'danger'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'brokers', label: 'Brokers' },
+  { id: 'data', label: 'Data Providers' },
   { id: 'risk', label: 'Risk' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'account', label: 'Account' },
@@ -37,6 +38,7 @@ export default function Settings() {
       </div>
 
       {tab === 'brokers'      && <BrokersTab />}
+      {tab === 'data'         && <DataProvidersTab />}
       {tab === 'risk'         && <RiskTab />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'account'      && <AccountTab user={user} refresh={refresh} />}
@@ -266,6 +268,153 @@ function BrokersTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Data Providers tab ──────────────────────────────────────────────────────
+
+function DataProvidersTab() {
+  const [providers, setProviders] = useState<DataProviderClass[]>([])
+  const [loading, setLoading] = useState(true)
+  const [forms, setForms] = useState<Record<string, { api_key: string; api_secret: string }>>({})
+  const [saving, setSaving] = useState<string | null>(null)
+  const [msg, setMsg] = useState('')
+
+  const load = () => {
+    api.dataProviders.classes().then(r => {
+      setProviders(r.providers)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const saveCreds = async (name: string) => {
+    const form = forms[name] ?? { api_key: '', api_secret: '' }
+    setSaving(name)
+    setMsg('')
+    try {
+      await api.dataProviders.saveCredentials(name, form)
+      setMsg(`${name} credentials saved`)
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const removeCreds = async (name: string) => {
+    if (!confirm(`Remove ${name} credentials?`)) return
+    try {
+      await api.dataProviders.deleteCredentials(name)
+      setMsg(`${name} credentials removed`)
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Remove failed')
+    }
+  }
+
+  const capBadges = (caps: DataProviderClass['capabilities']) => {
+    const labels: [keyof DataProviderClass['capabilities'], string][] = [
+      ['supports_equity', 'Equity'],
+      ['supports_futures', 'Futures'],
+      ['supports_options', 'Options'],
+      ['supports_forex', 'Forex'],
+    ]
+    return labels.filter(([k]) => caps[k]).map(([, label]) => <Badge key={label}>{label}</Badge>)
+  }
+
+  if (loading) return <div className="faint" style={{ fontSize: 12 }}>Loading…</div>
+
+  return (
+    <div className="stack">
+      <div className="faint" style={{ fontSize: 11.5 }}>
+        Historical data sources for backtesting — pick whichever fits per backtest run (see the Backtest page's
+        Source option). Same drop-a-file plugin pattern as strategies and brokers: adding TrueData or a
+        TradingView-based forex source later is just a new file in <code>data_providers/</code>, no changes here.
+      </div>
+
+      {providers.map(p => (
+        <div key={p.name} className="card">
+          <div className="card-head">
+            <span className="title">{p.name}</span>
+            {p.configured
+              ? <Badge tone="pos"><CheckCircle size={11} style={{ marginRight: 4 }} />Ready</Badge>
+              : <Badge tone="warn">Not configured</Badge>
+            }
+          </div>
+          <div className="card-pad stack" style={{ gap: 12 }}>
+            <div className="dim" style={{ fontSize: 11.5, lineHeight: 1.5 }}>{p.description}</div>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {capBadges(p.capabilities)}
+              {p.capabilities.max_lookback_days && (
+                <Badge>{p.capabilities.max_lookback_days}d lookback</Badge>
+              )}
+            </div>
+
+            {p.capabilities.requires_broker && (
+              <div className="faint" style={{ fontSize: 11 }}>
+                Reuses a connected broker — configure it under the Brokers tab, not here.
+              </div>
+            )}
+
+            {p.capabilities.requires_credentials && (
+              <>
+                <div className="grid-2">
+                  {(p.credential_fields.length > 0 ? p.credential_fields : [
+                    { key: 'api_key' as const, label: 'API key', type: 'text' },
+                    { key: 'api_secret' as const, label: 'API secret', type: 'password' },
+                  ]).map(f => (
+                    <div key={f.key} className="field">
+                      <label>{f.label}</label>
+                      <input
+                        type={f.type}
+                        className="input"
+                        value={forms[p.name]?.[f.key] ?? ''}
+                        onChange={e => setForms({ ...forms, [p.name]: { ...(forms[p.name] ?? { api_key: '', api_secret: '' }), [f.key]: e.target.value } })}
+                        autoComplete="off"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    className="btn primary sm"
+                    onClick={() => saveCreds(p.name)}
+                    disabled={saving === p.name || !forms[p.name]?.api_key}
+                  >
+                    {saving === p.name ? 'Saving…' : 'Save'}
+                  </button>
+                  {p.configured && (
+                    <button className="btn ghost sm" onClick={() => removeCreds(p.name)} style={{ color: 'var(--neg)' }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {providers.length === 0 && (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
+          <Database size={20} style={{ color: 'var(--text-faint)', marginBottom: 8 }} />
+          <div className="faint" style={{ fontSize: 12 }}>No data providers discovered — check data_providers/</div>
+        </div>
+      )}
+
+      {msg && (
+        <div style={{
+          fontSize: 12, padding: '8px 12px', borderRadius: 7,
+          background: msg.includes('saved') || msg.includes('removed') ? 'var(--pos-dim)' : 'var(--neg-dim)',
+          color: msg.includes('saved') || msg.includes('removed') ? 'var(--pos)' : 'var(--neg)',
+        }}>
+          {msg}
         </div>
       )}
     </div>

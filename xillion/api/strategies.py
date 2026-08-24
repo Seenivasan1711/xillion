@@ -4,7 +4,11 @@ Strategy plugin and instance API endpoints.
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from xillion.api.deps import db_dep
+from xillion.db.plugin_sync import sync_registry_to_db
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
@@ -45,12 +49,13 @@ async def list_strategy_classes(request: Request):
 
 
 @router.post("/reload")
-async def reload_plugins(request: Request):
+async def reload_plugins(request: Request, db: AsyncSession = Depends(db_dep)):
     """Trigger a full plugin rediscovery."""
     loader = getattr(request.app.state, "plugin_loader", None)
     if loader is None:
         raise HTTPException(status_code=503, detail="Plugin loader not available")
     registry = await loader.discover_all()
+    await sync_registry_to_db(registry, db)
     engine = getattr(request.app.state, "strategy_engine", None)
     if engine:
         engine.set_registry(registry)

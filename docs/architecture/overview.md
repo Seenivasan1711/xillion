@@ -140,7 +140,7 @@ Records carry: timestamp, actor (user / system / strategy), action, before/after
 
 ### 3.8 Persistence layer
 
-SQLite by default; Postgres as an env-config swap. Schema in [doc 05](./05-data-model.md).
+SQLite by default; Postgres as an env-config swap. Schema in [doc 05](data-model.md).
 
 ### 3.9 API layer (FastAPI)
 
@@ -148,7 +148,7 @@ REST endpoints for CRUD-style operations. WebSocket endpoint for live updates to
 
 ### 3.10 Web UI (React + Vite + Tailwind)
 
-See [doc 06](./06-ui-ux.md) for screens. Single-page app, mobile-responsive. WebSocket for live data. No state management framework needed at this scale (Zustand is enough).
+See [doc 06](../product/ui-ux.md) for screens. Single-page app, mobile-responsive. WebSocket for live data. No state management framework needed at this scale (Zustand is enough).
 
 ### 3.11 Notifier
 

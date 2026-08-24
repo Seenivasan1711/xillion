@@ -172,6 +172,25 @@ export const api = {
       }
       return res.json()
     },
+    runProvider: (body: BacktestProviderRequest) =>
+      request<BacktestResponse>('/backtest/run-provider', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
+  dataProviders: {
+    classes: () =>
+      request<{ providers: DataProviderClass[]; errors: Record<string, string> }>('/data-providers/classes'),
+    saveCredentials: (name: string, payload: Record<string, string>) =>
+      request<{ saved: boolean }>(`/data-providers/${encodeURIComponent(name)}/credentials`, {
+        method: 'PUT',
+        body: JSON.stringify({ payload }),
+      }),
+    deleteCredentials: (name: string) =>
+      request<{ deleted: boolean }>(`/data-providers/${encodeURIComponent(name)}/credentials`, {
+        method: 'DELETE',
+      }),
   },
 }
 
@@ -329,6 +348,45 @@ export interface BacktestCsvConfig {
   initial_capital?: number
   slippage_bps?: number
   params?: Record<string, unknown>
+}
+
+export interface BacktestProviderRequest {
+  strategy_name: string
+  provider_name: string
+  symbol: string
+  exchange?: string
+  instrument_type?: string
+  timeframe?: string
+  from_date: string
+  to_date: string
+  initial_capital?: number
+  slippage_bps?: number
+  params?: Record<string, unknown>
+}
+
+export interface DataProviderCapabilities {
+  supports_equity: boolean
+  supports_futures: boolean
+  supports_options: boolean
+  supports_forex: boolean
+  requires_credentials: boolean
+  requires_broker: boolean
+  max_lookback_days: number | null
+}
+
+export interface DataProviderCredentialField {
+  key: 'api_key' | 'api_secret'
+  label: string
+  type: string
+}
+
+export interface DataProviderClass {
+  name: string
+  version: string
+  description: string
+  credential_fields: DataProviderCredentialField[]
+  capabilities: DataProviderCapabilities
+  configured: boolean
 }
 
 export interface PortfolioSummary {

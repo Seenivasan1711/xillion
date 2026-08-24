@@ -1,4 +1,11 @@
-# 09 — Progress Tracker
+# 09 — Progress Tracker (SUPERSEDED for status)
+
+> ⚠️ **This file is a historical record of the original Phase 0–10 build.**
+> For *current* status, next tasks, and what's blocked, use
+> [15-task-tracker.md](../status/task-tracker.md). The remaining unchecked items in
+> Phase 11 and "Future / commercial" below have been folded into `15` — don't
+> track work in two places.
+
 
 A phased plan with task-level checkboxes. Each phase ends with an **exit criterion** — a working artefact you'd be willing to demo. Don't move on until the exit criterion is met.
 
@@ -10,7 +17,7 @@ Update this file as you go: change `[ ]` to `[x]`, add notes inline.
 
 Goal: a clean repo you can develop in for 12 weeks without reorganising it.
 
-- [x] Create monorepo structure as in [doc 03 §8](./03-architecture.md)
+- [x] Create monorepo structure as in [doc 03 §8](../architecture/overview.md)
 - [x] Set up `pyproject.toml` with ruff, black, mypy, pytest, pytest-asyncio
 - [x] Set up `.env.example` with all required variables (see doc 05)
 - [x] Initial GitHub Actions: lint, type-check, unit-test on PR
@@ -383,7 +390,11 @@ Goal: every order, fill, and closed trade round-trip is persisted to DB; the Tra
 
 ## Phase 11 — Validation, debt paydown & feature gaps (next)
 
-> **Start here at the beginning of the next session.**
+> **For the product roadmap (strategies → backtest → paper → alert →
+> automate → AI), see [13-quantman-parity-roadmap.md](../product/roadmap-quantman-parity.md)
+> instead — that's the active plan as of Aug 2026. This phase's remaining
+> P2/P3 items below should get folded into that roadmap's QP-0/QP-3 rather
+> than tracked in two places going forward.**
 
 ### P0 — Commit + validate first
 
@@ -394,7 +405,7 @@ Goal: every order, fill, and closed trade round-trip is persisted to DB; the Tra
 
 ### P1 — Technical debt
 
-- [ ] **Alembic migrations**: `init_db()` calls `create_all()` which is not migration-safe in production. Add proper Alembic migration file for all tables (`OrderRecord`, `FillRecord`, `PositionRecord`, `DailyStrategyPnl`, `DailyRiskState`, `AppUser`, `StrategyInstance`, `BrokerConnection`, etc.)
+- [x] **Alembic migrations**: confirmed `001_initial.py` already creates all 17 base tables (`OrderRecord`, `FillRecord`, `PositionRecord`, `DailyStrategyPnl`, `DailyRiskState`, `AppUser`, `StrategyInstance`, `BrokerConnection`, etc.), plus `002` (instrument/signal_log) and `003` (broker_credential). Production now skips `create_all()` entirely (see `main.py` lifespan guard) and relies solely on Alembic — verified end-to-end against Supabase 2026-08-02.
 - [ ] **Risk settings hot-reload**: `PUT /api/settings/risk-limits` exists in `settings_router.py` — verify it actually updates the in-memory `RiskManager` at runtime (not just persisted to DB). Fix if broken.
 
 ### P2 — Feature gaps
@@ -444,7 +455,7 @@ These run alongside every phase, not as separate phases:
 - Every new feature should ask: "is this audited?" If yes, add the event type
 
 ### Compliance
-- Re-read [doc 07](./07-risk-and-compliance.md) at each phase boundary
+- Re-read [doc 07](../architecture/risk-and-compliance.md) at each phase boundary
 - Watch for SEBI rule updates (subscribe to NSE/SEBI circulars)
 
 ---

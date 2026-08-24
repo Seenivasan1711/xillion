@@ -5,6 +5,7 @@ Output: a flat dict suitable for JSON storage.
 """
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -15,6 +16,14 @@ class ClosedTrade:
     entry_price: float
     exit_price: float
     quantity: int
+    # Populated by position_math.apply_fill. Optional so older callers and
+    # tests keep working, but the BacktestTrade table needs them non-null,
+    # so anything persisting a run must supply them.
+    symbol: str = ""
+    side: str = ""              # "LONG" | "SHORT"
+    entry_ts: Optional[datetime] = None
+    exit_ts: Optional[datetime] = None
+    tag: str = ""
 
 
 def compute_metrics(
@@ -23,22 +32,33 @@ def compute_metrics(
     initial_capital: float,
     risk_free_rate: float = 0.0,
 ) -> dict:
-    if not trades:
+    if not trades and not equity_curve:
         return _empty_metrics()
 
-    total_pnl = sum(t.pnl for t in trades)
-    final_capital = initial_capital + total_pnl
+    # ── Portfolio-level metrics come from the equity curve ─────────────────
+    # The curve is authoritative for "how much money do I have": it already
+    # includes fees and marks open positions to market. Deriving these from
+    # closed trades alone used to zero out every metric for a strategy that
+    # was still holding a winning position.
+    realised_pnl = sum(t.pnl for t in trades)
+    if equity_curve:
+        final_capital = equity_curve[-1]
+        total_pnl = final_capital - initial_capital
+    else:
+        total_pnl = realised_pnl
+        final_capital = initial_capital + total_pnl
 
+    # ── Trade-level stats come from closed trades ──────────────────────────
     winners = [t for t in trades if t.pnl > 0]
     losers = [t for t in trades if t.pnl <= 0]
 
     win_rate = len(winners) / len(trades) if trades else 0.0
     avg_win = sum(t.pnl for t in winners) / len(winners) if winners else 0.0
     avg_loss = sum(abs(t.pnl) for t in losers) / len(losers) if losers else 0.0
+    gross_loss = sum(abs(t.pnl) for t in losers)
+    # None (not inf) when there are no losses — inf is not valid JSON.
     profit_factor = (
-        sum(t.pnl for t in winners) / sum(abs(t.pnl) for t in losers)
-        if losers and sum(abs(t.pnl) for t in losers) > 0
-        else float("inf")
+        sum(t.pnl for t in winners) / gross_loss if gross_loss > 0 else None
     )
     expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
 
@@ -49,17 +69,18 @@ def compute_metrics(
             returns.append((equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1])
 
     sharpe = _sharpe(returns, risk_free_rate) if returns else 0.0
-    sortino = _sortino(returns, risk_free_rate) if returns else 0.0
+    sortino = _sortino(returns, risk_free_rate) if returns else 0.0  # may be None
     max_dd, max_dd_pct = _max_drawdown(equity_curve)
     cagr = _cagr(initial_capital, final_capital, len(equity_curve))
 
     return {
-        "total_return_pct": round((total_pnl / initial_capital) * 100, 2),
+        "total_return_pct": round((total_pnl / initial_capital) * 100, 2) if initial_capital else 0,
         "total_pnl": round(total_pnl, 2),
+        "realised_pnl": round(realised_pnl, 2),
         "final_capital": round(final_capital, 2),
         "cagr_pct": round(cagr * 100, 2),
         "sharpe_ratio": round(sharpe, 3),
-        "sortino_ratio": round(sortino, 3),
+        "sortino_ratio": round(sortino, 3) if sortino is not None else None,
         "max_drawdown": round(max_dd, 2),
         "max_drawdown_pct": round(max_dd_pct * 100, 2),
         "trade_count": len(trades),
@@ -68,14 +89,14 @@ def compute_metrics(
         "win_rate_pct": round(win_rate * 100, 2),
         "avg_win": round(avg_win, 2),
         "avg_loss": round(avg_loss, 2),
-        "profit_factor": round(profit_factor, 3) if profit_factor != float("inf") else None,
+        "profit_factor": round(profit_factor, 3) if profit_factor is not None else None,
         "expectancy": round(expectancy, 2),
     }
 
 
 def _empty_metrics() -> dict:
     return {k: 0 for k in [
-        "total_return_pct", "total_pnl", "final_capital", "cagr_pct",
+        "total_return_pct", "total_pnl", "realised_pnl", "final_capital", "cagr_pct",
         "sharpe_ratio", "sortino_ratio", "max_drawdown", "max_drawdown_pct",
         "trade_count", "win_count", "loss_count", "win_rate_pct",
         "avg_win", "avg_loss", "profit_factor", "expectancy",
@@ -103,13 +124,16 @@ def _sharpe(returns: list[float], risk_free: float = 0.0) -> float:
 
 
 def _sortino(returns: list[float], risk_free: float = 0.0) -> float:
+    """Returns None when there is no downside deviation — a Sortino of
+    "infinity" is not representable in JSON and used to break the API
+    response, so callers must render the no-downside case as "—"."""
     excess = [r - risk_free for r in returns]
     downside = [r for r in excess if r < 0]
     if not downside:
-        return float("inf")
+        return None
     downside_std = math.sqrt(sum(r ** 2 for r in downside) / len(downside))
     if downside_std == 0:
-        return 0.0
+        return None
     return _mean(excess) / downside_std * math.sqrt(252)
 
 

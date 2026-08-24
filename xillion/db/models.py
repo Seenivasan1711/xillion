@@ -55,6 +55,34 @@ class BrokerClass(Base):
     connections: Mapped[list["BrokerConnection"]] = relationship(back_populates="broker_class")
 
 
+class DataProviderClass(Base):
+    """Discovered historical-data-provider plugins from data_providers/ --
+    same drop-a-file discovery pattern as StrategyClass/BrokerClass."""
+    __tablename__ = "data_provider_class"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    module_path: Mapped[str] = mapped_column(Text, nullable=False)
+    class_name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    capabilities_json: Mapped[str] = mapped_column(Text, nullable=False)
+    discovered_at: Mapped[str] = mapped_column(Text, nullable=False)
+    last_seen_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class DataProviderCredential(Base):
+    """Encrypted API credentials for a data provider that needs its own key
+    (e.g. TrueData, DhanHQ). Providers that piggyback on a connected broker
+    (e.g. Kite) or need no auth (e.g. free NSE bhavcopy) have no row here."""
+    __tablename__ = "data_provider_credential"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)  # e.g. "TrueData Primary"
+    provider_name: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. "TrueData"
+    encrypted_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 # ── Broker connections ─────────────────────────────────────────────────────────
 
 class BrokerConnection(Base):

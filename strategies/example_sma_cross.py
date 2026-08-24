@@ -42,7 +42,7 @@ class SMACrossStrategy(Strategy):
         fast = ctx.params["fast"]
         qty = ctx.params["qty"]
 
-        bars = await ctx.history(bar.symbol, self.timeframe, lookback=slow + 2)
+        bars = await ctx.history(bar.symbol, bar.timeframe, lookback=slow + 2)
         if len(bars) < slow + 1:
             return  # not enough data yet
 

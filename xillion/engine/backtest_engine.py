@@ -11,18 +11,29 @@ from uuid import uuid4
 
 import structlog
 
+from xillion.core.contracts import ContractSpec
 from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Position, Side
 from xillion.core.strategy_base import Strategy, StrategyContext
 from xillion.engine.metrics import ClosedTrade, compute_metrics
+from xillion.engine.position_math import PositionState, apply_fill
 
 logger = structlog.get_logger(__name__)
 
 
 @dataclass
 class FeeConfig:
-    brokerage_pct: float = 0.03    # 0.03% of turnover
-    stt_pct: float = 0.01          # STT 0.01% on sell side
-    other_pct: float = 0.005       # exchange + regulatory
+    """Percentages of turnover. STT is charged on the SELL side only, which is
+    how the Indian equity/F&O regime actually works -- charging it both ways
+    roughly doubles the modelled cost and makes marginal strategies look worse
+    than they are."""
+    brokerage_pct: float = 0.03    # 0.03% of turnover, both sides
+    stt_pct: float = 0.01          # sell side only
+    other_pct: float = 0.005       # exchange + regulatory, both sides
+
+    @classmethod
+    def zero(cls) -> "FeeConfig":
+        """Frictionless — for tests that assert exact arithmetic."""
+        return cls(brokerage_pct=0.0, stt_pct=0.0, other_pct=0.0)
 
 
 @dataclass
@@ -43,16 +54,6 @@ class BacktestResult:
     error: Optional[str] = None
 
 
-class _OpenPosition:
-    def __init__(self, symbol: str, side: Side, qty: int, price: Decimal, ts: datetime, tag: str) -> None:
-        self.symbol = symbol
-        self.side = side
-        self.qty = qty
-        self.entry_price = price
-        self.entry_ts = ts
-        self.tag = tag
-
-
 class _BacktestContext(StrategyContext):
     """StrategyContext used exclusively during backtesting."""
 
@@ -64,6 +65,7 @@ class _BacktestContext(StrategyContext):
         slippage_bps: int,
         fee_config: FeeConfig,
         bars_by_sym_tf: dict[tuple[str, str], list[Bar]],
+        contracts: Optional[dict[str, ContractSpec]] = None,
     ) -> None:
         self.instance_id = instance_id
         self.mode = "backtest"
@@ -73,77 +75,95 @@ class _BacktestContext(StrategyContext):
         self._slippage = slippage_bps / 10000
         self._fees = fee_config
         self._bars = bars_by_sym_tf
+        self._contracts = contracts or {}
         self._current_ts: Optional[datetime] = None
-        self._current_bar_close: Decimal = Decimal("0")
         self._cash: Decimal = capital
-        self._open_positions: dict[str, _OpenPosition] = {}
-        self._positions: dict[str, Position] = {}
+        # Signed net position per symbol (see engine/position_math.py)
+        self._positions: dict[str, PositionState] = {}
+        # Per-symbol last traded price, for mark-to-market. A single scalar
+        # would silently mark every symbol at the last bar seen, whichever
+        # instrument that happened to belong to.
+        self._last_price: dict[str, Decimal] = {}
         self.closed_trades: list[ClosedTrade] = []
         self.equity_curve: list[float] = []
         self._orders: list[Order] = []
+        self._pending: dict[str, Order] = {}
 
-    def _set_time(self, ts: datetime, bar_close: Decimal = Decimal("0")) -> None:
-        self._current_ts = ts
-        self._current_bar_close = bar_close
+    def _multiplier(self, symbol: str) -> int:
+        spec = self._contracts.get(symbol)
+        return spec.multiplier if spec else 1
+
+    def _set_time(self, bar: Bar) -> None:
+        self._current_ts = bar.ts
+        self._last_price[bar.symbol] = bar.close
+
+    def _fee_for(self, side: Side, turnover: Decimal) -> Decimal:
+        pct = self._fees.brokerage_pct + self._fees.other_pct
+        if side == Side.SELL:
+            pct += self._fees.stt_pct
+        return turnover * Decimal(str(pct / 100))
 
     def _current_equity(self) -> Decimal:
+        """Cash plus mark-to-market of all open positions.
+
+        Previously this returned cash only, which made the equity curve flat
+        for the whole time a position was open -- so max drawdown, Sharpe and
+        Sortino were all computed off a curve that never moved mid-trade.
+        """
         unrealised = Decimal("0")
-        for sym, pos in self._open_positions.items():
-            # Use last known close as mark-to-market
-            pass  # simplified: just use cash + realised for equity curve
-        return self._cash
+        for sym, pos in self._positions.items():
+            if pos.qty == 0:
+                continue
+            mark = self._last_price.get(sym, pos.avg_price)
+            unrealised += Decimal(pos.qty) * mark * Decimal(self._multiplier(sym))
+        return self._cash + unrealised
 
     async def place_order(self, request: OrderRequest) -> Order:
         now = self._current_ts or datetime.now(timezone.utc)
         slippage = Decimal(str(self._slippage))
+        sym = request.symbol
 
         if request.order_type.value == "MARKET":
-            # Simulate fill at current bar's close +/- slippage
-            fill_price = request.price or self._current_bar_close or Decimal("0")
-            if request.side == Side.BUY:
-                fill_price = fill_price * (1 + slippage)
-            else:
-                fill_price = fill_price * (1 - slippage)
+            # Simulate fill at this symbol's latest close +/- slippage
+            base = request.price or self._last_price.get(sym) or Decimal("0")
+            fill_price = base * (1 + slippage) if request.side == Side.BUY else base * (1 - slippage)
         else:
             fill_price = request.price or Decimal("0")
 
-        # Compute fee
-        turnover = fill_price * request.quantity
-        fee = turnover * Decimal(str(
-            self._fees.brokerage_pct / 100 + self._fees.stt_pct / 100 + self._fees.other_pct / 100
-        ))
+        mult = self._multiplier(sym)
+        turnover = fill_price * request.quantity * mult
+        fee = self._fee_for(request.side, turnover)
 
-        # Update P&L
-        sym = request.symbol
+        # Cash moves the same way regardless of whether this fill opens, adds
+        # to, reduces or reverses a position: a buy always debits, a sell
+        # always credits. The old code special-cased "sell with no position"
+        # by crediting cash and tracking nothing, which silently discarded
+        # every short.
         if request.side == Side.BUY:
             self._cash -= turnover + fee
-            existing = self._open_positions.get(sym)
-            if existing:
-                existing.qty += request.quantity
-            else:
-                self._open_positions[sym] = _OpenPosition(
-                    sym, Side.BUY, request.quantity, fill_price, now, request.tag or ""
-                )
         else:
-            # Selling — close position
-            open_pos = self._open_positions.get(sym)
-            if open_pos:
-                pnl = (fill_price - open_pos.entry_price) * min(request.quantity, open_pos.qty)
-                pnl -= fee
-                self._cash += turnover - fee
-                self.closed_trades.append(
-                    ClosedTrade(
-                        pnl=float(pnl),
-                        entry_price=float(open_pos.entry_price),
-                        exit_price=float(fill_price),
-                        quantity=request.quantity,
-                    )
-                )
-                open_pos.qty -= request.quantity
-                if open_pos.qty <= 0:
-                    del self._open_positions[sym]
-            else:
-                self._cash += turnover - fee
+            self._cash += turnover - fee
+
+        outcome = apply_fill(
+            self._positions.get(sym),
+            symbol=sym,
+            side=request.side,
+            quantity=request.quantity,
+            price=fill_price,
+            ts=now,
+            multiplier=mult,
+            tag=request.tag or "",
+        )
+        self._positions[sym] = outcome.state
+        if outcome.closed_trade:
+            # Charge the closing side's fee against the trade's P&L, prorated
+            # when this fill only partially closed the position, so per-trade
+            # P&L stays comparable to the fee-inclusive equity curve.
+            closed_share = Decimal(outcome.closed_trade.quantity) / Decimal(request.quantity)
+            outcome.closed_trade.pnl = float(
+                Decimal(str(outcome.closed_trade.pnl)) - fee * closed_share
+            )
+            self.closed_trades.append(outcome.closed_trade)
 
         order = Order(
             client_order_id=request.client_order_id,
@@ -163,32 +183,41 @@ class _BacktestContext(StrategyContext):
         return order
 
     async def cancel_order(self, client_order_id: str) -> bool:
-        return False
+        return self._pending.pop(client_order_id, None) is not None
 
     async def modify_order(self, client_order_id: str, **changes) -> Order:
-        raise NotImplementedError
+        order = self._pending.get(client_order_id)
+        if order is None:
+            raise ValueError(f"No pending order {client_order_id!r} to modify")
+        for key, value in changes.items():
+            if hasattr(order, key):
+                setattr(order, key, value)
+        return order
 
     def position(self, symbol: str) -> Optional[Position]:
-        op = self._open_positions.get(symbol)
-        if not op:
+        pos = self._positions.get(symbol)
+        if not pos or pos.qty == 0:
             return None
+        mark = self._last_price.get(symbol, pos.avg_price)
+        mult = Decimal(self._multiplier(symbol))
         return Position(
             symbol=symbol,
-            quantity=op.qty,
-            avg_price=op.entry_price,
-            realised_pnl=Decimal("0"),
-            unrealised_pnl=Decimal("0"),
-            last_price=op.entry_price,
+            quantity=pos.qty,
+            avg_price=pos.avg_price,
+            realised_pnl=pos.realised_pnl,
+            unrealised_pnl=(mark - pos.avg_price) * Decimal(pos.qty) * mult,
+            last_price=mark,
         )
 
     def positions(self) -> list[Position]:
-        return [self.position(s) for s in self._open_positions if self.position(s)]
+        out = [self.position(s) for s in self._positions]
+        return [p for p in out if p is not None]
 
     def open_orders(self) -> list[Order]:
-        return []
+        return list(self._pending.values())
 
     def equity(self) -> Decimal:
-        return self._cash
+        return self._current_equity()
 
     def realised_pnl_today(self) -> Decimal:
         return sum((Decimal(str(t.pnl)) for t in self.closed_trades), Decimal("0"))
@@ -218,6 +247,7 @@ class BacktestEngine:
         params: dict,
         slippage_bps: int = 5,
         fee_config: Optional[FeeConfig] = None,
+        contracts: Optional[dict[str, ContractSpec]] = None,
     ) -> BacktestResult:
         if fee_config is None:
             fee_config = FeeConfig()
@@ -256,6 +286,7 @@ class BacktestEngine:
             slippage_bps=slippage_bps,
             fee_config=fee_config,
             bars_by_sym_tf=bars_by_sym_tf,
+            contracts=contracts,
         )
 
         ctx.equity_curve.append(float(capital))
@@ -265,7 +296,7 @@ class BacktestEngine:
             for bar in sorted_bars:
                 if bar.symbol not in instruments:
                     continue
-                ctx._set_time(bar.ts, bar.close)
+                ctx._set_time(bar)
                 await strategy.on_bar(bar, ctx)
                 ctx.equity_curve.append(float(ctx.equity()))
             await strategy.on_stop(ctx, "backtest_complete")
@@ -299,6 +330,11 @@ class BacktestEngine:
                 "exit_price": t.exit_price,
                 "pnl": t.pnl,
                 "quantity": t.quantity,
+                "symbol": t.symbol,
+                "side": t.side,
+                "entry_ts": t.entry_ts.isoformat() if t.entry_ts else None,
+                "exit_ts": t.exit_ts.isoformat() if t.exit_ts else None,
+                "tag": t.tag,
             }
             for t in ctx.closed_trades
         ]

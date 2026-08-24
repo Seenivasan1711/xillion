@@ -4,14 +4,18 @@ Backtest API endpoints — trigger and retrieve backtest runs.
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from xillion.api.deps import db_dep, get_current_user
+from xillion.auth.data_provider_credstore import load_provider_credentials
 from xillion.core.events import Bar
+from xillion.db.models import AppUser
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -166,4 +170,112 @@ async def run_backtest_csv(
         "to_ts": result.to_ts.isoformat(),
         "bars_loaded": len(bars),
         "parse_errors": parse_errors,
+    }
+
+
+class RunBacktestProviderRequest(BaseModel):
+    strategy_name: str
+    provider_name: str
+    symbol: str
+    exchange: str = "NFO"
+    instrument_type: str = "option"
+    timeframe: str = "1d"
+    from_date: date
+    to_date: date
+    initial_capital: float = 100000.0
+    slippage_bps: int = 5
+    params: dict = {}
+
+
+@router.post("/run-provider")
+async def run_backtest_provider(
+    body: RunBacktestProviderRequest,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Fetch historical bars from a configured data provider and run a
+    backtest in one shot — the provider-based alternative to /run-csv."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(503, "Plugin loader not available")
+
+    strategy_cls = loader.registry.strategies.get(body.strategy_name)
+    if strategy_cls is None:
+        raise HTTPException(404, f"Strategy '{body.strategy_name}' not found")
+
+    provider_cls = loader.registry.data_providers.get(body.provider_name)
+    if provider_cls is None:
+        raise HTTPException(404, f"Data provider '{body.provider_name}' not found")
+
+    provider = provider_cls()
+    caps = provider.capabilities
+
+    credentials = None
+    if caps.requires_credentials:
+        credentials = await load_provider_credentials(db, body.provider_name)
+        if credentials is None:
+            raise HTTPException(
+                422,
+                f"'{body.provider_name}' needs credentials — configure it under Settings → Data Providers",
+            )
+
+    broker = None
+    if caps.requires_broker:
+        broker_instances = getattr(request.app.state, "broker_instances", {})
+        connected = next(
+            (info["instance"] for info in broker_instances.values() if info.get("status") == "connected"),
+            None,
+        )
+        if connected is None:
+            raise HTTPException(
+                422,
+                f"'{body.provider_name}' needs a connected broker — connect one under Settings → Brokers",
+            )
+        broker = connected
+
+    try:
+        bars = await provider.fetch_bars(
+            body.symbol,
+            body.exchange,
+            body.timeframe,
+            body.from_date,
+            body.to_date,
+            instrument_type=body.instrument_type,
+            credentials=credentials,
+            broker=broker,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+    if not bars:
+        raise HTTPException(
+            422,
+            f"No bars returned from '{body.provider_name}' for {body.symbol} "
+            f"between {body.from_date} and {body.to_date}",
+        )
+
+    strategy = strategy_cls()
+    engine = BacktestEngine()
+    result = await engine.run(
+        strategy=strategy,
+        bars=bars,
+        instruments=[body.symbol],
+        timeframe=body.timeframe,
+        initial_capital=body.initial_capital,
+        params=body.params,
+        slippage_bps=body.slippage_bps,
+    )
+
+    return {
+        "run_id": result.run_id,
+        "strategy_name": result.strategy_name,
+        "status": result.status,
+        "error": result.error,
+        "metrics": result.metrics,
+        "equity_curve": result.equity_curve,
+        "trade_count": len(result.trades),
+        "from_ts": result.from_ts.isoformat(),
+        "to_ts": result.to_ts.isoformat(),
+        "bars_loaded": len(bars),
     }

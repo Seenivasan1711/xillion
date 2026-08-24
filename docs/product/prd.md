@@ -184,7 +184,7 @@ For v1 personal use, success isn't ARR or DAU. It's:
 
 ## 10. Release plan summary
 
-See [09 Progress Tracker](./09-progress-tracker.md) for the detailed plan. High-level phases:
+See [09 Progress Tracker](../archive/progress-tracker-phases-0-10.md) for the detailed plan. High-level phases:
 
 | Phase | Duration (rough) | Outcome |
 |---|---|---|
