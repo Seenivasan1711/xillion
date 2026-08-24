@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.core.plugin_loader import PluginRegistry
-from xillion.db.models import BrokerClass, DataProviderClass, StrategyClass
+from xillion.db.models import BrokerClass, DataProviderClass, StrategyClass, StrategyVersionHistory
 
 logger = structlog.get_logger(__name__)
 
@@ -34,22 +34,26 @@ async def sync_registry_to_db(registry: PluginRegistry, db: AsyncSession) -> Non
         code_hash = registry.strategy_file_hashes.get(name, "")
         module_path = registry.strategy_file_paths.get(name, "")
         if row is None:
-            db.add(
-                StrategyClass(
-                    name=name,
-                    module_path=module_path,
-                    class_name=cls.__name__,
-                    version=cls.version,
-                    description=cls.description,
-                    author=cls.author,
-                    default_timeframe=cls.timeframe,
-                    params_schema_json=params_schema_json,
-                    code_hash=code_hash,
-                    discovered_at=now,
-                    last_seen_at=now,
-                )
+            row = StrategyClass(
+                name=name,
+                module_path=module_path,
+                class_name=cls.__name__,
+                version=cls.version,
+                description=cls.description,
+                author=cls.author,
+                default_timeframe=cls.timeframe,
+                params_schema_json=params_schema_json,
+                code_hash=code_hash,
+                discovered_at=now,
+                last_seen_at=now,
             )
+            db.add(row)
+            await db.flush()  # need row.id for the version-history FK below
+            db.add(StrategyVersionHistory(
+                strategy_class_id=row.id, version=cls.version, code_hash=code_hash, recorded_at=now,
+            ))
         else:
+            code_changed = row.code_hash != code_hash or row.version != cls.version
             row.module_path = module_path
             row.class_name = cls.__name__
             row.version = cls.version
@@ -59,6 +63,12 @@ async def sync_registry_to_db(registry: PluginRegistry, db: AsyncSession) -> Non
             row.params_schema_json = params_schema_json
             row.code_hash = code_hash
             row.last_seen_at = now
+            # strategy_class is upserted in place -- log the change here or
+            # it's gone the moment the next sync overwrites it.
+            if code_changed:
+                db.add(StrategyVersionHistory(
+                    strategy_class_id=row.id, version=cls.version, code_hash=code_hash, recorded_at=now,
+                ))
 
     for name, cls in registry.brokers.items():
         result = await db.execute(select(BrokerClass).where(BrokerClass.name == name))

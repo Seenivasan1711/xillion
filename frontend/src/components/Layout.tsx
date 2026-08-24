@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Activity, BarChart2, Bell, Cpu, LogOut, Moon, Search,
+  Activity, BarChart2, Bell, BookOpen, Cpu, LogOut, Moon, Search,
   Settings, Skull, Sun, Terminal, TrendingUp,
   LayoutDashboard, Link, Pause, X, RefreshCw, ArrowDownRight,
 } from 'lucide-react'
@@ -38,6 +38,7 @@ const CRUMB_LABELS: Record<string, string> = {
   '/strategies': 'Strategies',
   '/trades': 'Trades',
   '/alerts': 'Alerts',
+  '/journal': 'Journal',
   '/backtest': 'Backtest',
   '/logs': 'Logs',
   '/settings': 'Settings',
@@ -222,6 +223,7 @@ export default function Layout() {
     { key: '/strategies', label: 'Strategies', Icon: Cpu,             pill: runnerCount > 0 ? String(runnerCount) : null },
     { key: '/trades',     label: 'Trades',     Icon: TrendingUp,      pill: tradeCount > 0 ? String(tradeCount) : null },
     { key: '/alerts',     label: 'Alerts',     Icon: Bell,            pill: null },
+    { key: '/journal',    label: 'Journal',    Icon: BookOpen,        pill: null },
     { key: '/backtest',   label: 'Backtest',   Icon: BarChart2,       pill: null },
     { key: '/logs',       label: 'Logs',       Icon: Terminal,        pill: null },
     { key: '/settings',   label: 'Settings',   Icon: Settings,        pill: null },

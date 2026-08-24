@@ -5,12 +5,13 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 → **CP6 is next.**
+**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 + CP6 ✅
+→ **CP7 is next** (MCP server — read-only tools first, then guarded control
+tools; "no freeform order construction by an LLM" per its own checklist).
 CP3/CP4/CP5 are each "engineering done, one item needs something only you
 can supply" (real backfill run, real Telegram bot, a real options strategy
 to design multi-leg support against — see Blocked on you). None of that
-blocks CP6 (strategy journal + feedback loop), which is pure platform
-engineering same as CP5 was.
+blocks CP7.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -246,14 +247,54 @@ being unreachable here):
 
 ---
 
-### ⬜ CP6 — Strategy journal + feedback loop (~14 hrs) → *Goal #8*
-- [ ] `StrategyJournal` — every signal linked to its outcome
-- [ ] Auto-tag failure modes: stopped out / target missed / late entry /
-      slippage / no-fill / gap
-- [ ] Journal UI — performance over time, failure patterns grouped
-- [ ] **Strategy versioning** — param changes tracked as versions, compared
-- [ ] **Markdown export per strategy → `docs/strategies/<name>.md`** so the
-      RAG layer (CP8) ingests real trade history, not just code
+### ✅ CP6 — Strategy journal + feedback loop `DONE 2026-08-24` → *Goal #8*
+- [x] `StrategyJournal` (`xillion/engine/journal.py`) — combines both places
+      an outcome actually lives: `signal_log` ENTER/EXIT pairs (alert mode,
+      has real target/stop-loss on record) and `backtest_trade` (has real
+      P&L, but never had target/stop-loss — `ctx.buy()`/`ctx.sell()` never
+      carried those fields, only `ctx.alert_entry()` does)
+- [x] **Auto-tag failure modes — honestly scoped, not the full taxonomy.**
+      `stopped_out` / `target_hit` are only claimed when the exit price
+      *actually crossed* the recorded level; `win`/`loss` from real P&L.
+      The rest of the template's taxonomy (`late_entry`, `slippage`,
+      `no_fill`, `gap`, `regime_change`, `data_gap`, `system_error`) needs
+      tick-level timing or broker fill/rejection data this system doesn't
+      capture yet — auto-classifying those would be inventing certainty the
+      data doesn't support, so they're `unclassified` until a human tags
+      them via the new manual override (`journal_note` table)
+- [x] Journal UI (`/journal`) — entries/wins/failures/win-rate, filter by
+      strategy, click a failure/loss/unclassified row to set a manual
+      failure mode + "what changed" note
+- [x] **Strategy versioning** — `strategy_version_history`, append-only.
+      `strategy_class` is upserted in place on every plugin sync (unchanged
+      behaviour), which would silently lose prior versions the moment a
+      strategy's code changes — `plugin_sync.py` now logs the old
+      `(version, code_hash)` before overwriting, only when it actually changed
+- [x] **Markdown export → `docs/strategies/<name>.md`** — writes only
+      sections 5 (Failure log) and 6 (Version history); sections 1-4 (rules,
+      backtest/paper/live results) are human-authored and survive re-export
+      untouched, verified by round-tripping real template content
+
+**🐛 Real bug caught only by inspecting real export output, not by the unit
+tests that were passing:** the section-replace regex used `\s` in its
+separator-row character class, which matches `\n` — so it silently
+swallowed the template's empty placeholder row (`| | | | |`) into the
+"header" group instead of the "replaceable data rows" group. Real journal
+rows got appended *after* the stale placeholder instead of replacing it. The
+existing tests all checked new content was present but never checked the
+placeholder was gone — fixed the regex (`[ \t\-|]` instead of `[-\s|]`) and
+added that missing assertion.
+
+**Verified end-to-end in a real browser**, both journal sources exercised
+through their real code paths (not hand-inserted rows): an alert-mode
+ENTER/EXIT pair via `StrategyEngine.spawn()` (correctly auto-tagged
+`stopped_out` — exit price genuinely crossed the recorded stop-loss) and a
+`backtest_trade` via `persist_backtest_run()`. Manually tagged the backtest
+loss as `late_entry` with a note, confirmed it persisted and re-rendered.
+Exported to `docs/strategies/sma-cross.md`, inspected the real file on disk,
+confirmed clean output, then deleted that verification artifact — it's
+synthetic test data, not real strategy documentation, and doesn't belong in
+the repo's actual docs.
 
 ---
 

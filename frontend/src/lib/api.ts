@@ -209,6 +209,27 @@ export const api = {
     },
   },
 
+  journal: {
+    list: (opts?: { instance_id?: string; strategy_name?: string; limit?: number }) => {
+      const params = new URLSearchParams()
+      if (opts?.instance_id) params.set('instance_id', opts.instance_id)
+      if (opts?.strategy_name) params.set('strategy_name', opts.strategy_name)
+      if (opts?.limit) params.set('limit', String(opts.limit))
+      const qs = params.toString()
+      return request<{ entries: JournalEntryRow[] }>(`/journal${qs ? `?${qs}` : ''}`)
+    },
+    setNote: (body: { source: string; source_id: string; failure_mode?: string; change_made?: string }) =>
+      request<{ saved: boolean }>('/journal/note', { method: 'PUT', body: JSON.stringify(body) }),
+    versions: (strategyName: string) =>
+      request<{ strategy_name: string; versions: { version: string; code_hash: string; recorded_at: string }[] }>(
+        `/journal/versions/${encodeURIComponent(strategyName)}`
+      ),
+    export: (strategyName: string) =>
+      request<{ path: string; entry_count: number }>('/journal/export', {
+        method: 'POST', body: JSON.stringify({ strategy_name: strategyName }),
+      }),
+  },
+
   data: {
     coverage: () => request<{ coverage: BarCoverage[] }>('/data/coverage'),
     backfill: (body: BackfillRequest) =>
@@ -482,6 +503,25 @@ export interface SignalLogEntry {
   mode: string
   notified: boolean
   notified_at: string | null
+}
+
+export interface JournalEntryRow {
+  source: 'signal_log' | 'backtest_trade'
+  source_id: string
+  strategy_instance_id: string | null
+  symbol: string
+  side: string | null
+  entry_price: number | null
+  exit_price: number | null
+  entry_ts: string | null
+  exit_ts: string | null
+  pnl: number | null
+  target_price: number | null
+  stop_loss_price: number | null
+  outcome: 'stopped_out' | 'target_hit' | 'win' | 'loss' | 'unclassified' | 'still_open'
+  tag: string | null
+  manual_failure_mode?: string | null
+  change_made?: string | null
 }
 
 export interface BarCoverage {

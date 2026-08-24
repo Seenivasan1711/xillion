@@ -306,6 +306,40 @@ class MarketHoliday(Base):
     description: Mapped[str | None] = mapped_column(Text)
 
 
+# ── Journal (CP6) ──────────────────────────────────────────────────────────────
+
+class JournalNote(Base):
+    """Manual annotation on a journal entry -- the failure-mode taxonomy
+    entries auto-classification (xillion/engine/journal.py) has no real
+    evidence for (late_entry, slippage, no_fill, gap, regime_change,
+    data_gap, system_error), plus the free-text "what did you change"
+    narrative the docs/strategies/<name>.md failure log wants. Keyed by
+    the same (source, source_id) journal.py uses, not a hard FK, since
+    "source" spans two different tables (signal_log, backtest_trade)."""
+    __tablename__ = "journal_note"
+
+    source: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    failure_mode: Mapped[str | None] = mapped_column(Text)
+    change_made: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class StrategyVersionHistory(Base):
+    """Append-only log of every (version, code_hash) a strategy class has
+    ever had. strategy_class itself is upserted in place on every plugin
+    sync (see plugin_sync.py), which would otherwise silently lose this."""
+    __tablename__ = "strategy_version_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_class_id: Mapped[int] = mapped_column(ForeignKey("strategy_class.id"), nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (Index("idx_strategy_version_history_class", "strategy_class_id"),)
+
+
 # ── Backtest runs ──────────────────────────────────────────────────────────────
 
 class BacktestRun(Base):
