@@ -22,6 +22,7 @@ from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser
 from xillion.db.session import get_session_factory
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
+from xillion.engine.optimization import grid_search, walk_forward
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -180,7 +181,7 @@ async def run_backtest_csv(
     }
 
 
-class RunBacktestProviderRequest(BaseModel):
+class ProviderBarSourceRequest(BaseModel):
     strategy_name: str
     provider_name: str
     symbol: str
@@ -191,18 +192,19 @@ class RunBacktestProviderRequest(BaseModel):
     to_date: date
     initial_capital: float = 100000.0
     slippage_bps: int = 5
+
+
+class RunBacktestProviderRequest(ProviderBarSourceRequest):
     params: dict = {}
 
 
-@router.post("/run-provider")
-async def run_backtest_provider(
-    body: RunBacktestProviderRequest,
-    request: Request,
-    db: AsyncSession = Depends(db_dep),
-    user: AppUser = Depends(get_current_user),
-):
-    """Fetch historical bars from a configured data provider and run a
-    backtest in one shot — the provider-based alternative to /run-csv."""
+async def _resolve_strategy_and_bars(
+    body: ProviderBarSourceRequest, request: Request, db: AsyncSession,
+) -> tuple[type, list[Bar]]:
+    """Shared by /run-provider, /optimize, /walk-forward: resolve the
+    strategy class, resolve provider credentials/broker, fetch bars through
+    the warehouse (cache-on-fetch, see xillion/data/warehouse.py). Raises
+    HTTPException on any resolution failure."""
     loader = getattr(request.app.state, "plugin_loader", None)
     if loader is None:
         raise HTTPException(503, "Plugin loader not available")
@@ -267,6 +269,19 @@ async def run_backtest_provider(
             f"No bars returned from '{body.provider_name}' for {body.symbol} "
             f"between {body.from_date} and {body.to_date}",
         )
+    return strategy_cls, bars
+
+
+@router.post("/run-provider")
+async def run_backtest_provider(
+    body: RunBacktestProviderRequest,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Fetch historical bars from a configured data provider and run a
+    backtest in one shot — the provider-based alternative to /run-csv."""
+    strategy_cls, bars = await _resolve_strategy_and_bars(body, request, db)
 
     strategy = strategy_cls()
     engine = BacktestEngine()
@@ -279,7 +294,7 @@ async def run_backtest_provider(
         params=body.params,
         slippage_bps=body.slippage_bps,
     )
-    await persist_backtest_run(session_factory, result)
+    await persist_backtest_run(get_session_factory(), result)
 
     return {
         "run_id": result.run_id,
@@ -292,6 +307,80 @@ async def run_backtest_provider(
         "from_ts": result.from_ts.isoformat(),
         "to_ts": result.to_ts.isoformat(),
         "bars_loaded": len(bars),
+    }
+
+
+class OptimizeRequest(ProviderBarSourceRequest):
+    base_params: dict = {}
+    param_grid: dict[str, list] = {}
+    rank_by: str = "sharpe_ratio"
+
+
+@router.post("/optimize")
+async def run_grid_search(
+    body: OptimizeRequest,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Grid search: backtest every combination in param_grid's Cartesian
+    product over the same historical range, ranked by rank_by."""
+    strategy_cls, bars = await _resolve_strategy_and_bars(body, request, db)
+
+    results = await grid_search(
+        strategy_cls, bars, [body.symbol], body.timeframe, body.initial_capital,
+        body.param_grid, body.base_params, body.slippage_bps, None, body.rank_by,
+    )
+    return {
+        "rank_by": body.rank_by,
+        "bars_loaded": len(bars),
+        "results": [
+            {"params": r.params, "metrics": r.metrics, "trade_count": r.trade_count}
+            for r in results[:100]
+        ],
+    }
+
+
+class WalkForwardApiRequest(OptimizeRequest):
+    n_folds: int = 4
+    train_ratio: float = 0.7
+
+
+@router.post("/walk-forward")
+async def run_walk_forward(
+    body: WalkForwardApiRequest,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Walk-forward validation: pick the best params in-sample per fold,
+    then test that same pick out-of-sample -- the check that catches a
+    parameter that's curve-fit to the specific history it was tuned on."""
+    strategy_cls, bars = await _resolve_strategy_and_bars(body, request, db)
+
+    result = await walk_forward(
+        strategy_cls, bars, [body.symbol], body.timeframe, body.initial_capital,
+        body.param_grid, body.n_folds, body.train_ratio,
+        body.base_params, body.slippage_bps, None, body.rank_by,
+    )
+    return {
+        "rank_by": result.rank_by,
+        "bars_loaded": len(bars),
+        "avg_in_sample": result.avg_in_sample,
+        "avg_out_of_sample": result.avg_out_of_sample,
+        "is_likely_overfit": result.is_likely_overfit,
+        "folds": [
+            {
+                "train_from": f.train_from.isoformat(),
+                "train_to": f.train_to.isoformat(),
+                "test_from": f.test_from.isoformat(),
+                "test_to": f.test_to.isoformat(),
+                "best_params": f.best_params,
+                "in_sample_metrics": f.in_sample_metrics,
+                "out_of_sample_metrics": f.out_of_sample_metrics,
+            }
+            for f in result.folds
+        ],
     }
 
 

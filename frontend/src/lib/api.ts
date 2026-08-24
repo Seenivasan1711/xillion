@@ -179,6 +179,10 @@ export const api = {
       }),
     runs: (limit = 50) => request<{ runs: BacktestRunSummary[] }>(`/backtest/runs?limit=${limit}`),
     runDetail: (runId: string) => request<BacktestRunDetail>(`/backtest/runs/${encodeURIComponent(runId)}`),
+    optimize: (body: OptimizeRequest) =>
+      request<OptimizeResponse>('/backtest/optimize', { method: 'POST', body: JSON.stringify(body) }),
+    walkForward: (body: WalkForwardRequest) =>
+      request<WalkForwardResponse>('/backtest/walk-forward', { method: 'POST', body: JSON.stringify(body) }),
   },
 
   dataProviders: {
@@ -385,6 +389,79 @@ export interface BacktestProviderRequest {
   initial_capital?: number
   slippage_bps?: number
   params?: Record<string, unknown>
+}
+
+// A condition row from the Strategy Builder -- see xillion/engine/condition.py.
+export interface MetricSpec {
+  name: string
+  period?: number
+  fast?: number
+  slow?: number
+  signal?: number
+  num_std?: number
+  multiplier?: number
+}
+
+export interface ConditionRow {
+  metric: MetricSpec
+  operator: '>' | '<' | '>=' | '<=' | '==' | 'crosses_above' | 'crosses_below'
+  threshold?: number
+  other_metric?: MetricSpec
+}
+
+interface ProviderBarSourceFields {
+  strategy_name: string
+  provider_name: string
+  symbol: string
+  exchange?: string
+  instrument_type?: string
+  timeframe?: string
+  from_date: string
+  to_date: string
+  initial_capital?: number
+  slippage_bps?: number
+}
+
+export interface OptimizeRequest extends ProviderBarSourceFields {
+  base_params?: Record<string, unknown>
+  param_grid?: Record<string, unknown[]>
+  rank_by?: string
+}
+
+export interface GridResultEntry {
+  params: Record<string, unknown>
+  metrics: Record<string, number | null>
+  trade_count: number
+}
+
+export interface OptimizeResponse {
+  rank_by: string
+  bars_loaded: number
+  results: GridResultEntry[]
+}
+
+export interface WalkForwardRequest extends OptimizeRequest {
+  n_folds?: number
+  train_ratio?: number
+}
+
+export interface WalkForwardFoldEntry {
+  train_from: string
+  train_to: string
+  test_from: string
+  test_to: string
+  best_params: Record<string, unknown>
+  in_sample_metrics: Record<string, number | null>
+  out_of_sample_metrics: Record<string, number | null>
+}
+
+export interface WalkForwardResponse {
+  rank_by: string
+  bars_loaded: number
+  avg_in_sample: number | null
+  avg_out_of_sample: number | null
+  is_likely_overfit: boolean
+  folds: WalkForwardFoldEntry[]
 }
 
 export interface SignalLogEntry {

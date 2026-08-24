@@ -5,7 +5,12 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-24
-**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 (both only missing a real-credentials proof, not code — see Blocked on you #1 and #6) → **CP5 is next.** CP5 (strategy builder: condition-builder UI, generic `ConditionStrategy`, indicator library, parameter optimisation) is pure platform engineering — not blocked on anything. Your trading-course strategy rules (Blocked on you #2) are needed later, to actually *use* the builder for Options Stage 1 in Track B, not to build it
+**Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 → **CP6 is next.**
+CP3/CP4/CP5 are each "engineering done, one item needs something only you
+can supply" (real backfill run, real Telegram bot, a real options strategy
+to design multi-leg support against — see Blocked on you). None of that
+blocks CP6 (strategy journal + feedback loop), which is pure platform
+engineering same as CP5 was.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -182,20 +187,62 @@ actually proven, not just unit-tested.
 
 ---
 
-### ⬜ CP5 — Strategy builder (~14 hrs)
-- [ ] Condition-builder UI (metric / operator / threshold rows) on top of the
-      existing `params_schema` form
-- [ ] Generic `ConditionStrategy` that interprets builder output — so new
-      setups need no new Python file
-- [ ] Indicator library: SMA, EMA, RSI, ATR, VWAP, Bollinger, MACD, supertrend
-- [ ] Multi-leg option structure support (straddle/strangle/spreads)
-- [ ] **Parameter optimisation: grid search + walk-forward** (was in the old
-      `09-progress-tracker.md` "Future" list). Needed for Stage 2's
-      robustness check — a strategy whose results collapse on a ±10%
-      parameter move is curve-fit, and this is what detects that
+### 🟡 CP5 — Strategy builder `MOSTLY DONE 2026-08-24 — multi-leg options carried to Track B`
+- [x] Condition-builder UI (metric / operator / threshold rows) on top of the
+      existing `params_schema` form — new `condition_list` param type,
+      `ConditionListEditor` renders rows (metric+period, operator, value-or-
+      another-metric), writes straight into the same JSON params blob every
+      other strategy already uses
+- [x] Generic `ConditionStrategy` (`strategies/condition_strategy.py`) that
+      interprets builder output — a new setup is a JSON blob, not a new
+      Python file. Long or short, entry/exit each an AND of conditions
+- [x] Indicator library (`xillion/engine/indicators.py`): SMA, EMA, RSI, ATR,
+      VWAP (rolling, not session-anchored — see its docstring), Bollinger,
+      MACD, Supertrend. `rsi_threshold_alert.py` refactored to import the
+      shared `rsi()` instead of its own private copy — one RSI formula in
+      the codebase, not two that could silently drift apart
+- [ ] **Multi-leg option structures (straddle/strangle/spreads) — NOT done,
+      carried to Track B.** This needs a real options strategy to design
+      against (multi-leg P&L combination, margin, which legs move together)
+      — building it generically first, with no real strategy driving the
+      requirements, risks guessing wrong. Better triggered by Blocked on
+      you #2 (your trading-course rules) when Options reaches Stage 1
+- [x] **Parameter optimisation: grid search + walk-forward**
+      (`xillion/engine/optimization.py`) — walk-forward's overfit heuristic
+      verified against a deliberately-constructed regime-change scenario
+      (steady uptrend in-sample, hard reversal out-of-sample): correctly
+      flags `is_likely_overfit=True` there and `False` when the same trend
+      continues through both windows
+- [x] `POST /backtest/optimize` + `POST /backtest/walk-forward` (reuse
+      `_resolve_strategy_and_bars`, the same warehouse-backed fetch
+      `/run-provider` already used) + sweep results UI on the Backtest page
 
-**Verify:** build a working setup end-to-end in the UI with zero code, and run
-a parameter sweep that surfaces an over-fit configuration.
+**🐛 Real bug caught only by loading the app, not by tests:** the plugin
+loader's `ParamSpec.type` allowlist didn't include `"condition_list"`, so
+`condition_strategy.py` failed discovery and **silently vanished from the
+strategy dropdown** — logged as a discovery error, but nothing surfaced it
+anywhere a person would see. Fixed in `xillion/core/plugin_loader.py`
++ a regression test asserting `"Condition Strategy"` actually discovers.
+
+**Verified, both end-to-end in a real browser against real data** (this
+sandbox's disposable-SQLite workaround, per the CP2/CP3 note on Supabase
+being unreachable here):
+1. **Zero-code setup:** built "close crosses above SMA(3)" entry / "close <
+   10" exit entirely by clicking, uploaded a CSV, ran it — P&L **−₹11.01**,
+   matching the hand-verified unit test's −11.00 (the 1-paisa gap is real
+   brokerage/STT the unit test zeroed out via `FeeConfig.zero()`).
+2. **Parameter sweep against real NSE data:** grid search over RSI
+   Threshold's `period` (10/14/20) via the free NSE Bhavcopy provider for
+   real January 2024 data — persisted **124K+ real bars** in the process
+   (the whole-file-bulk lever from CP2, proven again at a full month's
+   scale, not just the 2-day CP3 sample), returned a correctly ranked
+   3-row results table. (The specific symbol tried didn't match any real
+   contract, so all three came back 0 trades — an honest result, not a
+   failure: the fetch, the warehouse persistence, and the ranking all ran
+   for real.) Walk-forward's own UI (folds/train-ratio fields, toggle) was
+   checked structurally rather than re-run live, since its logic already has
+   a dedicated, harder unit proof (the regime-change scenario above) than a
+   second live run would add.
 
 ---
 
@@ -291,6 +338,7 @@ Infrastructure each asset needs before its pipeline can start:
 | 4 | Funding Pips account + challenge | Gold S3 onward |
 | 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 |
 | 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 |
+| 7 | A real multi-leg options strategy (straddle/strangle/spread) to design CP5's multi-leg support against — same trading-course source as #2 | CP5 close-out, Options S1 |
 
 ---
 

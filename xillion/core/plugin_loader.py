@@ -43,7 +43,7 @@ def _validate_strategy_class(cls: Type[Strategy]) -> None:
     if not cls.name:
         raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
     for spec in cls.params_schema:
-        if spec.type not in {"int", "float", "str", "bool", "choice"}:
+        if spec.type not in {"int", "float", "str", "bool", "choice", "condition_list"}:
             raise PluginLoadError(
                 f"{cls.__name__} param '{spec.name}' has unsupported type '{spec.type}'"
             )
