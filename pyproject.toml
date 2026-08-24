@@ -27,6 +27,7 @@ dependencies = [
     "numpy>=1.26.0",
     "python-dateutil>=2.9.0",
     "kiteconnect>=5.0.1",
+    "mcp>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ dev = [
 
 [project.scripts]
 xillion = "xillion.cli:app"
+xillion-mcp = "xillion.mcp_server.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["xillion"]

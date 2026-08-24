@@ -6,12 +6,13 @@
 
 **Last updated:** 2026-08-24
 **Current position:** Track A · CP1 ✅ + CP2 ✅ + CP3 🟡 + CP4 🟡 + CP5 🟡 + CP6 ✅
-→ **CP7 is next** (MCP server — read-only tools first, then guarded control
-tools; "no freeform order construction by an LLM" per its own checklist).
-CP3/CP4/CP5 are each "engineering done, one item needs something only you
-can supply" (real backfill run, real Telegram bot, a real options strategy
-to design multi-leg support against — see Blocked on you). None of that
-blocks CP7.
++ CP7 ✅ → **CP8 is next** (AI assistant + RAG — wire prosper-engine's
+`TradingAgent` as an MCP *client* against CP7's server, ingest
+`docs/strategies/*.md` + journal exports into Chroma, hosted LLM,
+pre-trade confidence scoring). CP3/CP4/CP5 are each "engineering done, one
+item needs something only you can supply" (real backfill run, real
+Telegram bot, a real options strategy to design multi-leg support against
+— see Blocked on you). None of that blocks CP8.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -298,11 +299,35 @@ the repo's actual docs.
 
 ---
 
-### ⬜ CP7 — MCP server (~8 hrs) → *Goal #6*
-- [ ] Read-only tools: `list_strategies`, `get_positions`, `get_trades_today`,
-      `get_portfolio`, `run_backtest`, `get_journal`
-- [ ] Guarded control tools: `start_instance`, `stop_instance`, `kill_switch`
-- [ ] **No freeform order construction by an LLM** — query/control only
+### ✅ CP7 — MCP server `DONE 2026-08-24` → *Goal #6*
+- [x] Read-only tools: `list_strategies`, `get_positions`, `get_trades_today`,
+      `get_portfolio`, `run_backtest`, `get_journal` — every tool is a thin
+      translation layer over the real REST API (`xillion/mcp_server/client.py`),
+      so each one inherits the app's real auth instead of a second path
+- [x] Guarded control tools: `start_instance`, `stop_instance`, `kill_switch`
+      — `kill_switch` forwards straight to the existing TOTP-gated
+      `/risk/kill-switch/activate`, same gate as the web UI, never bypassed
+- [x] **No freeform order construction by an LLM** — structural, not just a
+      rule: there is no order-placement tool at all, and
+      `test_no_order_placement_tool_exists` in `test_mcp_server.py` asserts
+      the exact tool-name set so a future addition can't slip one in unnoticed
+- [x] **`GET /api/positions`** (`xillion/api/positions.py`) — pulled forward
+      from CP9's "Logs DB persistence + GET /api/positions" bullet since
+      `get_positions` needed it now. CP9's DB-persistence half of that
+      bullet is separate and still pending
+
+**Verified for real, not just unit-tested against a mock:** installed the
+official `mcp` SDK (resolved to v2.0.0 — its high-level API moved from
+`FastMCP` to `mcp.server.MCPServer`, a rename this session had to discover
+by inspecting the installed package rather than assuming prior knowledge of
+the SDK still applied), started the real backend, created a real user via
+`/api/auth/setup`, then ran an actual MCP client (`mcp.client.stdio`) doing
+a real protocol handshake against the real server subprocess: `initialize()`
+succeeded, `list_tools()` returned all 9 real tools, `list_strategies` and
+`get_portfolio` returned real data from the real running app (including CP5's
+"Condition Strategy"), and calling `start_instance` on a nonexistent id
+correctly surfaced the REST API's 404 as a clean MCP tool error rather than
+crashing the server.
 
 ---
 

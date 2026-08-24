@@ -80,6 +80,26 @@ Local dev and Render share the **same Supabase Postgres** database (same
 Since Render and local share the same DB, whenever Render *is* turned back
 on it already has the same schema/data as local — nothing to sync first.
 
+## MCP server (CP7)
+
+`xillion-mcp` (or `python -m xillion.mcp_server`) runs an MCP server that
+calls xillion's own REST API — query tools (strategies, positions, trades,
+portfolio, journal, backtest) plus three guarded control tools (start/stop
+an instance, kill switch). **No order-placement tool exists, structurally**
+(see `test_no_order_placement_tool_exists` in `tests/unit/test_mcp_server.py`).
+
+Requires the real backend already running (`make dev` or `make dev-backend`)
+and these env vars, since the MCP server authenticates as a real xillion user:
+```bash
+export XILLION_API_BASE=http://localhost:8001/api   # default if unset
+export XILLION_MCP_USERNAME=<your username>
+export XILLION_MCP_PASSWORD=<your password>
+export XILLION_MCP_TOTP_CODE=<code>                 # only if 2FA is on and you're logging in fresh
+```
+The kill switch tool asks for a fresh TOTP code on every call regardless of
+login — that gate is never bypassed. Point a local MCP client (Claude
+Desktop, etc.) at `xillion-mcp` with those env vars set in its config.
+
 ## Operational gotchas (learned the hard way, 2026-08-02)
 
 - **`render.yml`'s `branch:` field pins the actual deployed branch**,
