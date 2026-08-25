@@ -50,3 +50,29 @@ class TelegramNotifier:
     async def alert(self, title: str, body: str, severity: str = "info") -> None:
         emoji = {"info": "ℹ️", "warn": "⚠️", "error": "❌", "critical": "🚨"}.get(severity, "📢")
         await self.send(f"{emoji} *{title}*\n{body}")
+
+    async def send_test(self) -> tuple[bool, str]:
+        """Like send(), but reports whether it actually worked -- send()
+        deliberately swallows every failure (so a broken Telegram config
+        never crashes real alerting/trading code), which is exactly the
+        wrong contract for a "Send test message" button that needs to tell
+        the user whether their bot token/chat ID actually work."""
+        if not self._enabled:
+            return False, "Bot token and chat ID must both be set first"
+        url = TELEGRAM_API.format(token=self._token)
+        async with AsyncClient() as client:
+            try:
+                resp = await client.post(
+                    url,
+                    json={
+                        "chat_id": self._chat_id,
+                        "text": "✅ Xillion test message — if you can see this, Telegram alerts are working.",
+                        "parse_mode": "Markdown",
+                    },
+                    timeout=10,
+                )
+                if resp.is_success:
+                    return True, "Sent"
+                return False, resp.json().get("description", f"HTTP {resp.status_code}")
+            except Exception as exc:
+                return False, str(exc)

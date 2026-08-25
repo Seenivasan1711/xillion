@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import Logomark from '../components/Logomark'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -37,7 +37,13 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Zap size={36} className="text-brand-500 mx-auto mb-3" />
+          <div style={{
+            width: 48, height: 48, margin: '0 auto 14px', borderRadius: 12,
+            background: 'var(--accent)', color: 'var(--accent-ink)',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Logomark size={24} />
+          </div>
           <h1 className="text-2xl font-bold">Xillion</h1>
           <p className="text-sm text-gray-400 mt-1">Sign in to your trading platform</p>
         </div>
@@ -49,6 +55,8 @@ export default function Login() {
                 <label className="block text-sm text-gray-400 mb-1">Username</label>
                 <input
                   type="text"
+                  name="username"
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="input w-full"
@@ -61,6 +69,8 @@ export default function Login() {
                 <label className="block text-sm text-gray-400 mb-1">Password</label>
                 <input
                   type="password"
+                  name="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="input w-full"
@@ -75,6 +85,8 @@ export default function Login() {
               <input
                 type="text"
                 inputMode="numeric"
+                name="totp-code"
+                autoComplete="one-time-code"
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="input w-full text-center text-2xl tracking-widest font-mono"

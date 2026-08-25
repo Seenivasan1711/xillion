@@ -117,6 +117,10 @@ export const api = {
       request<{ name: string; status: string }>(`/brokers/connections/${encodeURIComponent(name)}/reconnect`, {
         method: 'POST',
       }),
+    status: (name: string) =>
+      request<{ name: string; broker_name: string; status: string; last_error: string | null; connected_at: string | null }>(
+        `/brokers/connections/${encodeURIComponent(name)}/status`
+      ),
   },
 
   settings: {
@@ -146,6 +150,8 @@ export const api = {
       request<NotificationSettings>('/settings/notifications'),
     saveNotifications: (body: NotificationSettings) =>
       request<{ saved: boolean }>('/settings/notifications', { method: 'PUT', body: JSON.stringify(body) }),
+    testNotifications: () =>
+      request<{ sent: boolean }>('/settings/notifications/test', { method: 'POST' }),
     getRiskLimits: () =>
       request<RiskLimits>('/settings/risk-limits'),
     saveRiskLimits: (body: RiskLimits) =>

@@ -8,6 +8,8 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { wsClient } from '../lib/ws'
 import { api } from '../lib/api'
+import Logomark from './Logomark'
+import CommandPalette from './CommandPalette'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 type Theme = 'dark' | 'light'
@@ -141,6 +143,19 @@ export default function Layout() {
   const [feedLatency, setFeedLatency] = useState<number | null>(null)
   const [runnerCount, setRunnerCount] = useState(0)
   const [tradeCount, setTradeCount] = useState(0)
+  const [cmdkOpen, setCmdkOpen] = useState(false)
+
+  // Global ⌘K / Ctrl+K to open the command palette from anywhere
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setCmdkOpen((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // Apply initial theme
   useEffect(() => { applyTheme(theme) }, [])
@@ -244,13 +259,13 @@ export default function Layout() {
         {/* ── Sidebar ── */}
         <aside className="sidebar">
           <div className="brand">
-            <div className="logo">X</div>
+            <div className="logo"><Logomark /></div>
             <span className="word">Xillion</span>
-            <div style={{ flex: 1 }} />
+            <div style={{ flex: 1 }} className="word" />
             <button
-              className="icon-btn word"
+              className="icon-btn sidebar-toggle"
               onClick={toggleCollapsed}
-              title="Toggle sidebar"
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               style={{ width: 24, height: 24 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -336,18 +351,23 @@ export default function Layout() {
 
             <div style={{ flex: 1 }} />
 
-            {/* Global search */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 9, padding: '0 10px', height: 30, width: 260,
-            }}>
+            {/* Global search — opens the ⌘K command palette rather than
+                filtering in place, so it's a real trigger, not decoration */}
+            <div
+              onClick={() => setCmdkOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                borderRadius: 9, padding: '0 10px', height: 30, width: 260,
+              }}
+            >
               <Search size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
               <input
                 placeholder="Search strategies, symbols…"
+                readOnly
                 style={{
                   flex: 1, background: 'transparent', border: 0, outline: 'none',
-                  fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)', cursor: 'pointer',
                 }}
               />
               <span className="kbd">⌘K</span>
@@ -391,6 +411,14 @@ export default function Layout() {
           </div>
         </div>
       </div>
+
+      <CommandPalette
+        open={cmdkOpen}
+        onClose={() => setCmdkOpen(false)}
+        toggleTheme={toggleTheme}
+        killActive={killActive}
+        onKill={handleKill}
+      />
     </>
   )
 }

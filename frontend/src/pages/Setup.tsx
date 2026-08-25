@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
+import Logomark from '../components/Logomark'
 
 export default function Setup() {
   const [username, setUsername] = useState('')
@@ -40,7 +40,13 @@ export default function Setup() {
     <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <Zap size={36} className="text-brand-500 mx-auto mb-3" />
+          <div style={{
+            width: 48, height: 48, margin: '0 auto 14px', borderRadius: 12,
+            background: 'var(--accent)', color: 'var(--accent-ink)',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Logomark size={24} />
+          </div>
           <h1 className="text-2xl font-bold">Welcome to Xillion</h1>
           <p className="text-sm text-gray-400 mt-1">Create your admin account to get started</p>
         </div>
@@ -50,6 +56,8 @@ export default function Setup() {
             <label className="block text-sm text-gray-400 mb-1">Username</label>
             <input
               type="text"
+              name="username"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="input w-full"
@@ -64,6 +72,8 @@ export default function Setup() {
             <label className="block text-sm text-gray-400 mb-1">Password</label>
             <input
               type="password"
+              name="new-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="input w-full"
@@ -77,6 +87,8 @@ export default function Setup() {
             <label className="block text-sm text-gray-400 mb-1">Confirm Password</label>
             <input
               type="password"
+              name="confirm-password"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               className="input w-full"

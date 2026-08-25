@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { ZerodhaCredentials, DhanCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge } from '../components/ui'
+import { useToast } from '../components/Toast'
 
 type Tab = 'brokers' | 'data' | 'risk' | 'notifications' | 'account' | 'danger'
 
@@ -50,6 +51,8 @@ export default function Settings() {
 // ── Brokers tab ──────────────────────────────────────────────────────────────
 
 function BrokersTab() {
+  const toast = useToast()
+  const [checking, setChecking] = useState<string | null>(null)
   const [zerodhaStatus, setZerodhaStatus] = useState<{
     configured: boolean
     api_key_preview?: string
@@ -146,6 +149,22 @@ function BrokersTab() {
     }
   }
 
+  const checkConnection = async (name: string) => {
+    setChecking(name)
+    try {
+      const res = await api.brokers.status(name)
+      if (res.status === 'connected') {
+        toast('ok', `${name}: connected`)
+      } else {
+        toast('error', `${name}: ${res.status}${res.last_error ? ` — ${res.last_error}` : ''}`)
+      }
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Connection check failed')
+    } finally {
+      setChecking(null)
+    }
+  }
+
   const removeDhan = async () => {
     if (!confirm('Remove Dhan credentials? You will need to re-enter them to reconnect.')) return
     try {
@@ -214,9 +233,10 @@ function BrokersTab() {
                 <input
                   type={f.type}
                   className="input"
+                  name={`zerodha-${f.key}`}
                   value={form[f.key as keyof ZerodhaCredentials]}
                   onChange={e => setForm({ ...form, [f.key]: e.target.value })}
-                  autoComplete="off"
+                  autoComplete={f.type === 'password' ? 'new-password' : 'off'}
                 />
               </div>
             ))}
@@ -226,9 +246,10 @@ function BrokersTab() {
             <input
               type="password"
               className="input"
+              name="zerodha-totp-secret"
               value={form.totp_secret}
               onChange={e => setForm({ ...form, totp_secret: e.target.value })}
-              autoComplete="off"
+              autoComplete="new-password"
             />
             <div className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>
               The base32 string from Zerodha 2FA setup — not the 6-digit code. Credentials are encrypted at rest.
@@ -283,7 +304,12 @@ function BrokersTab() {
                 <span className="faint">Client ID: </span>
                 <span className="mono-num">{dhanStatus.client_id ?? '—'}</span>
               </div>
-              <button className="btn ghost sm" onClick={removeDhan} style={{ color: 'var(--neg)' }}>Remove</button>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn ghost sm" onClick={() => checkConnection('Dhan Primary')} disabled={checking === 'Dhan Primary'}>
+                  {checking === 'Dhan Primary' ? 'Checking…' : 'Check connection'}
+                </button>
+                <button className="btn ghost sm" onClick={removeDhan} style={{ color: 'var(--neg)' }}>Remove</button>
+              </div>
             </div>
           )}
 
@@ -293,6 +319,7 @@ function BrokersTab() {
               <input
                 type="text"
                 className="input"
+                name="dhan-client-id"
                 value={dhanForm.client_id}
                 onChange={e => setDhanForm({ ...dhanForm, client_id: e.target.value })}
                 autoComplete="off"
@@ -303,9 +330,10 @@ function BrokersTab() {
               <input
                 type="password"
                 className="input"
+                name="dhan-access-token"
                 value={dhanForm.access_token}
                 onChange={e => setDhanForm({ ...dhanForm, access_token: e.target.value })}
-                autoComplete="off"
+                autoComplete="new-password"
               />
             </div>
             <div className="field">
@@ -313,9 +341,10 @@ function BrokersTab() {
               <input
                 type="password"
                 className="input"
+                name="dhan-pin"
                 value={dhanForm.pin}
                 onChange={e => setDhanForm({ ...dhanForm, pin: e.target.value })}
-                autoComplete="off"
+                autoComplete="new-password"
               />
             </div>
             <div className="field">
@@ -323,9 +352,10 @@ function BrokersTab() {
               <input
                 type="password"
                 className="input"
+                name="dhan-totp-secret"
                 value={dhanForm.totp_secret}
                 onChange={e => setDhanForm({ ...dhanForm, totp_secret: e.target.value })}
-                autoComplete="off"
+                autoComplete="new-password"
               />
             </div>
           </div>
@@ -520,9 +550,10 @@ function DataProvidersTab() {
                       <input
                         type={f.type}
                         className="input"
+                        name={`${p.name}-${f.key}`}
                         value={forms[p.name]?.[f.key] ?? ''}
                         onChange={e => setForms({ ...forms, [p.name]: { ...(forms[p.name] ?? { api_key: '', api_secret: '' }), [f.key]: e.target.value } })}
-                        autoComplete="off"
+                        autoComplete={f.type === 'password' ? 'new-password' : 'off'}
                       />
                     </div>
                   ))}
@@ -892,6 +923,7 @@ function RiskTab() {
 // ── Notifications tab ─────────────────────────────────────────────────────────
 
 function NotificationsTab() {
+  const toast = useToast()
   const [settings, setSettings] = useState<NotificationSettings>({
     telegram_bot_token: '',
     telegram_chat_id: '',
@@ -902,7 +934,20 @@ function NotificationsTab() {
     on_kill_switch: true,
   })
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [msg, setMsg] = useState('')
+
+  const sendTest = async () => {
+    setTesting(true)
+    try {
+      await api.settings.testNotifications()
+      toast('ok', 'Test message sent — check your Telegram chat')
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Test message failed')
+    } finally {
+      setTesting(false)
+    }
+  }
 
   useEffect(() => {
     api.settings.getNotifications().then(setSettings).catch(() => {})
@@ -944,10 +989,11 @@ function NotificationsTab() {
               <input
                 type="password"
                 className="input"
+                name="telegram-bot-token"
                 placeholder="123456:ABC-DEF…"
                 value={settings.telegram_bot_token}
                 onChange={e => setSettings({ ...settings, telegram_bot_token: e.target.value })}
-                autoComplete="off"
+                autoComplete="new-password"
               />
             </div>
             <div className="field">
@@ -955,6 +1001,7 @@ function NotificationsTab() {
               <input
                 type="text"
                 className="input"
+                name="telegram-chat-id"
                 placeholder="-100123456789"
                 value={settings.telegram_chat_id}
                 onChange={e => setSettings({ ...settings, telegram_chat_id: e.target.value })}
@@ -964,6 +1011,12 @@ function NotificationsTab() {
           </div>
           <div className="faint" style={{ fontSize: 11 }}>
             Create a bot via @BotFather, add it to your channel, and paste the token + chat ID above.
+          </div>
+          <div className="row">
+            <button className="btn ghost sm" onClick={sendTest} disabled={testing}>
+              {testing ? 'Sending…' : 'Send test message'}
+            </button>
+            <span className="faint" style={{ fontSize: 11 }}>Uses the currently saved token — save first if you just changed it.</span>
           </div>
         </div>
       </div>
@@ -1193,6 +1246,8 @@ function AccountTab({ user, refresh }: AccountTabProps) {
                     type="text"
                     inputMode="numeric"
                     className="input"
+                    name="totp-verify-code"
+                    autoComplete="one-time-code"
                     value={totpCode}
                     onChange={e => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="000000"
@@ -1295,6 +1350,8 @@ function DangerTab() {
             <label>Type <strong>RESET</strong> to confirm</label>
             <input
               className="input"
+              name="danger-zone-reset-confirm"
+              autoComplete="off"
               value={resetConfirm}
               onChange={e => setResetConfirm(e.target.value)}
               placeholder="RESET"
@@ -1330,6 +1387,8 @@ function DangerTab() {
             <label>Type <strong>WIPE EVERYTHING</strong> to confirm</label>
             <input
               className="input"
+              name="danger-zone-wipe-confirm"
+              autoComplete="off"
               value={wipeConfirm}
               onChange={e => setWipeConfirm(e.target.value)}
               placeholder="WIPE EVERYTHING"

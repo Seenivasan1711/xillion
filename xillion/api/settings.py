@@ -254,6 +254,21 @@ async def put_notifications(
     return {"saved": True}
 
 
+@router.post("/notifications/test")
+async def test_notifications(
+    request: Request,
+    user: AppUser = Depends(get_current_user),
+):
+    """Send a real Telegram message right now, using the currently SAVED
+    bot token/chat ID (Save first, then Test) -- this is the same live
+    notifier real alerts go through, so a successful test genuinely proves
+    alerts will work, not just that the form values look valid."""
+    ok, detail = await request.app.state.telegram.send_test()
+    if not ok:
+        raise HTTPException(status_code=400, detail=detail)
+    return {"sent": True}
+
+
 RISK_LIMITS_NAME = "Risk Limits"
 RISK_LIMITS_BROKER = "Settings"  # same BrokerCredential reuse as Notifications
 
