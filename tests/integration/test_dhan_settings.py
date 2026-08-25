@@ -113,3 +113,36 @@ async def test_saving_dhan_credentials_does_not_touch_zerodha_credentials(monkey
     async with factory() as db:
         zerodha_creds_after = await load_credentials(db, "Zerodha Primary")
         assert zerodha_creds_after["api_key"] == "zk"  # untouched by Dhan delete
+
+
+@pytest.mark.asyncio
+async def test_saving_dhan_broker_credentials_also_configures_the_dhanhq_data_provider(monkeypatch):
+    """The Dhan broker (order placement) and the DhanHQ data provider
+    (historical bars) both authenticate with the exact same real Dhan API
+    token -- before this, saving it under Configuration -> Brokers left
+    the Data Providers tab's DhanHQ card asking for the identical client
+    ID + access token a second time."""
+    from xillion.auth.data_provider_credstore import load_provider_credentials
+
+    async def _noop_connect(app):
+        pass
+
+    monkeypatch.setattr("xillion.main._try_connect_dhan", _noop_connect)
+
+    await init_db()
+    app = FastAPI()
+    app.state.broker_instances = {}
+    request = _FakeRequest(app)
+    user = _user()
+    factory = get_session_factory()
+
+    async with factory() as db:
+        body = DhanCredentialsRequest(client_id="1000000003", access_token="tok-abc")
+        result = await put_dhan_credentials(body, request, db, user)
+        assert result["saved"] is True
+
+    async with factory() as db:
+        provider_creds = await load_provider_credentials(db, "DhanHQ")
+        assert provider_creds is not None
+        assert provider_creds["api_key"] == "tok-abc"        # access token
+        assert provider_creds["api_secret"] == "1000000003"  # client ID

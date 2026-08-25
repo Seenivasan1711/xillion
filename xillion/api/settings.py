@@ -14,6 +14,7 @@ from xillion.auth.credstore import (
     load_credentials,
     save_credentials,
 )
+from xillion.auth.data_provider_credstore import save_provider_credentials
 from xillion.db.models import (
     AppUser,
     AuditLogRecord,
@@ -169,6 +170,21 @@ async def put_dhan_credentials(
     payload = body.model_dump()
     await save_credentials(db, DHAN_NAME, DHAN_BROKER, payload)
     logger.info("dhan credentials saved", user=user.username, client_id=body.client_id)
+
+    # Same real Dhan API token authenticates both order placement (this
+    # broker credential) and the DhanHQ historical-data provider -- without
+    # this, saving it here left the Data Providers tab's DhanHQ card
+    # showing "Not configured" and asking for the identical client ID +
+    # access token a second time. Field names differ (data provider side
+    # uses the generic api_key/api_secret shape every provider's
+    # credential_fields maps onto) but the underlying values are the same.
+    try:
+        await save_provider_credentials(
+            db, "DhanHQ", "DhanHQ",
+            {"api_key": body.access_token, "api_secret": body.client_id},
+        )
+    except Exception as exc:
+        logger.warning("failed to sync Dhan credentials to DhanHQ data provider", error=str(exc))
 
     # Invalidate any cached token so the new credentials are used --
     # DhanBroker keys its cache to a fixed path, same shape as Zerodha's.

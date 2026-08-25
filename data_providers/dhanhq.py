@@ -41,12 +41,15 @@ class DhanHQProvider(HistoricalDataProvider):
     name = "DhanHQ"
     version = "1.0.0"
     description = (
-        "DhanHQ v2 Historical Data API. Needs a Dhan API access token + "
-        "client ID (Settings → Data Providers). Symbol must match Dhan's "
-        "own naming convention (e.g. \"NIFTY-Aug2026-FUT\", not Kite/NSE-"
-        "style \"NIFTY26AUGFUT\") — resolved via Dhan's own instrument "
-        "master, cached locally for 24h. Intraday: last 90 days per "
-        "request (auto-chunked here). Daily: since listing."
+        "DhanHQ v2 Historical Data API. Auto-configured from the same "
+        "access token + client ID you enter under Configuration → Brokers "
+        "→ Dhan — no need to enter it twice, this only needs its own "
+        "entry below if you want DhanHQ for data without connecting Dhan "
+        "as a trading broker. Symbol must match Dhan's own naming "
+        "convention (e.g. \"NIFTY-Aug2026-FUT\", not Kite/NSE-style "
+        "\"NIFTY26AUGFUT\") — resolved via Dhan's own instrument master, "
+        "cached locally for 24h. Intraday: last 90 days per request "
+        "(auto-chunked here). Daily: since listing."
     )
     capabilities = DataProviderCapabilities(
         supports_equity=True,
