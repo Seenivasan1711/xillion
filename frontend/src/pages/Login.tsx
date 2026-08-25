@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import Logomark from '../components/Logomark'
+import AuthShell from '../components/AuthShell'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -34,87 +34,93 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div style={{
-            width: 48, height: 48, margin: '0 auto 14px', borderRadius: 12,
-            background: 'var(--accent)', color: 'var(--accent-ink)',
-            display: 'grid', placeItems: 'center',
-          }}>
-            <Logomark size={24} />
-          </div>
-          <h1 className="text-2xl font-bold">Xillion</h1>
-          <p className="text-sm text-gray-400 mt-1">Sign in to your trading platform</p>
-        </div>
+    <AuthShell
+      eyebrow="Algorithmic trading"
+      headline={'Systematic entries.\nManaged risk.\nNo guesswork.'}
+      sub="Every order routed through the same risk engine, every trade logged for review. Built for discipline, not adrenaline."
+    >
+      <h2>Sign in</h2>
+      <p className="auth-sub">Enter your workspace credentials</p>
 
-        <form onSubmit={handleSubmit} className="card space-y-4">
-          {!requiresTotp ? (
-            <>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Username</label>
-                <input
-                  type="text"
-                  name="username"
-                  autoComplete="username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="input w-full"
-                  placeholder="admin"
-                  autoFocus
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input w-full"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-            </>
-          ) : (
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Authenticator code</label>
+      <form onSubmit={handleSubmit}>
+        {!requiresTotp ? (
+          <>
+            <div className="auth-field">
+              <label>Username</label>
               <input
                 type="text"
-                inputMode="numeric"
-                name="totp-code"
-                autoComplete="one-time-code"
-                value={totpCode}
-                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="input w-full text-center text-2xl tracking-widest font-mono"
-                placeholder="000000"
+                name="username"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="input"
+                style={{ width: '100%' }}
+                placeholder="admin"
                 autoFocus
-                maxLength={6}
                 required
               />
-              <p className="text-xs text-gray-500 mt-2">
-                Enter the 6-digit code from your authenticator app
-              </p>
-              <button
-                type="button"
-                onClick={() => { setRequiresTotp(false); setTotpCode('') }}
-                className="text-xs text-gray-500 hover:text-gray-300 mt-1"
-              >
-                ← Back
-              </button>
             </div>
-          )}
+            <div className="auth-field">
+              <label>Password</label>
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input"
+                style={{ width: '100%' }}
+                placeholder="••••••••"
+                required
+              />
+            </div>
+          </>
+        ) : (
+          <div className="auth-field">
+            <label>Authenticator code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              name="totp-code"
+              autoComplete="one-time-code"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="input"
+              style={{ width: '100%', textAlign: 'center', fontSize: 22, letterSpacing: '0.3em' }}
+              placeholder="000000"
+              autoFocus
+              maxLength={6}
+              required
+            />
+            <p style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
+              Enter the 6-digit code from your authenticator app
+            </p>
+            <button
+              type="button"
+              onClick={() => { setRequiresTotp(false); setTotpCode('') }}
+              style={{
+                background: 'none', border: 0, padding: 0, marginTop: 6, cursor: 'pointer',
+                fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)',
+              }}
+            >
+              ← Back
+            </button>
+          </div>
+        )}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && (
+          <div style={{
+            fontSize: 12, padding: '8px 12px', borderRadius: 7, marginBottom: 14,
+            background: 'var(--neg-dim)', color: 'var(--neg)',
+          }}>
+            {error}
+          </div>
+        )}
 
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Signing in…' : requiresTotp ? 'Verify' : 'Sign in'}
-          </button>
-        </form>
-      </div>
-    </div>
+        <button type="submit" disabled={loading} className="btn-primary" style={{ width: '100%' }}>
+          {loading ? 'Signing in…' : requiresTotp ? 'Verify' : 'Sign in'}
+        </button>
+      </form>
+    </AuthShell>
   )
 }

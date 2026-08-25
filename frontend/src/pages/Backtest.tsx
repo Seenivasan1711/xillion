@@ -199,7 +199,7 @@ export default function Backtest() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 14, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 1fr) minmax(380px, 1fr)', gap: 14, alignItems: 'start' }}>
         {/* ── Config panel ── */}
         <div className="card">
           <div className="card-head">

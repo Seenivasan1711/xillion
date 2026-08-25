@@ -568,3 +568,80 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
   border-radius: 4px;
 }
 .toast-close:hover { color: var(--text); background: var(--accent-soft); }
+
+/* ── Sign-out button — reddish on hover, not the default neutral ─────────── */
+.signout-btn { justify-content: flex-start; gap: 10px; padding: 0 10px; }
+.signout-btn:hover {
+  color: var(--neg);
+  background: var(--neg-dim);
+  border-color: color-mix(in srgb, var(--neg) 30%, transparent);
+}
+
+/* ── User chip — slightly bolder avatar ring ──────────────────────────── */
+.user-chip .avatar {
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3px var(--border-strong);
+}
+
+/* ── Auth shell (Login / Setup) ────────────────────────────────────────── */
+.auth-shell {
+  min-height: 100vh; display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
+  background: var(--bg);
+}
+.auth-brand {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+  padding: 40px 48px;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+}
+.auth-brand .aurora { position: absolute; inset: 0; z-index: 0; }
+.auth-brand-inner {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; height: 100%;
+}
+.auth-logo {
+  display: flex; align-items: center; gap: 9px;
+  font-weight: 600; font-size: 14px; color: var(--text);
+}
+.auth-logo > div, .auth-logo svg {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.auth-copy { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 420px; }
+.auth-eyebrow {
+  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 14px;
+}
+.auth-copy h1 {
+  font-size: 34px; line-height: 1.18; font-weight: 700; letter-spacing: -0.01em;
+  margin: 0 0 14px; color: var(--text); white-space: pre-line;
+}
+.auth-copy p { font-size: 13.5px; line-height: 1.6; color: var(--text-dim); margin: 0; }
+.auth-flow {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-faint); font-family: var(--font-mono);
+}
+.auth-flow span:not(.arrow) {
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.auth-flow .arrow { color: var(--text-faint); }
+.auth-form-side {
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px; background: var(--bg);
+}
+.auth-form-card { width: 100%; max-width: 340px; }
+.auth-form-card h2 { font-size: 20px; font-weight: 600; margin: 0 0 4px; color: var(--text); }
+.auth-form-card .auth-sub { font-size: 12.5px; color: var(--text-dim); margin: 0 0 24px; }
+.auth-field { margin-bottom: 14px; }
+.auth-field label {
+  display: block; font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px;
+}
+
+@media (max-width: 860px) {
+  .auth-shell { grid-template-columns: 1fr; }
+  .auth-brand { display: none; }
+}

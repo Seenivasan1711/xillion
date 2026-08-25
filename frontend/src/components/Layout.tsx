@@ -316,7 +316,7 @@ export default function Layout() {
               </div>
             </div>
             <button
-              className="icon-btn"
+              className="icon-btn signout-btn"
               onClick={handleLogout}
               title="Sign out"
               style={{ width: '100%', borderRadius: 8 }}

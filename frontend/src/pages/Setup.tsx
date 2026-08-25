@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import Logomark from '../components/Logomark'
+import AuthShell from '../components/AuthShell'
 
 export default function Setup() {
   const [username, setUsername] = useState('')
@@ -37,73 +37,76 @@ export default function Setup() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div style={{
-            width: 48, height: 48, margin: '0 auto 14px', borderRadius: 12,
-            background: 'var(--accent)', color: 'var(--accent-ink)',
-            display: 'grid', placeItems: 'center',
-          }}>
-            <Logomark size={24} />
-          </div>
-          <h1 className="text-2xl font-bold">Welcome to Xillion</h1>
-          <p className="text-sm text-gray-400 mt-1">Create your admin account to get started</p>
+    <AuthShell
+      eyebrow="First run"
+      headline={'One workspace.\nOne owner.\nFull control.'}
+      sub="Create the admin account for this deployment. There's no invite flow by design — this is a single-operator trading system, not a shared workspace."
+    >
+      <h2>Create account</h2>
+      <p className="auth-sub">Set up your admin login to get started</p>
+
+      <form onSubmit={handleSubmit}>
+        <div className="auth-field">
+          <label>Username</label>
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="input"
+            style={{ width: '100%' }}
+            placeholder="admin"
+            autoFocus
+            required
+            minLength={3}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="card space-y-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Username</label>
-            <input
-              type="text"
-              name="username"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="input w-full"
-              placeholder="admin"
-              autoFocus
-              required
-              minLength={3}
-            />
+        <div className="auth-field">
+          <label>Password</label>
+          <input
+            type="password"
+            name="new-password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="input"
+            style={{ width: '100%' }}
+            placeholder="At least 8 characters"
+            required
+            minLength={8}
+          />
+        </div>
+
+        <div className="auth-field">
+          <label>Confirm password</label>
+          <input
+            type="password"
+            name="confirm-password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="input"
+            style={{ width: '100%' }}
+            placeholder="Repeat password"
+            required
+          />
+        </div>
+
+        {error && (
+          <div style={{
+            fontSize: 12, padding: '8px 12px', borderRadius: 7, marginBottom: 14,
+            background: 'var(--neg-dim)', color: 'var(--neg)',
+          }}>
+            {error}
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Password</label>
-            <input
-              type="password"
-              name="new-password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input w-full"
-              placeholder="At least 8 characters"
-              required
-              minLength={8}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Confirm Password</label>
-            <input
-              type="password"
-              name="confirm-password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="input w-full"
-              placeholder="Repeat password"
-              required
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-400">{error}</p>}
-
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Creating account…' : 'Create Account'}
-          </button>
-        </form>
-      </div>
-    </div>
+        <button type="submit" disabled={loading} className="btn-primary" style={{ width: '100%' }}>
+          {loading ? 'Creating account…' : 'Create account'}
+        </button>
+      </form>
+    </AuthShell>
   )
 }
