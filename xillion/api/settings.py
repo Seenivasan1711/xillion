@@ -14,7 +14,22 @@ from xillion.auth.credstore import (
     load_credentials,
     save_credentials,
 )
-from xillion.db.models import AppUser
+from xillion.db.models import (
+    AppUser,
+    AuditLogRecord,
+    BacktestRun,
+    BacktestTrade,
+    Base,
+    DailyRiskState,
+    DailyStrategyPnl,
+    FillRecord,
+    JournalNote,
+    OrderRecord,
+    PositionRecord,
+    ReconciliationReport,
+    SignalLog,
+    SystemLog,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -237,3 +252,94 @@ async def put_notifications(
     request.app.state.telegram.configure(body.telegram_bot_token, body.telegram_chat_id)
     logger.info("notification settings saved", user=user.username, telegram_configured=bool(body.telegram_bot_token))
     return {"saved": True}
+
+
+RISK_LIMITS_NAME = "Risk Limits"
+RISK_LIMITS_BROKER = "Settings"  # same BrokerCredential reuse as Notifications
+
+
+class RiskLimits(BaseModel):
+    daily_loss_pct: float = 2.0
+    per_trade_risk_pct: float = 0.5
+    max_open_positions: int = 5
+    position_size_cap: float = 50_000.0
+    ops_limit: int = 10
+    burst_window: int = 60
+
+
+@router.get("/risk-limits", response_model=RiskLimits)
+async def get_risk_limits(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    creds = await load_credentials(db, RISK_LIMITS_NAME)
+    if not creds:
+        return RiskLimits()
+    return RiskLimits(**creds)
+
+
+@router.put("/risk-limits")
+async def put_risk_limits(
+    body: RiskLimits,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Persists these values so the UI round-trips correctly -- it does
+    NOT yet feed live RiskManager enforcement. That reads its limits from
+    xillion/config.py's default_* settings (env-configured) and each
+    StrategyInstance's own risk_limits_json, and this tab's field shape
+    doesn't cleanly map onto either (e.g. per_trade_risk_pct and
+    burst_window have no equivalent there today). Wiring real enforcement
+    needs a design decision on what "global" limits mean given risk is
+    actually account-wide + per-instance, not a single flat set -- noted
+    as an open gap in task-tracker.md rather than guessed at, since a
+    wrong mapping here would be a real safety issue for a live trading
+    system, not just a cosmetic bug."""
+    await save_credentials(db, RISK_LIMITS_NAME, RISK_LIMITS_BROKER, body.model_dump())
+    logger.info("risk limit preferences saved (not yet wired to enforcement)", user=user.username)
+    return {"saved": True}
+
+
+# ── Danger zone ──────────────────────────────────────────────────────────────
+
+# Tables cleared by /reset-data: trade history, log records, strategy run
+# data. Deliberately excludes broker/data-provider credentials & connections,
+# strategy/broker/data-provider class registrations, StrategyInstance
+# configs, and all cached market data (bar/bar_coverage/option_chain_snapshot/
+# instrument/market_holiday) -- matches the UI's own "credentials and
+# settings are preserved" copy.
+_RESET_DATA_MODELS = [
+    FillRecord, BacktestTrade,  # children first -- both FK into rows deleted below
+    OrderRecord, PositionRecord, BacktestRun, SignalLog, SystemLog,
+    JournalNote, AuditLogRecord, DailyRiskState, DailyStrategyPnl, ReconciliationReport,
+]
+
+
+@router.post("/reset-data")
+async def reset_data(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    for model in _RESET_DATA_MODELS:
+        await db.execute(model.__table__.delete())
+    await db.commit()
+    logger.warning("all trade/log/run data reset", user=user.username)
+    return {"reset": True}
+
+
+@router.post("/wipe")
+async def wipe_everything(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Deletes every row in every table -- reversed topological table order
+    (Base.metadata.sorted_tables) so FK-dependent rows always go before
+    what they reference, without having to hand-maintain the order as the
+    schema grows. Once app_user is empty, GET /auth/setup-status naturally
+    reports "needs setup" -- that's the existing first-run flow, not a
+    separate mode this has to invent."""
+    for table in reversed(Base.metadata.sorted_tables):
+        await db.execute(table.delete())
+    await db.commit()
+    logger.warning("full data wipe executed", user=user.username)
+    return {"wiped": True}
