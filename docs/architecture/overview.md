@@ -406,7 +406,72 @@ algotrader/
 | Memory footprint, 5 strategies live | < 800 MB |
 | Startup time | < 10 seconds |
 
-## 11. What we explicitly accept
+## 12. v2 — Job-based operations layer (added 2026-08-25)
+
+Full detail lives in [`docs/architecture/automation-platform-spec/`](automation-platform-spec/)
+(52 jobs across 8 phases) and the retrofit reasoning in
+[decisions-and-open-questions.md](../status/decisions-and-open-questions.md) D17.
+This section is the mapping: what already exists (§1-11 above), what the job
+catalog adds, and where each new job's intent lands in xillion's existing
+component model rather than a parallel scheduler.
+
+### 12.1 The mapping, by job series
+
+| Series | What it is | Maps onto (existing) | Genuinely new |
+|---|---|---|---|
+| **P** (pre-market) | Auth refresh, calendar, regime, instrument resolution, arming, brief | `_daily_token_refresh`, `market_calendar.py`, `instrument_cache.py` all exist | Volatility-regime classification as its own job; strategy "arming" as a distinct daily decision (today a strategy is either running or not, with no separate daily eligibility check) |
+| **O** (open) | Opening range capture, gap veto | Not built | New — needs a 09:15-09:45 streaming capture and gap classification |
+| **E** (entry) | Signal → gate → size → construct → execute → verify → protect | `ctx.place_order()` → `RiskManager.check()` → `ExecutionRouter.submit()` → broker exists; `on_order_update` fires (CP9) | **Protective order placement (E07)** — today a stop/target lives in strategy logic, not as a real broker-side order; **multi-leg order construction + leg-failure protocol (E04/E05)** — doesn't exist, needed for any credit spread/condor/butterfly |
+| **T** (in-trade) | P&L monitor, trailing stop, breakeven, partial exit, time stop, Greeks drift | Bar/tick dispatch exists; CP9's position reconciliation covers restart safety | **Trailing-stop engine (T03)** — genuinely new, needs ratchet-property tests; T02/T04/T05/T07-T10 mostly new |
+| **X** (exit) | Exit execution, square-off enforcer, fill verification | CP9's market-hours auto-stop *stops the strategy instance*; it does **not** flatten open positions | **Flattening at market close (X02)** is a real gap — today auto-stop ≠ auto-flatten |
+| **M** (post-market) | Broker reconciliation, journal, cost attribution, slippage, brief, archival | CP6 journal, CP10 digest (≈ M07 "post-market brief") both exist | **Scheduled end-of-day broker reconciliation (M01)** — CP9 only reconciles on startup, not daily at close |
+| **R** (periodic) | Walk-forward revalidation, decay monitor, config-vs-exchange audit | Nothing scheduled periodically today | All new — R02 (decay monitor) and R06 (config audit) are the highest-value additions |
+| **K** (cross-cutting) | Kill switch, alert router, heartbeat/watchdog, audit log | `RiskManager.activate_kill_switch()`, CP9/CP10's Telegram alerting + `task_supervisor.py` self-healing, `AuditLogRecord` model all exist | Mostly already covered — K05 (config validator on change) is the gap |
+
+**Reading this table:** the P0 ("capital-protecting, build first") jobs are
+disproportionately things xillion already has. The genuine new work
+concentrates in exactly three places — **protective orders + multi-leg
+execution (E-series)**, **the trailing-stop engine (T03)**, and **scheduled
+EOD reconciliation + flattening (M01/X02)** — which is why the gap-mapped
+build plan in [task-tracker.md](../status/task-tracker.md) sequences those
+first, not the full 52-job list in the spec's own order.
+
+### 12.2 Expanded risk engine
+
+`automation-platform-spec/10-RISK-ENGINE.md` specifies ~20 order-level checks
+(fat-finger price collar, freeze-quantity, notional cap, duplicate/idempotency
+detection, self-trade detection, modify-rate limiting, prop-firm drawdown
+gates) against today's `RiskManager.check()`, which has 5. See
+[risk-and-compliance.md](risk-and-compliance.md) Part D for the reconciled
+list and what's genuinely missing.
+
+### 12.3 Two more brokers, one more lane
+
+- **Dhan** goes from read-only data provider (`data_providers/dhanhq.py`,
+  already built) to a full trading broker (`brokers/dhan.py`, new — auth,
+  live ticks, order placement), built in parallel with Zerodha rather than
+  after it (D19).
+- **Gold (Lane B)** is genuinely new instrument territory — MT5/Funding Pips
+  (B1) and MCX (B2) behind the same `Broker` ABC pattern as Zerodha/Dhan,
+  sharing session-model and trailing-stop logic with Lane A per
+  `automation-platform-spec/11-INSTRUMENT-LANES.md` §11.2's "~85% shared"
+  claim. Sequencing: after Lane A's risk-engine expansion and first
+  automated strategy are solid (Q13).
+
+### 12.4 What's explicitly NOT changing
+
+- **Plugin architecture stays.** Strategies still drop into `strategies/`,
+  brokers into `brokers/`. The job catalog is additional scheduling/gating
+  infrastructure around that, not a replacement for it.
+- **No OpenAlgo, no Redis, no Prometheus/Grafana yet** — see PRD §12.4 and
+  Q11/Q12 for the free-tier-first reasoning. The job model is being adopted;
+  the specific infra pieces the spec names are not, until they're actually
+  load-bearing.
+- **No microservices split.** The job runner is still asyncio tasks inside
+  xillion's single process, matching §5's existing concurrency model — not
+  the spec's separate scheduler/job-runner/risk-engine service topology.
+
+## 13. What we explicitly accept
 
 - We are not microsecond-fast. SEBI's 10 OPS retail threshold means we don't need to be.
 - We support one user well. Multi-user is future work, not a v1 hidden feature.

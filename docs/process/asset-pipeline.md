@@ -138,12 +138,23 @@ Infrastructure ready today. Free NSE bhavcopy covers daily-bar backtesting.
 **Lot size 65 for NIFTY** — the multiplier fix (CP1) matters most here.
 Intraday backtesting needs paid Kite historical data.
 
-### Gold XAUUSD — Funding Pips (MT5)
-Needs the MT5 broker plugin, a 24×5 session calendar, and FX lot math.
-**Funding Pips drawdown rules must be encoded as hard risk limits** —
-breaching daily or max drawdown instantly fails the account and burns the
-challenge fee, so treat it as a safety system, not a formality.
-⚠️ Get a CA opinion on prop-firm income treatment before Stage 4.
+### Gold — Funding Pips/MT5 (Lane B1) + MCX (Lane B2), built in parallel
+**Updated 2026-08-25** per `docs/architecture/automation-platform-spec/`:
+this is now two lanes behind the same broker-adapter pattern, not one.
+- **B1 (Funding Pips/MT5):** needs the MT5 broker plugin, a 24×5 session
+  calendar, and FX lot math. **Funding Pips drawdown rules must be encoded
+  as hard risk limits** — breaching daily or max drawdown instantly fails
+  the account and burns the challenge fee. Internal limits are set at 80%
+  of the firm's own (see `architecture/risk-and-compliance.md` Part C.3).
+  ⚠️ Get a CA opinion on prop-firm income treatment before Stage 4 — still
+  on the Blocked-on-you list.
+- **B2 (MCX Gold futures/options):** domestic, SEBI-regulated, no FEMA
+  question at all. MCX's evening session (18:30–23:30 IST) covers the
+  London/NY overlap — the same window that makes XAUUSD tradeable — so ~85%
+  of B1's session logic, volatility drivers, and trailing-stop engine
+  carries over directly. Build B2 as the fallback/hedge: if a rule changes,
+  a prop firm shuts down, or a challenge fails, B2 doesn't strand the work.
+  Reuses the same Lane A broker adapter (Dhan/Zerodha both support MCX).
 
 ### Forex — Funding Pips (MT5)
 Nearly free once gold is done — same broker, same calendar, same lot math.

@@ -84,6 +84,27 @@ A living log of trade-offs the design has committed to, and questions that still
 - **Why:** SEBI rules will evolve; you should be able to tighten without a release.
 - **Trade-off:** must remember to keep them current.
 
+### D17. Retrofit the automation-platform spec into xillion, don't build it separately
+- **Decision:** the 52-job automation harness spec (`docs/architecture/automation-platform-spec/`) is xillion's **target architecture**, not a separate system. Map its job catalog onto what CP1-CP10 already built (risk engine, kill switch, journal, Telegram alerting + self-healing, daily digest, position reconciliation, Zerodha broker); build only the genuine gaps.
+- **Why:** the spec is written as Phase-0-from-empty-repo, but xillion already has a working, tested implementation of most of what Phase 1's "18 P0 jobs" describe. Starting over would throw away CP1-CP10's real engineering and testing.
+- **Trade-off:** the spec's own phase numbering and file organisation don't map 1:1 onto xillion's CP numbering — the mapping itself is judgment, done in `task-tracker.md`, and won't be perfect on the first pass.
+
+### D18. Infra stack: adopt the spec's pieces, but free/minimal-cost until a VPS exists
+- **Decision:** bring in Redis, DuckDB+Parquet, and a metrics/dashboard layer as the spec recommends, but every piece must be free or genuinely minimal-cost at today's scale (no VPS, no paid tier) — swap to paid/self-hosted-on-a-VPS only when a VPS actually gets provisioned. OpenAlgo adoption is deferred (see open question Q11).
+- **Why:** explicit instruction — no ongoing infra cost until the user chooses to pay for one, even though the target architecture assumes a VPS eventually.
+- **Trade-off:** the free tiers of hosted Redis (e.g. Upstash) and Grafana Cloud have real limits (connection count, retention, series count) that a VPS deployment wouldn't have — some pieces will need re-provisioning once a VPS exists, not just a config change. Documented per-component in the architecture doc's cost table.
+- **Grafana specifically:** Grafana OSS self-hosted is fully free (AGPL, zero licence cost) but needs a place to run — with no VPS yet, the interim choice is a lightweight metrics view inside xillion's own React frontend (already free, zero new infra) rather than standing up Grafana locally. Revisit once a VPS exists.
+
+### D19. Build Dhan out to a full trading broker, in parallel with Zerodha, immediately
+- **Decision:** Dhan gets built to full parity with Zerodha (auth, live ticks, order placement) now, not sequenced after Zerodha. Both are wired as `BrokerAdapter`-equivalent plugins from the start; Zerodha isn't demoted, Dhan isn't blocked on Zerodha being "done."
+- **Why:** the automation spec's broker comparison (`02-SYSTEM-ARCHITECTURE.md` §2.5) makes a real cost/rate-limit case for Dhan (free API vs Zerodha's ₹2,000/mo, more generous rate limits, native MCX support for the gold Lane B2) — and the user wants both built together rather than sequentially.
+- **Trade-off:** more surface area to get right at once (two live broker integrations, two sets of auth/reconnect edge cases) instead of hardening one before starting the second.
+
+### D20. Today's scope: docs and plan first, then continue straight into building in the same session
+- **Decision:** store both spec packages in the repo, update PRD/architecture/task-tracker/decisions docs first — then, in the same session, move into actual code (foundational scaffolding first, MCP server layer whenever the user says go).
+- **Why:** explicit instruction — plan needed to be right before code started, but the session continues past planning into building rather than stopping and waiting for a new session.
+- **Trade-off:** none really — sequencing, not a scope cut.
+
 ## Part B: Open questions (decide before relevant phase)
 
 ### Q1. Auto-login automation: legal status?
@@ -145,6 +166,23 @@ A living log of trade-offs the design has committed to, and questions that still
 - **Decide before:** Phase 2
 - **How to decide:** Backtrader is feature-rich but coupling it to your strategy interface is awkward. Backtesting.py is leaner. A custom engine is more code but matches your event-driven runtime exactly.
 - **Default:** Custom engine, deliberately small. The runtime already iterates events; backtesting is just "iterate canned events." Reuse the live runtime as much as possible — that's also the cleanest way to keep backtest and live in sync.
+
+### Q11. OpenAlgo — adopt as a library, or keep xillion's own broker abstraction?
+- **Question:** the automation spec recommends adopting OpenAlgo (self-hosted, AGPL, 34 broker plugins, unified order API) as the execution layer *behind* a thin `BrokerAdapter` wrapper — not replacing xillion's `Broker` ABC, but sitting underneath it for Dhan/Zerodha/Groww specifically. Worth the new dependency and AGPL surface, or keep extending xillion's own already-working Zerodha plugin and build a native Dhan plugin the same way?
+- **Decide before:** the Dhan broker build starts (D19)
+- **How to decide:** OpenAlgo's main pitch is "don't hand-write 3 broker SDKs." xillion already hand-wrote Zerodha successfully (reconnect hardening, live ticks, order placement, all proven across CP1-CP10) — the question is whether that pattern is cheap enough to repeat for Dhan that OpenAlgo's abstraction isn't worth the new moving part.
+- **Default:** lean toward a native Dhan plugin matching xillion's existing `brokers/*.py` pattern (consistent with everything else in the codebase), skip OpenAlgo, revisit only if a third broker makes the hand-written pattern feel expensive.
+
+### Q12. Redis: which free-tier provider, and when does it become load-bearing?
+- **Question:** the spec uses Redis for the OPS token bucket, live position state, distributed locks, and the kill-switch flag. Which free-tier hosted Redis (Upstash, Redis Cloud's free 30MB tier, etc.), and does xillion need it from day one of this work or only once multi-leg/high-frequency-relative-to-today's-usage checks actually require sub-second shared state?
+- **Decide before:** the OPS token bucket / idempotency-key work starts
+- **How to decide:** xillion's current single-process asyncio model can hold this state in-memory (like `RiskManager`'s in-memory OPS window today) without Redis at all, as long as it stays single-process. Redis only becomes necessary the moment there's more than one process/worker needing to share that state.
+- **Default:** keep state in-memory (extend the existing `RiskManager` pattern) until there's a concrete reason to split into multiple processes; introduce Redis then, not preemptively.
+
+### Q13. When does Lane B (gold) work actually start?
+- **Question:** the automation spec's own roadmap sequences Lane B at Phase 3, after Lane A's risk engine and first automated strategy are solid (matches xillion's existing `docs/process/asset-pipeline.md` per-asset notes, which already put Options first). Confirm this default still holds, or does gold move up given Funding Pips is now flagged "primary per your instruction" in the regulatory doc?
+- **Decide before:** any Lane B code starts
+- **Default:** Options (Lane A) first, per both documents' own sequencing and the existing "Blocked on you" list (CA opinion + Funding Pips account are still outstanding). Revisit only if the user explicitly says otherwise.
 
 ## Part C: Things that are explicitly NOT decisions
 

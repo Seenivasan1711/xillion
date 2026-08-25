@@ -210,7 +210,83 @@ These are operational details, not architecture, but the bot's settings panel sh
 
 This document summarises rules as the author understands them in 2025–2026. **Regulations change.** Before going live with real money, verify the current SEBI / NSE / BSE circulars and your broker's current policies. The bot is infrastructure; legal compliance is on you.
 
-## Part C: Risk-mitigation playbook
+## Part C: v2 additions (added 2026-08-25)
+
+Full source: `docs/architecture/automation-platform-spec/01-REGULATORY-CONSTRAINTS.md`
+and `10-RISK-ENGINE.md`. This section reconciles those against Parts A/B
+above rather than duplicating them.
+
+### D.1 The expanded risk engine — from 5 checks to ~20
+
+Today's `RiskManager.check()` (`xillion/core/risk.py`) validates: kill
+switch, quantity > 0, OPS limit, account daily loss, per-strategy daily
+loss. The automation spec's `validate_order()` adds a materially longer
+list, grouped the same way it groups them:
+
+| Group | New checks not in xillion today |
+|---|---|
+| **Sanity / fat-finger** | qty is a lot-size multiple, qty within exchange freeze limit, qty within a sane per-order cap, price is a tick-size multiple, **price collar** (order price within 0.5x-1.5x LTP — "has saved more retail accounts than any other single control"), price within the exchange circuit band, notional within a per-order cap |
+| **State** | trading-enabled flag (distinct from kill-switch), symbol-tradeable-today check |
+| **Capital** | margin available ≥ 1.2x margin required (buffer, not just ≥), exposure cap (distinct from daily-loss) |
+| **Behavioural / runaway** | duplicate-idempotency-key rejection, self-trade detection, max-orders-per-day cap, modify-rate limit (≤12 modifies/60s on one position) |
+| **Lane B prop-firm** | daily/max drawdown gates against the firm's own limits, tracked on trailing peak equity — not applicable to Lane A |
+
+**Priority for the gap-mapped build (see task-tracker.md):** price collar and
+the OPS cap tightening (7/sec with a 9/sec hard ceiling, down from today's
+9/sec default) first — they're pure order-validation logic, no new
+infrastructure needed. Idempotency-key dedup second, since multi-leg orders
+make duplicate submission risk more likely. Prop-firm DD gates wait for
+Lane B.
+
+### D.2 FEMA / Funding Pips — the question the original plan left open
+
+The original plan (see `archive/progress-tracker-phases-0-10.md` and the
+earlier "Blocked on you" list) always described Funding Pips/MT5 as
+"forex, deferred" without resolving the legal question. The automation
+spec's regulatory doc resolves it:
+
+- **Retail offshore spot forex is clearly prohibited** for Indian residents
+  under FEMA (penalties up to 3x the amount, ₹5,000/day continuing
+  violation, asset freezing).
+- **Prop-firm evaluation trading is a materially different legal question**
+  and is generally regarded as permissible: challenge fees are a service
+  payment under LRS, accounts are simulated (no actual offshore forex
+  position opens in the trader's name), payouts are inward remittance for
+  services rendered.
+- **The nuance:** Funding Pips is a forex/CFD prop firm, not a futures
+  (CME/CBOT) prop firm — the CFD side draws somewhat more regulatory
+  attention, though the simulated-account structure is the main mitigating
+  factor.
+- **Obligations regardless:** declare payouts as business/professional
+  income, use authorised banking channels, keep records ≥6 years, **talk to
+  a CA who handles foreign income before the first payout** — this remains
+  on the "Blocked on you" list (item #3), unchanged.
+
+**Consequence for design:** Lane B is built **twice-portable** — Funding
+Pips/MT5 (B1) and MCX Gold (B2) behind the same broker-adapter pattern,
+since ~85% of the session/volatility/trailing-stop logic is shared (§11.2 of
+the spec). A rule change, a prop firm shutting down, or a failed challenge
+doesn't strand the engineering work either way.
+
+### D.3 Funding Pips' own rules become system-enforced hard limits
+
+Not new information (the earlier plan already flagged this), but now with
+concrete figures to encode as config, not judgment calls at trade time:
+
+| Rule | Firm's figure (verify against live account terms) | xillion's internal limit |
+|---|---|---|
+| Daily drawdown | ~5% | **4%** — must trigger before the firm's |
+| Max drawdown | ~10%, trailing (resets on new peak) | **8%**, same trailing model |
+| EAs/algos | Explicitly permitted | — |
+
+**Design rule carried into config:** internal limits sit at 80% of the
+firm's published figures, absorbing slippage, spread widening at rollover,
+and any tick-level difference between the firm's equity calculation and
+xillion's own. A job must read the *live* account terms at startup and
+refuse to arm Lane B if it can't confirm the current limits — never trust a
+cached/remembered percentage for an account-ending rule.
+
+## Part D: Risk-mitigation playbook
 
 A handful of "before you do this, do that" rules to live by:
 

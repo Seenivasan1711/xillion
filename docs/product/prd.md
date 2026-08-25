@@ -197,3 +197,73 @@ See [09 Progress Tracker](../archive/progress-tracker-phases-0-10.md) for the de
 | 6 — Hardening | 1 week | Tests, docs, alerts, deploy |
 
 Total: **~12 weeks evenings/weekends** to a usable v1. Optimise for "trustworthy" over "feature-rich."
+
+**v1 status (2026-08-25): done.** CP1-CP10 shipped everything in this section
+— plugin core, backtest engine, Zerodha live trading, risk engine + kill
+switch + audit trail, self-healing background tasks, daily/weekly digest,
+position reconciliation. 241 tests passing. See
+[task-tracker.md](../status/task-tracker.md) for the checkpoint-by-checkpoint
+record.
+
+---
+
+## 12. v2 — Options Automation Platform (added 2026-08-25)
+
+Rakesh supplied two spec packages: a sourced, confidence-tiered **options
+scalping strategy knowledge base** ([`docs/strategies/knowledge-base/`](../strategies/knowledge-base/))
+and a **job-based trading automation platform spec** ([`docs/architecture/automation-platform-spec/`](../architecture/automation-platform-spec/)).
+This section is the v2 vision they imply; the automation spec's own 52-job
+catalog and phased roadmap are the detailed plan, retrofitted onto xillion's
+existing architecture rather than built as a separate system (decision D17,
+[decisions-and-open-questions.md](../status/decisions-and-open-questions.md)).
+
+### 12.1 What changes from v1
+
+v1 was a **strategy execution platform**: drop a file, backtest it, run it
+live, watch a dashboard. v2 adds an **operations harness** on top: the
+discrete daily rituals a discretionary trader performs (auth refresh,
+regime classification, strike selection, position sizing, protective-order
+placement, trailing-stop management, end-of-day reconciliation, decay
+monitoring) become independently schedulable, independently testable,
+independently killable jobs — matching the existing
+[asset-pipeline.md](../process/asset-pipeline.md) Stage 5 ("Automate") but
+formalised into ~52 named units instead of an informal checklist.
+
+### 12.2 v2 goals
+
+| ID | Goal | Success looks like |
+|---|---|---|
+| G7 | **Multi-leg options structures** | A 2-leg credit spread and a 4-leg iron condor place, track, and unwind as one logical position — including the leg-failure protocol when a partial fill leaves a naked leg |
+| G8 | **Protective orders live at the broker, not just in strategy code** | A stop-loss/target exists as a real broker-side order the moment a position opens, so a process crash doesn't leave a position unprotected |
+| G9 | **A trailing-stop engine** | At least one ratchet-property-tested trailing algorithm (e.g. chandelier/ATR), proven to never loosen, survives a process restart |
+| G10 | **Two live trading brokers, not one** | Dhan and Zerodha both fully operational (auth, live ticks, orders) — see D19 |
+| G11 | **A second instrument lane (gold)** | Both a Funding Pips/MT5 path (B1) and an MCX path (B2) exist behind the same broker-adapter pattern, sharing ~85% of session/risk logic with Lane A |
+| G12 | **An honestly-costed multi-leg backtest engine** | Real option premium data (not Black-Scholes-from-spot), full Indian per-leg cost model, fills at the unfavourable spread side, stops filling at next-open not trigger price — per `docs/strategies/knowledge-base/09-BACKTEST-PROTOCOL.md` |
+| G13 | **An MCP layer the AI assistant can drive** | Once the harness is solid, a thin MCP proxy exposes job status, strategy state, and risk state to prosper-engine's `TradingAgent` — extending CP7's existing MCP server, not replacing it |
+
+### 12.3 v2 non-goals (unchanged from v1, restated because they matter more now)
+
+- Still no multi-tenant / SaaS — the automation spec's own regulatory read
+  confirms this is a hard SEBI boundary, not just a v1 simplification
+  (`automation-platform-spec/01-REGULATORY-CONSTRAINTS.md` §1.1)
+- Still no ML-based signal generation — harness first, models later if ever
+- Still no full order-book / microstructure modelling
+- **New:** no auto-deployment of a new strategy without human approval —
+  the job catalog can *recommend* a decay-driven parameter change (R03) but
+  never applies it automatically
+
+### 12.4 Infra cost posture (v2-specific, see D18)
+
+Unlike v1's "boring stack, one box" framing, v2's spec assumes a VPS,
+Redis, and a metrics/dashboard layer. **None of that is provisioned yet, and
+none of it should cost money until Rakesh chooses to pay for one.** Every
+new infra piece gets a free/local equivalent first:
+
+| Spec's recommendation | v2 interim (free) | Upgrade trigger |
+|---|---|---|
+| Postgres | Supabase free tier (already in use) | Already the plan |
+| Redis | In-memory (extend `RiskManager`'s existing pattern) — see Q12 | Multi-process need, not before |
+| DuckDB + Parquet | Local files, zero server — no change needed, already free | Never really, per the spec's own reasoning |
+| Prometheus + Grafana | A metrics view inside xillion's own React frontend | A VPS exists and self-hosting Grafana is free anyway |
+| OpenAlgo | Not adopted — native `brokers/*.py` plugins per broker, matching xillion's existing pattern (Q11) | Only if a third broker makes hand-written adapters expensive |
+| India-region static-IP VPS | Not provisioned — paper/backtest work doesn't need it | First live Dhan/Zerodha order under the new risk engine |

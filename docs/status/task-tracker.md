@@ -4,17 +4,22 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-24
-**Current position:** Track A is **fully done** — CP1 ✅ + CP2 ✅ + CP3 🟡 +
-CP4 🟡 + CP5 🟡 + CP6 ✅ + CP7 ✅ + CP8 🟡 + CP9 ✅ + CP10 ✅. CP3/CP4/CP5/CP8
-are each "engineering done, one item needs something only you can supply"
-(real backfill run, real Telegram bot, a real options strategy to design
-multi-leg support against, a cloud LLM key — see Blocked on you). **Track B
-(asset pipelines) is next, and every path into it is genuinely blocked on
-you** — see Blocked on you #1/#2 below. There is no more engineering to do
-autonomously until at least one of those lands; the platform itself has no
-more known gaps to close without a real strategy or real credentials to
-build against. **Note:** CP8's code lives mostly in the separate
+**Last updated:** 2026-08-25
+**Current position:** Track A (CP1-CP10) done. **2026-08-25: Blocked-on-you
+#2 and #7 are resolved** — Rakesh supplied a real, sourced options-strategy
+knowledge base and a job-based automation platform spec (see
+[decisions-and-open-questions.md](decisions-and-open-questions.md) D17-D20
+and the stored specs in `docs/strategies/knowledge-base/` +
+`docs/architecture/automation-platform-spec/`). This unblocks **Options S1
+(Build)** and opens a new round of platform work: **CP11 onward**, gap-mapped
+from the automation spec's 52-job catalog onto what CP1-CP10 already built
+(see `architecture/overview.md` §12.1 for the full mapping — most P0 jobs
+already exist; the real gaps are multi-leg execution + protective orders,
+the trailing-stop engine, the expanded risk engine, EOD reconciliation +
+flatten-at-close, and Dhan as a second full trading broker). CP3/CP4/CP5/CP8
+remain "engineering done, one item needs something only you can supply" (real
+backfill run, real Telegram bot + Kite Connect, a cloud LLM key — see
+Blocked on you). **Note:** CP8's code lives mostly in the separate
 `prosper-engine` repo and is uncommitted there — xillion's commit
 standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
@@ -580,6 +585,110 @@ state.
 
 ---
 
+## TRACK A EXTENSION — Automation Platform Retrofit (added 2026-08-25)
+
+Gap-mapped from `docs/architecture/automation-platform-spec/`'s 52-job
+catalog onto what CP1-CP10 already built — see
+[architecture/overview.md](../architecture/overview.md) §12.1 for the full
+per-job-series mapping table this sequencing is drawn from. **Sequenced by
+what blocks the first real strategy (the credit spread,
+`docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md`) going live**, not
+by the spec's own phase numbers — Options S1/S2 (build + backtest) can start
+in parallel with CP11-CP13 since the strategy itself is single-leg-testable
+before multi-leg execution is finished, but CP11 (multi-leg + protective
+orders) is a hard gate before Options S4 (live).
+
+### ⬜ CP11 — Multi-leg execution + protective orders → *unblocks Options S4*
+- [ ] Multi-leg position model — a credit spread/condor/butterfly is one
+      logical position spanning 2-4 broker orders, not N independent ones
+      (`automation-platform-spec/03-DATA-MODEL.md` §3.1 `positions.legs` JSONB
+      is the reference shape)
+- [ ] Leg-ordering discipline on entry/exit — **longs first on entry, shorts
+      first on exit** (`13-IMPLEMENTATION-ROADMAP.md` Phase 1 deliverables) —
+      the long leg is what caps the risk, so it must exist before the short
+      leg that creates exposure
+- [ ] **Leg-failure protocol (E05)** — Indian brokers don't support atomic
+      multi-leg execution; a 4-leg iron condor is 4 separate orders that can
+      partially fill. Never leave a naked short leg. This is flagged in the
+      spec as "the single most dangerous part of the system" — build and
+      test the rollback path before any multi-leg strategy goes live
+- [ ] **Protective order placement (E07)** — a stop-loss/target becomes a
+      real broker-side order the moment a position opens, not just strategy
+      logic that re-evaluates each bar. Today a process crash mid-position
+      leaves it unprotected; this closes that gap
+- [ ] Position sizing for multi-leg — `max_loss_per_lot = (width − credit) ×
+      lot_size`, `lots = floor(risk_pct × capital / max_loss_per_lot)`,
+      **lots < 1 → skip, don't round up** (per KB `10-FIRST-STRATEGY-SPEC.md`
+      §7 — this is the exact calculation that rules out most Nifty spreads
+      at ≤₹3L capital and is why Sensex/the butterfly get recommended instead)
+
+**Verify:** a paper 2-leg credit spread opens both legs correctly-ordered,
+survives a forced partial-fill-on-one-leg test without a naked exposure, and
+a real stop-loss/target order is visible at the broker (not just in xillion's
+DB) the moment the position opens.
+
+---
+
+### ⬜ CP12 — Trailing-stop engine → *Goal #7 extension*
+- [ ] At least one trailing algorithm properly implemented and
+      **ratchet-property-tested** — the stop must never loosen, including
+      across a process restart (`13-IMPLEMENTATION-ROADMAP.md` Gate 2)
+- [ ] Breakeven-shift trigger (move stop to entry once R-multiple threshold hit)
+- [ ] Time-stop enforcement (exit at N DTE regardless of P&L — the credit
+      spread spec's "exit at 1 DTE to avoid expiry-day gamma entirely")
+
+**Verify:** property test proves the stop never loosens across 1000+
+randomised price paths and survives a simulated restart mid-trail.
+
+---
+
+### ⬜ CP13 — Expanded risk engine → *Goal #7 extension, capital-protecting*
+- [ ] Bring `RiskManager.check()` from 5 checks to the ~20 in
+      `automation-platform-spec/10-RISK-ENGINE.md` §10.2 — see
+      `architecture/risk-and-compliance.md` Part C.1 for the prioritised list
+      (price collar + OPS-cap tightening to 7/sec first, since they're pure
+      validation logic; idempotency-key dedup second; prop-firm DD gates wait
+      for Lane B)
+- [ ] 100% branch coverage on the risk engine (non-negotiable per the spec's
+      own Gate 1 criterion — this is the one component with zero tolerance
+      for an untested path)
+
+**Verify:** a deliberately fat-fingered order (10x price, wrong lot multiple)
+is rejected before it reaches the broker adapter, with the specific failed
+check named in the audit log.
+
+---
+
+### ⬜ CP14 — Scheduled EOD reconciliation + flatten-at-close → *hard gate before live multi-leg*
+- [ ] **M01 — daily broker reconciliation**, scheduled at market close, not
+      just on startup (CP9 only reconciles when a process boots) — alerts on
+      any mismatch between xillion's DB and the broker's actual positions
+- [ ] **X02 — square-off enforcer that actually flattens**, distinct from
+      CP9's market-hours auto-stop (which stops the *strategy instance*, not
+      the *position*) — a position left open at close today just sits there
+      until the strategy resumes next session
+
+**Verify:** kill the process mid-position, restart after market close,
+confirm M01 reports the position was flattened (or alerts loudly that it
+wasn't) rather than silently carrying it forward.
+
+---
+
+### ⬜ CP15 — Dhan as a full trading broker, parallel with Zerodha → *Goal #3, decision D19*
+- [ ] `brokers/dhan.py` — auth, live ticks, order placement, matching the
+      `brokers/zerodha.py` pattern already proven (reconnect hardening,
+      real socket-state tracking) rather than adopting OpenAlgo (open
+      question Q11 — default is native plugin unless a third broker makes
+      hand-written adapters feel expensive)
+- [ ] Failover semantics — if Zerodha is down, does Dhan take over
+      automatically or does that require a manual switch? (Not yet decided —
+      the spec's Phase 3 treats this as a hardening-phase feature, not P0)
+
+**Verify:** a real Dhan order placed and filled in paper mode, live ticks
+flowing, auth refresh working on Dhan's own daily-token cadence.
+
+---
+
 ## TRACK B — Asset pipelines
 
 Each asset runs the same 6 stages — see
@@ -587,20 +696,41 @@ Each asset runs the same 6 stages — see
 
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
-| **Options** (NIFTY/BANKNIFTY/SENSEX) · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| **Gold XAUUSD** · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| **Forex** · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | 🟡 spec ready, not coded | ⬜ | ⬜ | ⬜ blocked on CP11 | ⬜ | ⬜ |
+| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Crypto** · TBD exchange | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
+**2026-08-25: Options S1 unblocked.** The strategy is no longer TBD — it's
+the Nifty/Sensex weekly Bull Put / Bear Call credit spread, fully specced in
+`docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md` (entry timing,
+strike selection arms, management combinations, position sizing, pass/fail
+criteria to apply before ever going live). "🟡 spec ready, not coded" means:
+the rules exist and are written down per Stage 1's own exit criterion, but
+the strategy plugin itself (`strategies/credit_spread_weekly.py` or similar)
+hasn't been written yet — that's the next concrete build task. S4 (Live) is
+blocked on CP11 (multi-leg execution + protective orders) regardless of how
+fast S1-S3 move, since a credit spread is a 2-leg position.
+
 ### Per-asset enablement work
 Infrastructure each asset needs before its pipeline can start:
 
-- **Options** — ✅ ready (Zerodha + NSE bhavcopy + instrument resolver all exist)
-- **Gold XAUUSD / Forex** — ⬜ needs: MT5 broker plugin, 24×5 session calendar,
-  currency field, FX lot math, **Funding Pips drawdown rules as hard risk
-  limits** (breaching one instantly fails the account), XAUUSD data provider
+- **Options** — 🟡 mostly ready (Zerodha + NSE bhavcopy + instrument resolver
+  all exist); **blocked on CP11** for multi-leg execution before Stage 4.
+  Stages 1-3 (build, backtest, paper) can proceed on today's infrastructure
+  since backtesting/paper-testing a 2-leg spread doesn't yet require the
+  leg-failure protocol that only matters for a *live* partial fill
+- **Gold Lane B1 (XAUUSD/Funding Pips)** — ⬜ needs: MT5 broker plugin, 24×5
+  session calendar, currency field, FX lot math, **Funding Pips drawdown
+  rules as hard risk limits** (breaching one instantly fails the account) —
+  see `architecture/risk-and-compliance.md` Part C.3 for the exact
+  internal-vs-firm percentages
+- **Gold Lane B2 (MCX)** — ⬜ needs: MCX instrument/expiry resolution
+  (monthly, 5th), reuses the Lane A broker adapter (Dhan/Zerodha both
+  support MCX) — cheaper to build than B1 since no new broker is needed,
+  only a new instrument type
 - **Stock options** — ⬜ needs: stock-option chain resolution (reuses index logic)
 - **Stocks** — ⬜ needs: equity instrument type (cheapest — multiplier is 1)
 - **Crypto** — ⬜ needs: exchange integration, **1% TDS in the fee engine**
@@ -611,15 +741,16 @@ Infrastructure each asset needs before its pipeline can start:
 
 ## Blocked on you
 
-| # | Item | Blocks |
-|---|---|---|
-| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward |
-| 2 | Real strategy rules from trading-course videos | Options S1 |
-| 3 | CA opinion on Funding Pips prop-firm income | Gold/Forex S4 |
-| 4 | Funding Pips account + challenge | Gold S3 onward |
-| 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 |
-| 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 |
-| 7 | A real multi-leg options strategy (straddle/strangle/spread) to design CP5's multi-leg support against — same trading-course source as #2 | CP5 close-out, Options S1 |
+| # | Item | Blocks | Status |
+|---|---|---|---|
+| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward | Open |
+| ~~2~~ | ~~Real strategy rules from trading-course videos~~ | ~~Options S1~~ | ✅ **Resolved 2026-08-25** — `docs/strategies/knowledge-base/` |
+| 3 | CA opinion on Funding Pips prop-firm income | Gold Lane B1 S4 | Open |
+| 4 | Funding Pips account + challenge | Gold Lane B1 S3 onward | Open |
+| 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 | Open |
+| 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 | Open |
+| ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
+| 8 | Confirm free-tier Redis provider choice (Upstash vs Redis Cloud) once/if it becomes load-bearing — see decisions Q12 | CP13 (only if in-memory state turns out insufficient) | Open, low priority |
 | 8 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out |
 
 ---

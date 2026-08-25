@@ -54,6 +54,7 @@ docs/
 | [plugin-contracts.md](architecture/plugin-contracts.md) | Exact interfaces for strategies, brokers, data providers |
 | [data-model.md](architecture/data-model.md) | Database schema, env config |
 | [risk-and-compliance.md](architecture/risk-and-compliance.md) | Risk controls, SEBI rules, kill switches |
+| [automation-platform-spec/](architecture/automation-platform-spec/) | The 52-job automation harness spec (job-based ops model, expanded risk engine, Dhan+Zerodha, gold lanes) — **being retrofitted into xillion**, see `status/decisions-and-open-questions.md` D17-D20 |
 
 ### `product/` — what & why
 | Document | Purpose |
@@ -68,6 +69,11 @@ docs/
 One file per strategy, from [_TEMPLATE.md](strategies/_TEMPLATE.md). Rules,
 backtest results, paper divergences, and a **failure log**. These are ingested
 into the RAG layer so the assistant can answer questions about real history.
+
+[knowledge-base/](strategies/knowledge-base/) — the sourced, confidence-tiered
+options-scalping reference (market structure, decision engine, ranked
+strategies, backtest protocol) that the first real strategy (Stage 1) is built
+from. Not a per-strategy record itself — the research behind one.
 
 ### `archive/`
 [progress-tracker-phases-0-10.md](archive/progress-tracker-phases-0-10.md) —
