@@ -44,8 +44,19 @@ def main(
     timeframe: str = typer.Option("1d", "--timeframe"),
     from_date: str = typer.Option(..., "--from-date", help="YYYY-MM-DD"),
     to_date: str = typer.Option(..., "--to-date", help="YYYY-MM-DD"),
+    underlying_filter: str = typer.Option(
+        "", "--underlying-filter",
+        help=(
+            "Comma-separated underlyings (e.g. 'NIFTY,BANKNIFTY') to keep from a "
+            "whole-file-bulk provider's daily file. A real multi-year NFO backfill "
+            "with no filter is ~85M+ rows across every contract on the exchange -- "
+            "this scopes storage down to what a specific strategy actually trades. "
+            "Ignored for non-bulk providers (they only ever fetch the one --symbol)."
+        ),
+    ),
 ) -> None:
     """Backfill one symbol's history, year by year, resumable on failure."""
+    filter_set = {s.strip() for s in underlying_filter.split(",") if s.strip()} or None
 
     async def _run() -> None:
         from xillion.auth.data_provider_credstore import load_provider_credentials
@@ -85,6 +96,7 @@ def main(
                 bars = await warehouse.get_bars(
                     provider_instance, symbol, exchange, timeframe, chunk_from, chunk_to,
                     instrument_type=instrument_type, credentials=credentials, broker=None,
+                    underlying_filter=filter_set,
                 )
             except Exception as exc:
                 print(f"  FAILED {chunk_from}-{chunk_to}: {exc}", file=sys.stderr)

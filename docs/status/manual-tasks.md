@@ -14,8 +14,8 @@
 > per-checkpoint summary. Keep them in sync when either changes.
 
 **Last updated:** 2026-08-25 (Dhan promoted to top priority, Kite Connect
-demoted to low-priority/later — Rakesh's explicit call, both now saved via
-Settings UI into the DB instead of `.env`)
+demoted to low-priority/later; Telegram config also moved to Settings UI;
+five items resolved by Rakesh's decisions — see Done)
 
 ---
 
@@ -57,39 +57,31 @@ Settings UI into the DB instead of `.env`)
 
 - [ ] **Telegram bot** — create via @BotFather, get the bot token + your
       chat ID.
+      **Enter it in the app now, not `.env`:** Settings → Notifications →
+      paste Bot token + Chat ID → Save. As of 2026-08-25 this is DB-backed
+      (`/settings/notifications`, same encrypted-storage pattern as
+      Dhan/Zerodha) and applies immediately to the running notifier, no
+      restart needed.
       **Blocks:** alerts, kill-switch notifications.
       **Cost:** free, ~5 min.
 
-- [ ] **Run the real 2–5yr NSE backfill** from a machine that can reach
-      Supabase directly (the dev sandbox can't resolve the Supabase
-      hostname) —
-      `python scripts/backfill.py --provider "NSE Bhavcopy (Free)" --symbol <full tradingsymbol> --exchange NFO --instrument-type option --from-date 2021-01-01 --to-date 2026-08-25`
-      (safe to re-run, already-covered years are skipped).
-      **Blocks:** Options S2 — the *real*, multi-year, pass/fail-criteria
-      backtest KB `10-FIRST-STRATEGY-SPEC.md` §10 calls for (the backtest
-      *engine* itself is already wired and verified against a canned option
-      chain — this is about having real historical data behind it).
-      **Cost:** free.
-
-- [ ] **Confirm ₹50k starting capital / ₹1,000/mo first milestone.**
-      **Blocks:** Options S4 (going live). **Cost:** none — just a decision.
-
-- [ ] **CA consultation on Funding Pips prop-firm income tax treatment.**
-      Grey-area legal question (FEMA vs. permitted LRS service payment) —
-      get this opinion before touching real payouts.
-      **Blocks:** Gold Lane B1 going live. **Cost:** paid (CA fee).
-
-- [ ] **Funding Pips account + challenge purchase.** Real money, LRS
-      remittance — only when actually starting the gold/forex lane.
-      **Blocks:** Gold Lane B1, Stage 3 onward. **Cost:** paid (challenge fee).
-
-- [ ] **Redis provider choice** (Upstash vs. Redis Cloud, both free tier) —
-      just a decision, nothing to set up yet.
-      **Blocks:** CP13, only if in-memory state turns out insufficient.
-      **Cost:** free tier. **Low priority — don't act on this yet.**
+- [ ] **Run the real 2–5yr NSE backfill — 🔵 IN PROGRESS, Claude is running
+      it, nothing left for you here.** The original blocker (this dev
+      sandbox couldn't resolve Supabase's direct-connection hostname)
+      turned out to be your project being paused — you resumed it
+      2026-08-25. Switched `.env` to the Session pooler connection
+      (IPv4-reachable) once resumed. Scoped to **NIFTY + BANKNIFTY only**
+      (your call, 2026-08-25) — the unfiltered whole-NFO-market version
+      would have been ~85M rows / ~25-30GB, well past free-tier Supabase
+      storage; added a real `--underlying-filter` option to
+      `scripts/backfill.py` + `data_providers/nse_bhavcopy.py` to scope it
+      down (~3.7M rows / ~850MB estimated for the full filtered range).
+      Running in the background, chunked by year, resumable. Will move to
+      Done for real once it completes.
 
 - [ ] **(Optional) free cloud LLM key** — Gemini or Groq free tier, for
       prosper-engine's AI-confidence hook.
+      **Deferred — Rakesh's explicit call, 2026-08-25 ("keep for later").**
       **Blocks:** nothing — local Ollama already fully verified this
       end-to-end. **Cost:** free. Just makes AI-confidence responses faster
       than local Ollama.
@@ -97,27 +89,29 @@ Settings UI into the DB instead of `.env`)
 - [ ] **Static-IP whitelisting research** — Zerodha requires the bot's
       outbound IP whitelisted for live order placement; Render's
       free/starter plans don't give a fixed IP by default.
+      **Deferred — Rakesh's explicit call, 2026-08-25 ("keep for later").**
       **Blocks:** going live with real orders (not viewing the deployed
-      app). **Cost:** varies — may need a paid add-on or proxy. Worth
-      researching before Options S4, not urgent today.
-
-### Deploy checklist (from the 2026-08-25 "see it deployed" session)
-
-- [ ] **Push xillion commits to GitHub** if not already current —
-      `git push origin feat/options-alert-engine`.
-- [ ] **Create the Render Blueprint** — dashboard → New + → Blueprint →
-      connect the `xillion` repo → Apply (reads `render.yml`, free tier).
-- [ ] **Set 2 secrets in Render dashboard** (Service → Environment): copy
-      `DATABASE_URL` and `ENCRYPTION_KEY` from the local `.env` (same
-      Supabase project, shared by design).
-- [ ] **Set `APP_BASE_URL`** to the real `https://xillion-xxxx.onrender.com`
-      URL after first deploy (can't be known before the URL exists).
+      app). **Cost:** varies — may need a paid add-on or proxy.
 
 ---
 
 ## Done
 
-*(nothing yet — items move here, checked, with the date, when confirmed done)*
+- [x] **Deploy checklist** (Render Blueprint, secrets, `APP_BASE_URL`) —
+      **all completed, confirmed by Rakesh 2026-08-25.**
+- [x] **Confirm ₹50k starting capital / ₹1,000/mo first milestone.**
+      **Decided 2026-08-25: yes, confirmed.**
+- [x] **CA consultation on Funding Pips prop-firm income tax treatment —
+      decided not needed.** Rakesh's call, 2026-08-25: Funding Pips income
+      will be declared as foreign income on ITR directly rather than
+      getting a separate CA opinion first.
+- [x] **Funding Pips account + challenge purchase.** Already had this
+      before being asked (2026-08-25) — will use it when Gold Lane B1
+      actually starts.
+- [x] **Redis provider choice — decided: Upstash** (2026-08-25, free tier
+      with the more generous usage limit, same reasoning as Supabase for
+      Postgres). Not wired into anything yet — only needed if CP13's
+      in-memory state turns out insufficient, which hasn't happened.
 
 ---
 

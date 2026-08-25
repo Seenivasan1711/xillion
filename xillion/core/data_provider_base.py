@@ -91,9 +91,17 @@ class HistoricalDataProvider(ABC):
         *,
         credentials: Optional[dict] = None,
         broker=None,
+        underlying_filter: Optional[set[str]] = None,
     ) -> list[Bar]:
         """Fetch every instrument's bar for one exchange/day in a single
         request. Only implemented by providers with
         capabilities.supports_whole_file_bulk=True (e.g. NSE bhavcopy);
-        others should never have this called."""
+        others should never have this called.
+
+        `underlying_filter` -- when given, only persist contracts whose
+        underlying ticker is in this set (e.g. {"NIFTY", "BANKNIFTY"}).
+        Still downloads/parses the same whole-day file (that part can't be
+        scoped down), but keeps storage bounded to what a specific strategy
+        actually trades instead of every F&O contract on the exchange.
+        None means unfiltered -- the original "own the whole market" shape."""
         raise NotImplementedError

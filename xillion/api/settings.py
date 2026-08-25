@@ -197,3 +197,43 @@ async def delete_dhan_credentials(
     request.app.state.broker_instances.pop(DHAN_NAME, None)
     logger.info("dhan credentials deleted", user=user.username)
     return {"deleted": True}
+
+
+NOTIFICATIONS_NAME = "Telegram"
+NOTIFICATIONS_BROKER = "Telegram"  # not a broker -- reuses BrokerCredential's
+# generic (name, encrypted_payload) shape rather than a second table for
+# one row of data. See xillion/main.py's _load_telegram_credentials.
+
+
+class NotificationSettings(BaseModel):
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    on_strategy_start_stop: bool = True
+    on_order_filled: bool = True
+    on_order_rejected: bool = True
+    on_drawdown_breach: bool = True
+    on_kill_switch: bool = True
+
+
+@router.get("/notifications", response_model=NotificationSettings)
+async def get_notifications(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    creds = await load_credentials(db, NOTIFICATIONS_NAME)
+    if not creds:
+        return NotificationSettings()
+    return NotificationSettings(**creds)
+
+
+@router.put("/notifications")
+async def put_notifications(
+    body: NotificationSettings,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    await save_credentials(db, NOTIFICATIONS_NAME, NOTIFICATIONS_BROKER, body.model_dump())
+    request.app.state.telegram.configure(body.telegram_bot_token, body.telegram_chat_id)
+    logger.info("notification settings saved", user=user.username, telegram_configured=bool(body.telegram_bot_token))
+    return {"saved": True}

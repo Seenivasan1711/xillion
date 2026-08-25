@@ -80,6 +80,25 @@ async def _load_zerodha_credentials() -> Optional[dict]:
     return None
 
 
+async def _load_telegram_credentials() -> tuple[str, str]:
+    """Same DB-first, env-fallback pattern as _load_zerodha_credentials --
+    reuses the BrokerCredential encrypted store under the name "Telegram"
+    even though it isn't a broker; that table is really just generic
+    encrypted app-secret storage, and adding a second table for one row
+    of data wasn't worth it. Returns ("", "") if genuinely unconfigured
+    anywhere -- TelegramNotifier treats that as disabled, not an error."""
+    from xillion.auth.credstore import load_credentials
+    from xillion.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        creds = await load_credentials(db, "Telegram")
+    if creds and creds.get("telegram_bot_token"):
+        return creds["telegram_bot_token"], creds.get("telegram_chat_id", "")
+
+    s = get_settings()
+    return s.telegram_bot_token, s.telegram_chat_id
+
+
 async def _try_connect_zerodha(app: FastAPI) -> None:
     """Attempt to connect Zerodha if credentials are configured. Non-fatal."""
     creds = await _load_zerodha_credentials()
@@ -347,7 +366,8 @@ async def lifespan(app: FastAPI):
     risk = RiskManager()
     app.state.risk = risk
 
-    telegram = TelegramNotifier()
+    telegram_token, telegram_chat_id = await _load_telegram_credentials()
+    telegram = TelegramNotifier(telegram_token, telegram_chat_id)
     app.state.telegram = telegram
     risk.set_notify(telegram.alert)
 

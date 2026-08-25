@@ -90,11 +90,17 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         *,
         credentials=None,
         broker=None,
+        underlying_filter: "set[str] | None" = None,
     ) -> list[Bar]:
         """The whole-file lever: one ZIP download covers every F&O
         instrument traded that day, not just the one symbol asked for.
         BarWarehouse persists all of them so later requests for any other
-        symbol on this same day cost zero provider calls."""
+        symbol on this same day cost zero provider calls -- unless
+        `underlying_filter` is given, in which case only that filter's
+        underlyings (matched against the file's own TckrSymb column) are
+        kept, e.g. to scope a real historical backfill down to just the
+        underlyings a strategy actually trades instead of the whole
+        exchange (85M+ rows for a multi-year NFO backfill otherwise)."""
         if timeframe != "1d":
             raise ValueError(
                 f"NSE Bhavcopy (Free) only provides daily bars — got timeframe={timeframe!r}"
@@ -102,12 +108,15 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         if day.weekday() >= 5:
             return []
         async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
-            day_bars = await self._fetch_and_parse_day(client, day)
+            day_bars = await self._fetch_and_parse_day(client, day, underlying_filter=underlying_filter)
         return list(day_bars.values())
 
-    async def _fetch_and_parse_day(self, client: httpx.AsyncClient, day: date) -> dict[str, Bar]:
+    async def _fetch_and_parse_day(
+        self, client: httpx.AsyncClient, day: date, *, underlying_filter: "set[str] | None" = None,
+    ) -> dict[str, Bar]:
         """Download and parse one day's whole-market ZIP once, returning
-        every instrument's bar keyed by tradingsymbol."""
+        every instrument's bar keyed by tradingsymbol (or only those whose
+        underlying is in `underlying_filter`, if given)."""
         url = _URL_TEMPLATE.format(ymd=day.strftime("%Y%m%d"))
         try:
             resp = await client.get(url)
@@ -125,6 +134,8 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
                 with zf.open(csv_name) as f:
                     reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
                     for row in reader:
+                        if underlying_filter is not None and row.get("TckrSymb") not in underlying_filter:
+                            continue
                         sym = row.get("FinInstrmNm") or row.get("TckrSymb")
                         if not sym or sym in result:
                             continue

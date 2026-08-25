@@ -26,18 +26,24 @@ real Dhan account — logged as the literal next thing to do in
 [manual-tasks.md](manual-tasks.md), not silently skipped.
 
 **What's left to trade real money, in order:** (1) **a free Dhan account +
-token (#10) is now the fastest path to seeing the app run for real** — as
-of the 2026-08-25 paper-tick-wiring follow-up (see CP15), paper mode no
-longer needs Zerodha at all, so this can go first and costs nothing;
-(2) the real 2-5yr NSE backfill for a genuine multi-year backtest
-(Blocked-on-you #6); (3) Kite Connect + Telegram (#1) — deferred, not
-needed to validate the system today, only for the eventual Zerodha-specific
-live path; (4) a real broker-side bracket/GTT order path (CP11's own honest
-gap — protective orders are software-stop only today); (5) the static-IP
-whitelisting SEBI requires for live order placement. None of these are
-code work — see `manual-tasks.md` for the full checklist. CP3/CP4/CP5/CP8
-remain "engineering done, one item needs something only you can supply."
-**Note:** CP8's code lives mostly in the separate `prosper-engine` repo and
+token (#10) is still the fastest path to seeing the app run for real** —
+paper mode no longer needs Zerodha at all, so this goes first and costs
+nothing; (2) the real 2-5yr NSE backfill (#6) — **🔵 no longer blocked on
+you, Claude is running it now** (NIFTY+BANKNIFTY-scoped, see CP3); (3) a
+Telegram bot (#11) for alerts, DB-configurable via Settings → Notifications
+as of 2026-08-25 — Kite Connect (#1) itself stays deferred, low priority,
+Rakesh's explicit call; (4) a real broker-side bracket/GTT order path
+(CP11's own honest gap — protective orders are software-stop only today);
+(5) the static-IP whitelisting SEBI requires for live order placement.
+**2026-08-25: five other Blocked-on-you items resolved by Rakesh's
+decisions in one pass** — ₹50k/₹1,000-mo milestone confirmed, CA opinion
+decided not needed (foreign income on ITR instead), Funding Pips account
+already held, Redis choice decided (Upstash), LLM key + static-IP research
+explicitly deferred for later. See `manual-tasks.md` for the live
+checklist. CP3/CP4/CP5/CP8 remain "engineering done, one item needs
+something only you can supply" (CP3's item is now in progress, not
+waiting on you). **Note:** CP8's code lives mostly in the separate
+`prosper-engine` repo and
 is uncommitted there — xillion's commit standing-authorization doesn't
 extend to it.
 **Active branch:** `feat/options-alert-engine`
@@ -151,17 +157,33 @@ call makes 0.
 
 ---
 
-### 🟡 CP3 — Backfill + run history `MOSTLY DONE 2026-08-24 — one item needs YOU`
+### 🔵 CP3 — Backfill + run history `IN PROGRESS 2026-08-25 — real backfill running now`
 - [x] Backfill CLI (`scripts/backfill.py`, resumable year-by-year) +
       `POST /api/data/backfill` + `GET /api/data/backfill` (job status) +
       `GET /api/data/coverage`, plus a Coverage & backfill panel under
       Settings → Data Providers
-- [ ] **Run the real 2–5 year backfill — NOT DONE, needs you.** This sandbox
-      can't reach Supabase directly (`db.<project>.supabase.co` doesn't
-      resolve from here — general internet works fine, just not that host;
-      see note below). Run it from your own machine once CP3 is pulled:
-      `python scripts/backfill.py --provider "NSE Bhavcopy (Free)" --symbol <full tradingsymbol> --exchange NFO --instrument-type option --from-date 2021-01-01 --to-date 2026-08-24`
-      — safe to re-run, already-covered years are skipped
+- [ ] **Run the real 2–5 year backfill — 🔵 IN PROGRESS.** Was blocked on
+      this sandbox not reaching Supabase; turned out the project was
+      paused (Rakesh resumed it 2026-08-25), and the direct-connection
+      hostname is IPv6-only anyway — switched `.env` to the Session pooler
+      (IPv4). **Scoped to NIFTY + BANKNIFTY only**, not the whole NFO
+      market: an unfiltered 2021→today run would be ~85M rows / ~25-30GB,
+      well past free-tier Postgres storage. Added a real
+      `underlying_filter` parameter threaded through
+      `xillion/core/data_provider_base.py` →
+      `data_providers/nse_bhavcopy.py` → `xillion/data/warehouse.py` →
+      `scripts/backfill.py --underlying-filter`, keeping the whole-file
+      bulk-fetch lever (still one download per day) but only persisting
+      matching underlyings. **Real subtlety handled, not glossed over:** a
+      filtered bulk fetch must NOT share the unfiltered `WILDCARD_SYMBOL`
+      coverage key, or a later full-market request for the same dates
+      would wrongly think it's already covered and skip the excluded
+      contracts — uses a distinct coverage key (`*:NIFTY,BANKNIFTY`)
+      instead. Empirically measured before committing to the full run (not
+      just estimated): a real 3.5-week fetch against the actual Supabase
+      DB persisted 43,438 rows / 10MB, extrapolating to ~3.7M rows / ~850MB
+      for the full 5.6-year range. Running in the background now, chunked
+      by year; will be marked done here once it completes.
 - [x] Persist `BacktestRun`/`BacktestTrade` — tables existed since migration
       001/002 but nothing ever wrote to them; wired into all three
       `/backtest/run*` endpoints
@@ -188,9 +210,14 @@ actually proven, not just unit-tested.
 ---
 
 ### 🟡 CP4 — Signal lifecycle `ENGINEERING DONE 2026-08-24 — Telegram proof needs YOU`
-- [ ] **[YOU]** Buy Kite Connect (₹500/mo) + create Telegram bot (@BotFather)
-      — `ZERODHA_*` and `TELEGRAM_*` env vars are currently **empty**. Blocks
-      only the *real* Telegram proof below, not anything already built
+- [ ] **[YOU]** Create a Telegram bot (@BotFather) — Kite Connect deferred
+      by your own call, no longer bundled with this item (2026-08-25).
+      **As of 2026-08-25, enter the bot token + chat ID via Settings →
+      Notifications, not `.env`** — new `GET`/`PUT /settings/notifications`
+      (`xillion/api/settings.py`), same encrypted DB pattern as
+      Dhan/Zerodha, applies to the running `TelegramNotifier` immediately
+      via a new `.configure()` method, no restart needed. Blocks only the
+      *real* Telegram proof below, not anything already built
 - [x] Entry + **target + stop-loss + EXIT** signals with parent-child linkage.
       `signal_log` was entry-only with no ENTER/EXIT distinction at all — its
       `signal_type` column actually held the free-text tag, not a lifecycle
@@ -1089,16 +1116,17 @@ Infrastructure each asset needs before its pipeline can start:
 
 | # | Item | Blocks | Status |
 |---|---|---|---|
-| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward (Zerodha-specific path only) | Open — **low priority, deferred by Rakesh 2026-08-25**, do #10 first |
+| 1 | Kite Connect plan (~1 hr) | CP4 onward (Zerodha-specific path only) | Open — **low priority, deferred by Rakesh 2026-08-25**, do #10 first |
 | ~~2~~ | ~~Real strategy rules from trading-course videos~~ | ~~Options S1~~ | ✅ **Resolved 2026-08-25** — `docs/strategies/knowledge-base/` |
-| 3 | CA opinion on Funding Pips prop-firm income | Gold Lane B1 S4 | Open |
-| 4 | Funding Pips account + challenge | Gold Lane B1 S3 onward | Open |
-| 5 | Confirm ₹50k starting capital, ₹1,000/mo first milestone | Options S4 | Open |
-| 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 | Open |
+| ~~3~~ | ~~CA opinion on Funding Pips prop-firm income~~ | ~~Gold Lane B1 S4~~ | ✅ **Resolved 2026-08-25** — decided not needed, will declare as foreign income on ITR directly |
+| ~~4~~ | ~~Funding Pips account + challenge~~ | ~~Gold Lane B1 S3 onward~~ | ✅ **Resolved 2026-08-25** — already had this |
+| ~~5~~ | ~~Confirm ₹50k starting capital, ₹1,000/mo first milestone~~ | ~~Options S4~~ | ✅ **Resolved 2026-08-25** — confirmed yes |
+| 6 | Run `python scripts/backfill.py` for real (2-5yr) | CP3 close-out, Options S2 | 🔵 **In progress** — Claude running it now (NIFTY+BANKNIFTY-scoped, see CP3 follow-up below), no longer blocked on you |
 | ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
-| 8 | Confirm free-tier Redis provider choice (Upstash vs Redis Cloud) once/if it becomes load-bearing — see decisions Q12 | CP13 (only if in-memory state turns out insufficient) | Open, low priority |
-| 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking |
+| ~~8~~ | ~~Confirm free-tier Redis provider choice~~ | ~~CP13 (only if in-memory state turns out insufficient)~~ | ✅ **Resolved 2026-08-25** — decided: Upstash. Not wired in yet, only needed if CP13's in-memory state turns out insufficient |
+| 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking — **explicitly deferred by Rakesh 2026-08-25** |
 | 10 | **Dhan API access token + client ID** (dhan.co → generate via web/app UI, enter via Settings → Brokers → Dhan) | CP15 live verification, **and now the fastest free path to seeing paper mode run end-to-end (no Zerodha needed)** | Open — **top priority**, see `manual-tasks.md`, code + DB-backed Settings UI both done and waiting |
+| 11 | Telegram bot (create via @BotFather, ~5 min) | Alerts, kill-switch notifications | Open — enter via Settings → Notifications (DB-backed as of 2026-08-25, no `.env` editing) |
 
 ---
 

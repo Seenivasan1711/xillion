@@ -41,9 +41,18 @@ class BarWarehouse:
         instrument_type: str = "option",
         credentials: Optional[dict] = None,
         broker=None,
+        underlying_filter: Optional[set[str]] = None,
     ) -> list[Bar]:
         bulk = provider.capabilities.supports_whole_file_bulk
-        coverage_symbol = WILDCARD_SYMBOL if bulk else symbol
+        if bulk and underlying_filter:
+            # A filtered bulk run only persists a subset of the exchange's
+            # instruments -- it must NOT share the unfiltered WILDCARD_SYMBOL
+            # coverage key, or a later *unfiltered* request for this same
+            # date range would wrongly think it's already fully covered and
+            # skip re-fetching the underlyings this filter excluded.
+            coverage_symbol = f"{WILDCARD_SYMBOL}:{','.join(sorted(underlying_filter))}"
+        else:
+            coverage_symbol = WILDCARD_SYMBOL if bulk else symbol
 
         existing = await self._coverage.get(coverage_symbol, exchange, timeframe, provider.name)
         gaps = compute_gaps(existing, from_date, to_date)
@@ -52,7 +61,7 @@ class BarWarehouse:
             if bulk:
                 fetched = await self._fetch_bulk_range(
                     provider, exchange, timeframe, gap_from, gap_to,
-                    credentials=credentials, broker=broker,
+                    credentials=credentials, broker=broker, underlying_filter=underlying_filter,
                 )
             else:
                 fetched = await provider.fetch_bars(
@@ -86,6 +95,7 @@ class BarWarehouse:
         *,
         credentials: Optional[dict],
         broker,
+        underlying_filter: Optional[set[str]] = None,
     ) -> list[Bar]:
         all_bars: list[Bar] = []
         day = gap_from
@@ -93,6 +103,7 @@ class BarWarehouse:
             if day.weekday() < 5:
                 day_bars = await provider.fetch_all_bars_for_day(
                     exchange, timeframe, day, credentials=credentials, broker=broker,
+                    underlying_filter=underlying_filter,
                 )
                 all_bars.extend(day_bars)
             day += timedelta(days=1)

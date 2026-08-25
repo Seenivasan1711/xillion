@@ -44,7 +44,7 @@ class _CountingBulkProvider(HistoricalDataProvider):
     def __init__(self) -> None:
         self.bulk_calls: list[date] = []
 
-    async def fetch_all_bars_for_day(self, exchange, timeframe, day, *, credentials=None, broker=None):
+    async def fetch_all_bars_for_day(self, exchange, timeframe, day, *, credentials=None, broker=None, underlying_filter=None):
         self.bulk_calls.append(day)
         return [
             Bar(symbol="SYM_A", timeframe=timeframe, ts=datetime.combine(day, datetime.min.time()),
@@ -107,6 +107,33 @@ async def test_whole_file_bulk_covers_every_symbol_from_one_fetch():
     assert len(b_bars) == 1
     assert b_bars[0].close == Decimal(2)
     assert len(provider.bulk_calls) == 1  # no second network call
+
+
+@pytest.mark.asyncio
+async def test_filtered_bulk_fetch_uses_a_separate_coverage_key_from_unfiltered():
+    """A real backfill scoped with underlying_filter only persists a subset
+    of the exchange's contracts for that day -- it must not mark the
+    unfiltered WILDCARD_SYMBOL coverage as covered too, or a later
+    full-market request for the same date range would wrongly think it's
+    already complete and silently skip re-fetching the excluded contracts."""
+    await init_db()
+    provider = _CountingBulkProvider()
+    warehouse = _warehouse()
+
+    filtered = await warehouse.get_bars(
+        provider, "SYM_A", "NFO", "1d", date(2026, 8, 11), date(2026, 8, 11),
+        underlying_filter={"SYM_A"},
+    )
+    assert len(filtered) == 1
+    assert len(provider.bulk_calls) == 1
+
+    # Same day, no filter this time -- must NOT be considered already
+    # covered by the filtered fetch above, so it triggers its own bulk call.
+    unfiltered = await warehouse.get_bars(
+        provider, "SYM_B", "NFO", "1d", date(2026, 8, 11), date(2026, 8, 11),
+    )
+    assert len(unfiltered) == 1
+    assert len(provider.bulk_calls) == 2  # a genuinely new fetch, not skipped
 
 
 @pytest.mark.asyncio
