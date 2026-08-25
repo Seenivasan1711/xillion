@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Trash2, Search } from 'lucide-react'
+import { Download, Trash2, Search, ExternalLink } from 'lucide-react'
 import { api } from '../lib/api'
 import { wsClient } from '../lib/ws'
 import { Badge, SegmentedControl } from '../components/ui'
@@ -90,10 +90,13 @@ export default function Logs() {
     <div className="stack">
       <div className="h-page">
         <div>
-          <h1>Logs</h1>
+          <h1>Dev</h1>
           <div className="sub">Live engine output · scrollback retained for 24h</div>
         </div>
         <div className="row">
+          <button className="btn ghost" onClick={() => window.open('/api/docs', '_blank', 'noopener')}>
+            <ExternalLink size={13} /> API Docs
+          </button>
           <button className="btn ghost" onClick={exportLogs} disabled={logs.length === 0}>
             <Download size={13} /> Download
           </button>

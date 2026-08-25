@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Cpu, TrendingUp, Bell, BookOpen, BarChart2,
-  Terminal, Settings, Link, Sun, Skull,
+  Terminal, Settings, SlidersHorizontal, Sun, Skull,
 } from 'lucide-react'
 
 export interface Command {
@@ -22,9 +22,9 @@ function useCommands(navigate: (path: string) => void, toggleTheme: () => void):
     { id: 'alerts', label: 'Alerts', section: 'Go to', Icon: Bell, action: () => navigate('/alerts') },
     { id: 'journal', label: 'Journal', section: 'Go to', Icon: BookOpen, action: () => navigate('/journal') },
     { id: 'backtest', label: 'Backtest', section: 'Go to', Icon: BarChart2, action: () => navigate('/backtest') },
-    { id: 'logs', label: 'Logs', section: 'Go to', Icon: Terminal, action: () => navigate('/logs') },
-    { id: 'settings', label: 'Settings', section: 'Go to', Icon: Settings, action: () => navigate('/settings'), keywords: 'brokers config data providers risk notifications account' },
-    { id: 'brokers', label: 'Brokers', section: 'Go to', Icon: Link, action: () => navigate('/settings') },
+    { id: 'logs', label: 'Dev', section: 'Go to', Icon: Terminal, action: () => navigate('/logs'), keywords: 'logs api docs' },
+    { id: 'configuration', label: 'Configuration', section: 'Go to', Icon: SlidersHorizontal, action: () => navigate('/configuration'), keywords: 'brokers data providers risk notifications' },
+    { id: 'settings', label: 'Settings', section: 'Go to', Icon: Settings, action: () => navigate('/settings'), keywords: 'account danger zone 2fa totp' },
     { id: 'theme', label: 'Toggle theme', section: 'Actions', Icon: Sun, action: toggleTheme, keywords: 'dark light mode' },
   ]
 }

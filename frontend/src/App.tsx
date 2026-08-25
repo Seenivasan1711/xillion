@@ -12,6 +12,7 @@ import Alerts from './pages/Alerts'
 import Journal from './pages/Journal'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
+import Configuration from './pages/Configuration'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 import { wsClient } from './lib/ws'
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="journal" element={<Journal />} />
         <Route path="backtest" element={<Backtest />} />
         <Route path="logs" element={<Logs />} />
+        <Route path="configuration" element={<Configuration />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

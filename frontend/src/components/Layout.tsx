@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Activity, BarChart2, Bell, BookOpen, Cpu, LogOut, Moon, Search,
-  Settings, Skull, Sun, Terminal, TrendingUp,
+  BarChart2, Bell, BookOpen, Cpu, LogOut, Moon, Search,
+  Settings, SlidersHorizontal, Skull, Sun, Terminal, TrendingUp,
   LayoutDashboard, Link, Pause, X, RefreshCw, ArrowDownRight,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -42,7 +42,8 @@ const CRUMB_LABELS: Record<string, string> = {
   '/alerts': 'Alerts',
   '/journal': 'Journal',
   '/backtest': 'Backtest',
-  '/logs': 'Logs',
+  '/logs': 'Dev',
+  '/configuration': 'Configuration',
   '/settings': 'Settings',
 }
 
@@ -240,13 +241,13 @@ export default function Layout() {
     { key: '/alerts',     label: 'Alerts',     Icon: Bell,            pill: null },
     { key: '/journal',    label: 'Journal',    Icon: BookOpen,        pill: null },
     { key: '/backtest',   label: 'Backtest',   Icon: BarChart2,       pill: null },
-    { key: '/logs',       label: 'Logs',       Icon: Terminal,        pill: null },
+    { key: '/logs',       label: 'Dev',        Icon: Terminal,        pill: null },
+    { key: '/configuration', label: 'Configuration', Icon: SlidersHorizontal, pill: null },
     { key: '/settings',   label: 'Settings',   Icon: Settings,        pill: null },
   ]
 
   const systemItems = [
-    { key: '/settings',   label: 'Brokers',    Icon: Link, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
-    { key: '/api/docs',   label: 'API Docs',   Icon: Activity, pill: null, external: true },
+    { key: '/configuration', label: 'Brokers', Icon: Link, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
   ]
 
   const initials = user?.username?.slice(0, 2).toUpperCase() ?? 'U'
@@ -293,11 +294,11 @@ export default function Layout() {
 
           <div className="section-label">System</div>
           <nav>
-            {systemItems.map(({ key, label, Icon, pill, external }) => (
+            {systemItems.map(({ key, label, Icon, pill }) => (
               <div
                 key={key}
-                className={`nav-item ${!external && path === key ? 'active' : ''}`}
-                onClick={() => external ? window.open(key, '_blank') : navigate(key)}
+                className={`nav-item ${path === key ? 'active' : ''}`}
+                onClick={() => navigate(key)}
                 title={label}
               >
                 <Icon size={16} className="ico" />
