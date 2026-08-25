@@ -296,8 +296,9 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
         raise HTTPException(404, f"Strategy '{sc.name}' not found in loaded plugins")
 
     # Build broker
-    broker = _resolve_broker(inst.mode, app)
-    await broker.connect({})
+    broker, already_connected = await _resolve_broker(inst.mode, app, db, inst)
+    if not already_connected:
+        await broker.connect({})
 
     instruments = json.loads(inst.instruments_json)
 
@@ -374,8 +375,26 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
     }
 
 
-def _resolve_broker(mode: str, app: FastAPI):
-    """Return the right broker object for the given mode."""
+async def _resolve_broker(mode: str, app: FastAPI, db: AsyncSession, inst: StrategyInstance):
+    """Return (broker, already_connected). Paper mode returns a fresh
+    PaperBroker, which the caller must still .connect({}) itself.
+    live/alert mode returns an ALREADY-connected instance from
+    app.state.broker_instances -- the caller must NOT call .connect()
+    again on it (a real bug this fixed: the old code always called
+    broker.connect({}) unconditionally, including on an already-live
+    broker, with an EMPTY credentials dict -- ZerodhaBroker.connect({})
+    raises KeyError on credentials["api_key"] immediately. Never caught in
+    testing because live mode has been blocked on real Kite Connect
+    credentials the whole time this code existed).
+
+    CP15: this used to be hardcoded to "Zerodha Primary" regardless of
+    what the instance was actually configured with, which meant any other
+    connected broker (Dhan included) was unreachable from live/alert mode
+    even once connected at startup. Now resolves via the instance's own
+    broker_connection_id -> BrokerConnection.name, matched against
+    app.state.broker_instances by that same name -- BrokerConnection.name
+    is exactly the key connection setup already uses there (e.g. "Zerodha
+    Primary", "Dhan Primary")."""
     from brokers.paper import PaperBroker
 
     if mode == "paper":
@@ -388,20 +407,26 @@ def _resolve_broker(mode: str, app: FastAPI):
             # We'll register the handler without knowing the symbols yet;
             # register for all bus symbols by adding a wildcard handler at the bus level
             # (not implemented in bus — handled at subscribe_ticks call instead)
-        return broker
+        return broker, False
 
     if mode in ("live", "alert"):
-        # Alert mode reuses the same connected-Zerodha lookup as live mode,
+        # Alert mode reuses the same connected-broker lookup as live mode,
         # but ONLY for market data (get_quote/subscribe_ticks). Its
         # place_order path never reaches this broker — see
         # _StrategyContextImpl._handle_alert_signal, which returns before
         # ExecutionRouter.submit is ever called.
+        conn_result = await db.execute(
+            select(BrokerConnection).where(BrokerConnection.id == inst.broker_connection_id)
+        )
+        conn = conn_result.scalar_one_or_none()
+        connection_name = conn.name if conn is not None else "Zerodha Primary"
+
         instances = getattr(app.state, "broker_instances", {})
-        info = instances.get("Zerodha Primary")
+        info = instances.get(connection_name)
         if info and info.get("status") == "connected" and info.get("instance"):
-            return info["instance"]
+            return info["instance"], True
         verb = "live" if mode == "live" else "alert"
-        raise HTTPException(400, f"Zerodha not connected. Cannot start in {verb} mode.")
+        raise HTTPException(400, f"{connection_name} not connected. Cannot start in {verb} mode.")
 
     raise HTTPException(400, f"Unsupported mode: {mode!r}")
 

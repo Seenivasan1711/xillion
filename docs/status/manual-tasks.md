@@ -55,11 +55,20 @@
       **Blocks:** Gold Lane B1, Stage 3 onward. **Cost:** paid (challenge fee).
 
 - [ ] **Dhan API access token + client ID** — dhan.co account → generate
-      token.
-      **Blocks:** CP15 (Dhan as a full trading broker); optional earlier if
-      you want to try the Dhan historical-data provider instead of free NSE
-      Bhavcopy. **Cost:** free. **Not urgent** — NSE Bhavcopy already covers
-      daily-bar backtesting.
+      an access token via the Dhan web/app UI (Profile → DhanHQ Trading APIs),
+      set `DHAN_PRIMARY_CLIENT_ID` + `DHAN_PRIMARY_ACCESS_TOKEN`. Optional:
+      `DHAN_PRIMARY_PIN` + `DHAN_PRIMARY_TOTP_SECRET` for auto-refresh when
+      the token expires (~daily).
+      **Code is done and waiting on this** — `brokers/dhan.py` (CP15) is
+      built against DhanHQ's real, verified API docs and official SDK
+      (order placement, positions, funds, live WebSocket ticks all
+      implemented), auto-discovered, and selectable per strategy instance
+      alongside Zerodha. It just hasn't been run against a real account —
+      structurally correct, unverified end-to-end, same honest caveat the
+      `DhanHQ` data provider already carried. **This is the actual blocker**
+      for verifying CP15's own Verify line ("a real Dhan order placed and
+      filled in paper mode, live ticks flowing").
+      **Cost:** free.
 
 - [ ] **Redis provider choice** (Upstash vs. Redis Cloud, both free tier) —
       just a decision, nothing to set up yet.

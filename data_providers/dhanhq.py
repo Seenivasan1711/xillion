@@ -18,60 +18,23 @@ from their instrument master (e.g. "NIFTY-Aug2026-FUT"), not Kite/NSE-style
 "NIFTY26AUGFUT" used elsewhere in xillion. This is the same
 provider-specific-symbol-format tradeoff as nse_bhavcopy.py.
 """
-import csv
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from pathlib import Path
 from typing import Optional
 
 import httpx
 import structlog
 
 from xillion.core.data_provider_base import DataProviderCapabilities, HistoricalDataProvider
+from xillion.core.dhan_instruments import ResolvedSecurity, ensure_scrip_master, resolve_security
 from xillion.core.events import Bar
 
 logger = structlog.get_logger(__name__)
 
 _BASE_URL = "https://api.dhan.co/v2"
-_SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master-detailed.csv"
-_SCRIP_MASTER_CACHE = Path("data/dhan_scrip_master.csv")
-_SCRIP_MASTER_TTL = timedelta(hours=24)
 
 _INTRADAY_INTERVAL = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 _INTRADAY_MAX_DAYS_PER_REQUEST = 85  # Dhan's real limit is 90; leave margin
-
-
-def _exchange_segment(exch_id: str, instrument: str) -> str:
-    """Maps the scrip master's EXCH_ID + INSTRUMENT columns to the
-    exchangeSegment enum the API actually expects -- they're related but
-    not the same value (verified against dhanhq.co/docs/v2/annexure/)."""
-    if instrument == "INDEX":
-        return "IDX_I"
-    if exch_id == "NSE":
-        if instrument == "EQUITY":
-            return "NSE_EQ"
-        if instrument in ("FUTIDX", "OPTIDX", "FUTSTK", "OPTSTK"):
-            return "NSE_FNO"
-        if instrument in ("FUTCUR", "OPTCUR"):
-            return "NSE_CURRENCY"
-    if exch_id == "BSE":
-        if instrument == "EQUITY":
-            return "BSE_EQ"
-        if instrument in ("FUTIDX", "OPTIDX", "FUTSTK", "OPTSTK"):
-            return "BSE_FNO"
-        if instrument in ("FUTCUR", "OPTCUR"):
-            return "BSE_CURRENCY"
-    if exch_id == "MCX":
-        return "MCX_COMM"
-    raise ValueError(f"No known exchangeSegment for EXCH_ID={exch_id!r} INSTRUMENT={instrument!r}")
-
-
-@dataclass
-class _ResolvedSecurity:
-    security_id: str
-    exchange_segment: str
-    instrument: str
 
 
 class DhanHQProvider(HistoricalDataProvider):
@@ -134,8 +97,8 @@ class DhanHQProvider(HistoricalDataProvider):
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            master_path = await self._ensure_scrip_master(client)
-            resolved = self._resolve_security(master_path, symbol)
+            master_path = await ensure_scrip_master(client)
+            resolved = resolve_security(master_path, symbol)
             if resolved is None:
                 raise ValueError(
                     f"Couldn't find '{symbol}' in Dhan's instrument master — "
@@ -147,40 +110,8 @@ class DhanHQProvider(HistoricalDataProvider):
                 return await self._fetch_daily(client, headers, resolved, symbol, from_date, to_date)
             return await self._fetch_intraday(client, headers, resolved, symbol, timeframe, from_date, to_date)
 
-    async def _ensure_scrip_master(self, client: httpx.AsyncClient) -> Path:
-        if _SCRIP_MASTER_CACHE.exists():
-            age = datetime.now(timezone.utc) - datetime.fromtimestamp(
-                _SCRIP_MASTER_CACHE.stat().st_mtime, tz=timezone.utc
-            )
-            if age < _SCRIP_MASTER_TTL:
-                return _SCRIP_MASTER_CACHE
-
-        resp = await client.get(_SCRIP_MASTER_URL)
-        resp.raise_for_status()
-        _SCRIP_MASTER_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        _SCRIP_MASTER_CACHE.write_bytes(resp.content)
-        logger.info("dhan scrip master refreshed", size=len(resp.content))
-        return _SCRIP_MASTER_CACHE
-
-    @staticmethod
-    def _resolve_security(master_path: Path, symbol: str) -> Optional[_ResolvedSecurity]:
-        with master_path.open(encoding="utf-8", errors="replace") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if row.get("SYMBOL_NAME") == symbol or row.get("DISPLAY_NAME") == symbol:
-                    try:
-                        seg = _exchange_segment(row["EXCH_ID"], row["INSTRUMENT"])
-                    except ValueError:
-                        continue
-                    return _ResolvedSecurity(
-                        security_id=row["SECURITY_ID"],
-                        exchange_segment=seg,
-                        instrument=row["INSTRUMENT"],
-                    )
-        return None
-
     async def _fetch_daily(
-        self, client: httpx.AsyncClient, headers: dict, resolved: _ResolvedSecurity,
+        self, client: httpx.AsyncClient, headers: dict, resolved: ResolvedSecurity,
         symbol: str, from_date: date, to_date: date,
     ) -> list[Bar]:
         payload = {
@@ -197,7 +128,7 @@ class DhanHQProvider(HistoricalDataProvider):
         return self._parse_response(resp.json(), symbol, "1d")
 
     async def _fetch_intraday(
-        self, client: httpx.AsyncClient, headers: dict, resolved: _ResolvedSecurity,
+        self, client: httpx.AsyncClient, headers: dict, resolved: ResolvedSecurity,
         symbol: str, timeframe: str, from_date: date, to_date: date,
     ) -> list[Bar]:
         bars: list[Bar] = []

@@ -27,6 +27,7 @@ dependencies = [
     "numpy>=1.26.0",
     "python-dateutil>=2.9.0",
     "kiteconnect>=5.0.1",
+    "dhanhq>=2.2.0",
     "mcp>=1.2.0",
 ]
 

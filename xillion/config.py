@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     zerodha_primary_password: str = ""
     zerodha_primary_totp_secret: str = ""
 
+    # CP15: Dhan, built in parallel with Zerodha (decision D19). access_token
+    # is generated via the Dhan web/app UI (~1 trading day validity); pin +
+    # totp_secret are optional, only used to auto-refresh an expired token.
+    dhan_primary_client_id: str = ""
+    dhan_primary_access_token: str = ""
+    dhan_primary_pin: str = ""
+    dhan_primary_totp_secret: str = ""
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

@@ -130,6 +130,100 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         }
 
 
+async def _load_dhan_credentials() -> Optional[dict]:
+    """Same DB-first, env-fallback pattern as _load_zerodha_credentials."""
+    from xillion.auth.credstore import load_credentials
+    from xillion.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        creds = await load_credentials(db, "Dhan Primary")
+    if creds and creds.get("client_id"):
+        return creds
+
+    s = get_settings()
+    if s.dhan_primary_client_id and s.dhan_primary_access_token:
+        return {
+            "client_id": s.dhan_primary_client_id,
+            "access_token": s.dhan_primary_access_token,
+            "pin": s.dhan_primary_pin,
+            "totp_secret": s.dhan_primary_totp_secret,
+        }
+    return None
+
+
+async def _try_connect_dhan(app: FastAPI) -> None:
+    """CP15: same shape as _try_connect_zerodha -- attempt to connect Dhan
+    if credentials are configured. Non-fatal; a missing/failed Dhan
+    connection never blocks the app or Zerodha from working."""
+    creds = await _load_dhan_credentials()
+    if creds is None:
+        logger.info("dhan: no credentials configured — skipping auto-connect")
+        app.state.broker_instances.pop("Dhan Primary", None)
+        return
+
+    prev = app.state.broker_instances.get("Dhan Primary")
+    if prev and prev.get("instance"):
+        try:
+            await prev["instance"].disconnect()
+        except Exception:
+            pass
+
+    try:
+        from brokers.dhan import DhanBroker
+
+        broker = DhanBroker(notifier=app.state.telegram)
+        await broker.connect(creds)
+        app.state.broker_instances["Dhan Primary"] = {
+            "name": "Dhan Primary",
+            "broker_name": "Dhan",
+            "instance": broker,
+            "status": "connected",
+            "last_error": None,
+            "connected_at": datetime.now(timezone.utc).isoformat(),
+        }
+        logger.info("dhan: connected successfully")
+    except Exception as exc:
+        logger.error("dhan: failed to connect", error=str(exc))
+        asyncio.create_task(app.state.telegram.alert(
+            title="Dhan connect failed",
+            body=f"No Dhan orders/prices until this is fixed: {exc}",
+            severity="warning",  # not critical -- Zerodha remains the primary broker
+        ))
+        app.state.broker_instances["Dhan Primary"] = {
+            "name": "Dhan Primary",
+            "broker_name": "Dhan",
+            "instance": None,
+            "status": "error",
+            "last_error": str(exc),
+            "connected_at": None,
+        }
+
+
+async def _daily_dhan_refresh(app: FastAPI) -> None:
+    """CP15: at 6:30 AM IST (15 min after Zerodha's, avoiding a startup
+    thundering-herd on both brokers' auth endpoints at once), re-run Dhan
+    connect. Unlike Zerodha's refresh, this doesn't force-delete the cached
+    token first -- DhanBroker.connect() already validates the cached/
+    provided token and only falls through to PIN+TOTP auto-refresh if it's
+    actually invalid, so a no-op re-validation on a still-good token is
+    cheap and correct here."""
+    import zoneinfo
+    from datetime import timedelta
+
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+    while True:
+        now = datetime.now(IST)
+        target = now.replace(hour=6, minute=30, second=0, microsecond=0)
+        if now >= target:
+            target = target + timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        logger.info("dhan: running daily token refresh")
+        try:
+            await _try_connect_dhan(app)
+        except Exception as exc:
+            logger.error("dhan daily token refresh failed", error=str(exc))
+
+
 async def _tick_broadcaster(broker, bus: "MarketDataBus") -> None:
     """Forward broker ticks to the MarketDataBus (strategies) and WebSocket clients (UI)."""
     logger.info("tick broadcaster started")
@@ -260,9 +354,11 @@ async def lifespan(app: FastAPI):
 
     # Connect configured brokers (non-blocking — errors are logged, not raised)
     await _try_connect_zerodha(app)
+    await _try_connect_dhan(app)  # CP15 -- no-ops cleanly if not configured
 
     # Schedule daily token + instrument-dump refresh
     refresh_task = supervise("daily_token_refresh", lambda: _daily_token_refresh(app), notifier=telegram)
+    dhan_refresh_task = supervise("daily_dhan_refresh", lambda: _daily_dhan_refresh(app), notifier=telegram)
     instrument_refresh_task = supervise("daily_instrument_refresh", lambda: _daily_instrument_refresh(app), notifier=telegram)
     market_scheduler_task = supervise("market_hours_scheduler", lambda: run_market_hours_scheduler(app), notifier=telegram)
     log_persistence_task = supervise("log_persistence", run_log_persistence, notifier=telegram)
@@ -278,6 +374,7 @@ async def lifespan(app: FastAPI):
     yield
 
     refresh_task.cancel()
+    dhan_refresh_task.cancel()
     instrument_refresh_task.cancel()
     market_scheduler_task.cancel()
     log_persistence_task.cancel()

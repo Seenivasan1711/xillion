@@ -146,6 +146,15 @@ services:
         sync: false
       - key: ZERODHA_PRIMARY_TOTP_SECRET
         sync: false
+      # Dhan (CP15, built in parallel with Zerodha) — leave unset until ready
+      - key: DHAN_PRIMARY_CLIENT_ID
+        sync: false
+      - key: DHAN_PRIMARY_ACCESS_TOKEN
+        sync: false
+      - key: DHAN_PRIMARY_PIN
+        sync: false
+      - key: DHAN_PRIMARY_TOTP_SECRET
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID

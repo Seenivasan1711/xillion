@@ -5,36 +5,35 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-25
-**Current position:** Track A (CP1-CP10) done. **CP11 (multi-leg execution +
-protective orders) done**, including its own follow-up: Options S2
-(backtest) is now genuinely unblocked — `xillion/data/option_chain.py` +
-`_BacktestContext` wiring in `backtest_engine.py` resolve real historical
-strikes/expiries from NSE Bhavcopy's own per-contract columns (confirmed
-against a live file, not guessed), and the real `credit_spread_weekly.py`
-strategy now opens AND closes a real position end-to-end through
-`BacktestEngine` with a genuine recorded trade (see CP11 section below for
-the full list, including a real bug this run surfaced and fixed: option-leg
-MARKET orders filling at price 0 the moment they opened).
-**CP12 (trailing-stop engine) done** — `xillion/core/trailing_stop.py`
-(ratchet + 3 algorithms, property-tested against 1000+ random price paths
-per direction) plus the OTHER, arguably more load-bearing half: `ctx.state`
-now genuinely persists to `StrategyInstance.state_blob` and restores on
-restart — that column has existed in the schema since migration 001 and
-the class docstring claimed this happened, but nothing ever wrote or read
-it until now. This is what actually closes CP11's "software stop needs the
-process alive" gap for the real strategy that exists today.
-One honest gap remains in CP11: no broker plugin wires real bracket/GTT
-orders yet, so protective orders are still software-stop only (the spec's
-own documented fallback, not a shortcut) — now backed by real persistence
-across a clean restart, and by fire-and-forget persistence after every
-`on_bar` for crash resilience, but NOT yet by a fully independent watchdog
-process that could restart a *crashed* instance itself (a K03-equivalent —
-still open, see CP12 section). CP13-CP15 (expanded risk engine, EOD
-reconciliation, Dhan as a full broker) are gap-mapped from the automation
-spec's 52-job catalog (see `architecture/overview.md` §12.1) and not yet
-started. CP3/CP4/CP5/CP8 remain "engineering done, one item needs something
-only you can supply" (real backfill run, real Telegram bot + Kite Connect,
-a cloud LLM key — see Blocked on you). **Note:** CP8's code lives mostly in
+**Current position:** **The entire Track A extension (CP11-CP15) is now
+code-complete.** Track A original (CP1-CP10) was already done. In this
+session: CP11 (multi-leg execution + protective orders) done, plus its own
+follow-up (Options Stage 2 backtest genuinely unblocked, with a real
+open→close trade through `BacktestEngine`). CP12 (trailing-stop engine)
+done, including the arguably more load-bearing fix that `ctx.state` now
+actually survives a restart (it never did before, despite the class's own
+docstring claiming it). CP13 (expanded risk engine) done — 18 checks, 100%
+branch coverage, and the previously-dead `AuditLog` finally wired in. CP14
+(EOD reconciliation + square-off) done — X02 and M01 as independent
+scheduled jobs, verified against the exact "crash mid-position, restart
+after close" scenario the checkpoint asked for. CP15 (Dhan as a second full
+broker) is **code-complete but not live-verified** — `brokers/dhan.py`
+built against DhanHQ's real docs/SDK (fetched and read directly this
+session, not assumed), multi-broker selection now genuinely wired
+end-to-end (a real pre-existing bug found and fixed: `_resolve_broker` was
+hardcoded to Zerodha only), but running an actual order through it needs a
+real Dhan account — logged as the literal next thing to do in
+[manual-tasks.md](manual-tasks.md), not silently skipped.
+
+**What's left to trade real money, in order:** (1) the real 2-5yr NSE
+backfill for a genuine multi-year backtest (Blocked-on-you #6), (2) Kite
+Connect + Telegram (#1) to unblock live/paper testing at all, (3) a real
+broker-side bracket/GTT order path (CP11's own honest gap — protective
+orders are software-stop only today), (4) a Dhan account to verify CP15
+end-to-end (#10), (5) the static-IP whitelisting SEBI requires for live
+order placement. None of these are code work — see `manual-tasks.md` for
+the full checklist. CP3/CP4/CP5/CP8 remain "engineering done, one item
+needs something only you can supply." **Note:** CP8's code lives mostly in
 the separate `prosper-engine` repo and is uncommitted there — xillion's
 commit standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
@@ -883,18 +882,79 @@ passing, no regressions.
 
 ---
 
-### ⬜ CP15 — Dhan as a full trading broker, parallel with Zerodha → *Goal #3, decision D19*
-- [ ] `brokers/dhan.py` — auth, live ticks, order placement, matching the
-      `brokers/zerodha.py` pattern already proven (reconnect hardening,
-      real socket-state tracking) rather than adopting OpenAlgo (open
-      question Q11 — default is native plugin unless a third broker makes
-      hand-written adapters feel expensive)
+### 🟡 CP15 — Dhan as a full trading broker, parallel with Zerodha `CODE DONE 2026-08-25 — blocked on credentials for live verification`
+- [x] **`brokers/dhan.py`** — auth, positions/funds, order placement
+      (place/modify/cancel/get/list), live ticks, historical data — matching
+      the `brokers/zerodha.py` pattern (reconnect hardening, real
+      socket-state tracking distinct from the REST session state) rather
+      than adopting OpenAlgo (open question Q11 — a second hand-written
+      adapter didn't make the case for a dependency yet). Built against
+      **real, verified sources**, not assumed: fetched DhanHQ's own docs
+      (dhanhq.co/docs/v2/orders/, /live-market-feed/, /market-quote/) and
+      the official `dhanhq` PyPI SDK's source (github.com/dhan-oss/DhanHQ-py)
+      directly during this session — order request/response shapes, the
+      TRANSIT/PENDING/PART_TRADED/TRADED/REJECTED/CANCELLED/EXPIRED status
+      enum, and the WebSocket feed's binary tick protocol are all confirmed
+      against real docs and source, not guessed. The WebSocket feed's
+      binary parsing is delegated to the SDK's own `MarketFeed` class
+      rather than hand-rolled — a custom binary protocol (not JSON) is real
+      complexity worth reusing a maintained implementation for, same
+      reasoning `zerodha.py` already applied to `KiteTicker`.
+      Extracted the scrip-master (symbol → securityId) resolution shared by
+      this and `data_providers/dhanhq.py` into
+      [xillion/core/dhan_instruments.py](../../xillion/core/dhan_instruments.py)
+      rather than duplicating it a second time.
+      **A real bug the real CSV caught, not assumed away:** `LOT_SIZE` in
+      Dhan's actual scrip master is float-formatted (`"1.0"`, not `"1"`) —
+      `int()` on that string raises `ValueError`. Fixed to `int(float(...))`.
+      **Genuine unknown, inherited from the SDK itself, not hidden:** the
+      SDK's own `DhanLogin.generate_token()` docstring admits it doesn't
+      know the PIN+TOTP endpoint's exact success response shape ("usually
+      it returns accessToken") — handled defensively (tries a few plausible
+      keys, raises a clear error otherwise) rather than assumed correct.
+- [x] **Multi-broker selection actually wired** — `xillion/api/instances.py`'s
+      `_resolve_broker` was **hardcoded to "Zerodha Primary"** for every
+      live/alert-mode instance regardless of what it was configured with;
+      Dhan would have been unreachable from live trading even fully
+      connected. Now resolves via the instance's own
+      `broker_connection_id` → `BrokerConnection.name` →
+      `app.state.broker_instances`, so an instance genuinely trades through
+      whichever broker it's configured for.
+      **A second real bug found while fixing the first:** `start_instance_core`
+      unconditionally called `await broker.connect({})` even when
+      `_resolve_broker` returned an ALREADY-connected broker — for
+      `ZerodhaBroker`, whose `connect()` immediately does
+      `credentials["api_key"]`, that empty-dict second call would raise
+      `KeyError`. Never caught before because live mode has been blocked on
+      real Kite Connect credentials (Blocked-on-you #1) for this project's
+      entire history. `_resolve_broker` now returns `(broker,
+      already_connected)` and the caller only connects when it's actually needed.
+- [x] Wired into `xillion/main.py` — `_try_connect_dhan` (same DB-first/
+      env-fallback credential loading as Zerodha's), called at startup
+      alongside Zerodha, non-fatal if unconfigured or failing (Zerodha stays
+      the primary broker either way). Daily token re-validation at 6:30 IST
+      (15 min after Zerodha's, avoiding both brokers hitting their auth
+      endpoints at the exact same moment) — doesn't force-delete the cached
+      token first like Zerodha's does, since `DhanBroker.connect()` already
+      validates the cached/provided token itself and only falls through to
+      PIN+TOTP auto-refresh if it's genuinely invalid.
 - [ ] Failover semantics — if Zerodha is down, does Dhan take over
-      automatically or does that require a manual switch? (Not yet decided —
-      the spec's Phase 3 treats this as a hardening-phase feature, not P0)
+      automatically or does that require a manual switch? **Still not
+      decided** — the spec's Phase 3 treats this as a hardening-phase
+      feature, not P0. Both brokers connect independently today; nothing
+      automatically fails over between them.
 
-**Verify:** a real Dhan order placed and filled in paper mode, live ticks
-flowing, auth refresh working on Dhan's own daily-token cadence.
+**Verify:** `test_dhan_instruments.py` (10 tests, real scrip-master CSV
+columns) + `test_dhan_broker.py` (9 tests, real order request/response
+shapes, every documented Dhan order status mapped) + `test_resolve_broker.py`
+(5 tests, proves Dhan is genuinely selectable and the connect({}) bug is
+fixed) all pass — but **the checkpoint's own literal Verify line ("a real
+Dhan order placed and filled in paper mode, live ticks flowing, auth
+refresh working on Dhan's own daily-token cadence") requires a real Dhan
+account and is not yet done** — logged in
+[docs/status/manual-tasks.md](../status/manual-tasks.md) as the actual
+blocker, not silently skipped. 391/391 tests passing overall, no
+regressions.
 
 ---
 
@@ -975,7 +1035,8 @@ Infrastructure each asset needs before its pipeline can start:
 | 6 | Run `python scripts/backfill.py` for real (2-5yr) from a machine that can reach Supabase — this sandbox can't resolve `db.<project>.supabase.co` | CP3 close-out, Options S2 | Open |
 | ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
 | 8 | Confirm free-tier Redis provider choice (Upstash vs Redis Cloud) once/if it becomes load-bearing — see decisions Q12 | CP13 (only if in-memory state turns out insufficient) | Open, low priority |
-| 8 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out |
+| 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking |
+| 10 | Dhan API access token + client ID (dhan.co → generate via web/app UI) | CP15 live verification | Open — see `manual-tasks.md`, code is done and waiting |
 
 ---
 
