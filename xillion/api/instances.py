@@ -71,13 +71,56 @@ async def _strategy_name_for(inst: StrategyInstance, db: AsyncSession) -> str:
 
 
 async def _ensure_broker_connection(db: AsyncSession, mode: str, request: Request) -> int:
-    """Return an existing BrokerConnection.id or create a placeholder one."""
-    result = await db.execute(select(BrokerConnection))
-    conns = result.scalars().all()
-    if conns:
-        return conns[0].id
+    """Return a BrokerConnection.id for whichever real broker is actually
+    connected right now (app.state.broker_instances), creating its DB row
+    on first use. Falls back to a "Default Paper" placeholder only when
+    nothing is connected at all.
 
-    # No connections yet — create a placeholder row so the FK constraint is satisfied
+    Used to just grab the first BrokerConnection row that happened to
+    already exist, full stop -- nothing anywhere else in the codebase ever
+    creates a "Zerodha Primary"/"Dhan Primary" row, so once a "Default
+    Paper" placeholder existed from early testing, EVERY instance ever
+    created (including new ones made long after a real broker was
+    connected) silently kept pointing at it forever. That row's name
+    doesn't match any key in app.state.broker_instances, so
+    start_instance_core's tick-subscription lookup and _resolve_broker
+    both fail to find a live source -- "No live tick source" even with a
+    genuinely-connected, genuinely-configured Dhan account. Found
+    2026-08-26 on a real paper instance stuck exactly this way."""
+    broker_instances = getattr(request.app.state, "broker_instances", {})
+    for name in ("Zerodha Primary", "Dhan Primary"):
+        info = broker_instances.get(name)
+        if not info or info.get("status") != "connected":
+            continue
+        result = await db.execute(select(BrokerConnection).where(BrokerConnection.name == name))
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+        bc_result = await db.execute(select(BrokerClass).where(BrokerClass.name == info["broker_name"]))
+        bc = bc_result.scalar_one_or_none()
+        if bc is None:
+            continue  # plugin not synced to DB yet -- try the next broker / fall through
+        now = _now()
+        conn = BrokerConnection(
+            broker_class_id=bc.id,
+            name=name,
+            credentials_ref=name,
+            is_active=True,
+            last_connected_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(conn)
+        await db.commit()
+        await db.refresh(conn)
+        return conn.id
+
+    # Nothing connected — reuse or create the paper placeholder (original behaviour).
+    result = await db.execute(select(BrokerConnection).where(BrokerConnection.name == "Default Paper"))
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return existing.id
+
     result = await db.execute(select(BrokerClass))
     bcs = result.scalars().all()
     if not bcs:
