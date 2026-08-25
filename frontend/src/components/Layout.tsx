@@ -10,6 +10,7 @@ import { wsClient } from '../lib/ws'
 import { api } from '../lib/api'
 import Logomark from './Logomark'
 import CommandPalette from './CommandPalette'
+import NotificationBell from './NotificationBell'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 type Theme = 'dark' | 'light'
@@ -394,13 +395,7 @@ export default function Layout() {
             </button>
 
             {/* Notifications */}
-            <button className="icon-btn" title="Notifications" style={{ position: 'relative' }}>
-              <Bell size={16} />
-              <span style={{
-                position: 'absolute', width: 6, height: 6, borderRadius: 3,
-                background: 'var(--neg)', top: 5, right: 5,
-              }} />
-            </button>
+            <NotificationBell />
 
             {/* Kill menu */}
             <KillMenu killActive={killActive} onKill={handleKill} onReset={handleReset} />

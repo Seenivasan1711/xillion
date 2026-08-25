@@ -645,3 +645,19 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
   .auth-shell { grid-template-columns: 1fr; }
   .auth-brand { display: none; }
 }
+
+/* ── Notification bell ────────────────────────────────────────────────── */
+.notif-badge {
+  position: absolute; top: 3px; right: 3px;
+  min-width: 14px; height: 14px; padding: 0 3px;
+  border-radius: 7px; background: var(--neg); color: #fff;
+  font-size: 9px; font-weight: 700; line-height: 14px; text-align: center;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.notif-menu { width: 320px; max-height: 380px; overflow-y: auto; }
+.notif-item {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 9px 10px; border-radius: 7px; cursor: pointer;
+}
+.notif-item:hover { background: var(--accent-soft); }
+.notif-item .ico { flex-shrink: 0; margin-top: 2px; }
