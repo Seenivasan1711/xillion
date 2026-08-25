@@ -4,6 +4,7 @@
 set -uo pipefail
 
 TRACKER="${CLAUDE_PROJECT_DIR:-.}/docs/status/task-tracker.md"
+MANUAL_TASKS="${CLAUDE_PROJECT_DIR:-.}/docs/status/manual-tasks.md"
 
 printf '═══ XILLION ═══\n'
 
@@ -11,6 +12,16 @@ if [ -f "$TRACKER" ]; then
   grep -E '^\*\*(Last updated|Current position|Active branch)' "$TRACKER" 2>/dev/null || true
 else
   printf 'WARNING: docs/status/task-tracker.md not found\n'
+fi
+
+# Manual tasks (things only the user can do) -- open-item count only; the
+# skill (.claude/skills/xillion-manual-tasks/) does the actual reading/
+# editing when one comes up in conversation.
+if [ -f "$MANUAL_TASKS" ]; then
+  open_count=$(awk '/^## Open/{f=1;next}/^## Done/{f=0}f && /^- \[ \]/{c++}END{print c+0}' "$MANUAL_TASKS")
+  if [ "${open_count:-0}" -gt 0 ]; then
+    printf '**Manual tasks open:** %s (docs/status/manual-tasks.md)\n' "$open_count"
+  fi
 fi
 
 # Uncommitted work is the most common source of tracker/reality drift.

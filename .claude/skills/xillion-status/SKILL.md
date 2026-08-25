@@ -22,9 +22,11 @@ the tracker against reality rather than just reciting it.
    - Failing tests → say so prominently; that outranks any planned work
    - Branch mismatch → flag it
 
-3. **Check what's blocked.** The tracker's "Blocked on you" table lists items
-   only the user can unblock (credentials, strategy rules, CA opinion). Call
-   these out — a blocked item silently waiting is worse than a known gap.
+3. **Check what's blocked.** Read `docs/status/manual-tasks.md`'s **Open**
+   section (the tracker's "Blocked on you" table is just a summary pointing
+   at it) — items only the user can unblock (credentials, strategy rules,
+   CA opinion, deploy steps). Call these out — a blocked item silently
+   waiting is worse than a known gap.
 
 4. **Report concisely:**
    - Current checkpoint / pipeline stage, and whether it's genuinely where the

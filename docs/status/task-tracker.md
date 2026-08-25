@@ -875,6 +875,11 @@ Infrastructure each asset needs before its pipeline can start:
 
 ## Blocked on you
 
+> **Full actionable checklist, kept live across sessions:**
+> [`docs/status/manual-tasks.md`](manual-tasks.md) — this table is the
+> per-checkpoint summary; that file is what Rakesh actually works through
+> and checks off. Keep both in sync (see `.claude/skills/xillion-manual-tasks/`).
+
 | # | Item | Blocks | Status |
 |---|---|---|---|
 | 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward | Open |
