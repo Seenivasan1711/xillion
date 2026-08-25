@@ -60,13 +60,27 @@ def main(
 
     async def _run() -> None:
         from xillion.auth.data_provider_credstore import load_provider_credentials
+        from xillion.config import get_settings
         from xillion.core.plugin_loader import PluginLoader
         from xillion.data.coverage import BarCoverageRepository
         from xillion.data.repository import BarRepository
         from xillion.data.warehouse import BarWarehouse
         from xillion.db.session import get_session_factory, init_db
 
-        await init_db()
+        if get_settings().is_production:
+            # Same guard as xillion/main.py's lifespan: production schema is
+            # owned by Alembic, not create_all(). Calling init_db()
+            # unconditionally here against a real (production-pointed) DB is
+            # exactly what desynced alembic_version from the actual schema
+            # once already -- create_all() silently creates whatever tables
+            # the current models.py defines without ever updating Alembic's
+            # own version-tracking row, so a later `alembic upgrade head`
+            # elsewhere (e.g. a fresh Render deploy) sees an old revision,
+            # tries to recreate tables that already exist, and crashes with
+            # "relation already exists".
+            print("production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed", file=sys.stderr)
+        else:
+            await init_db()
         loader = PluginLoader()
         registry = await loader.discover_all()
         provider_cls = registry.data_providers.get(provider)
