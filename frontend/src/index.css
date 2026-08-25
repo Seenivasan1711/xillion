@@ -55,9 +55,9 @@
   --warn: #b88004;
   --warn-dim: rgba(184, 128, 4, 0.10);
   --info: #1d6dd0;
-  --aurora-1: rgba(123, 97, 255, 0.10);
-  --aurora-2: rgba(78, 198, 226, 0.10);
-  --aurora-3: rgba(94, 226, 160, 0.07);
+  --aurora-1: rgba(123, 97, 255, 0.20);
+  --aurora-2: rgba(78, 198, 226, 0.18);
+  --aurora-3: rgba(94, 226, 160, 0.14);
   --shadow-glow: 0 0 0 1px rgba(10,14,22,0.05), 0 14px 40px -16px rgba(10,14,22,0.12);
 }
 
@@ -672,3 +672,14 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ── Logo-as-collapse-toggle ───────────────────────────────────────────── */
+.logo-toggle { cursor: pointer; transition: transform 120ms, opacity 120ms; }
+.logo-toggle:hover { opacity: 0.85; transform: scale(1.05); }
+.logo-toggle:active { transform: scale(0.96); }
+
+/* ── User menu (portaled dropdown, see Layout.tsx's UserMenu) ────────────── */
+.user-chip { cursor: pointer; }
+.user-chip:hover { border-color: var(--border-strong); }
+.user-chip .chev { color: var(--text-faint); flex-shrink: 0; transition: transform 150ms; }
+.menu-portal { position: fixed; top: auto; right: auto; min-width: 220px; }

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart2, Bell, BookOpen, Cpu, LogOut, Moon, Search,
-  Settings, SlidersHorizontal, Skull, Sun, Terminal, TrendingUp,
+  BarChart2, Bell, BookOpen, ChevronDown, CircleUserRound, Cpu, LogOut, Moon, Search,
+  SlidersHorizontal, Skull, Sun, Terminal, TrendingUp,
   LayoutDashboard, Link, Pause, X, RefreshCw, ArrowDownRight,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -132,6 +133,71 @@ function KillMenu({
   )
 }
 
+// ── User dropdown ─────────────────────────────────────────────────────────
+// Rendered via a portal into document.body: the sidebar has overflow:hidden
+// (needed to clip nav labels during the collapse animation) and its own
+// backdrop-filter, which creates a containing block that traps even
+// position:fixed children -- a plain absolute/fixed dropdown here would be
+// silently clipped to the sidebar's own width instead of floating over the
+// page like every other dropdown in this app.
+function UserMenu({
+  username, collapsed, onSignOut,
+}: {
+  username: string
+  collapsed: boolean
+  onSignOut: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ left: number; bottom: number } | null>(null)
+  const chipRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const initials = username.slice(0, 2).toUpperCase() || 'U'
+
+  const toggle = () => {
+    if (!open && chipRef.current) {
+      const r = chipRef.current.getBoundingClientRect()
+      setCoords({ left: r.left, bottom: window.innerHeight - r.top + 8 })
+    }
+    setOpen(!open)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (chipRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  return (
+    <>
+      <div ref={chipRef} className="user-chip" onClick={toggle} role="button">
+        <div className="avatar">{initials.toLowerCase()}</div>
+        <div className="meta">
+          <span className="name">{username}</span>
+          <span className="sub">Owner · IST</span>
+        </div>
+        {!collapsed && <ChevronDown size={13} className="chev" style={{ transform: open ? 'rotate(180deg)' : undefined }} />}
+      </div>
+
+      {open && coords && createPortal(
+        <div ref={menuRef} className="menu menu-portal" style={{ left: coords.left, bottom: coords.bottom }}>
+          <div className="head">Signed in as</div>
+          <div style={{ padding: '0 10px 8px', fontSize: 12, color: 'var(--text)' }}>{username}</div>
+          <div className="sep" />
+          <div className="item danger" onClick={() => { setOpen(false); onSignOut() }}>
+            <LogOut size={14} /> Sign out
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
 // ── Main Layout ────────────────────────────────────────────────────────────
 export default function Layout() {
   const { user, logout } = useAuth()
@@ -244,14 +310,12 @@ export default function Layout() {
     { key: '/backtest',   label: 'Backtest',   Icon: BarChart2,       pill: null },
     { key: '/logs',       label: 'Dev',        Icon: Terminal,        pill: null },
     { key: '/configuration', label: 'Configuration', Icon: SlidersHorizontal, pill: null },
-    { key: '/settings',   label: 'Settings',   Icon: Settings,        pill: null },
+    { key: '/settings',   label: 'Settings',   Icon: CircleUserRound, pill: null },
   ]
 
   const systemItems = [
     { key: '/configuration', label: 'Brokers', Icon: Link, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
   ]
-
-  const initials = user?.username?.slice(0, 2).toUpperCase() ?? 'U'
 
   return (
     <>
@@ -261,20 +325,10 @@ export default function Layout() {
         {/* ── Sidebar ── */}
         <aside className="sidebar">
           <div className="brand">
-            <div className="logo"><Logomark /></div>
+            <div className="logo logo-toggle" onClick={toggleCollapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+              <Logomark />
+            </div>
             <span className="word">Xillion</span>
-            <div style={{ flex: 1 }} className="word" />
-            <button
-              className="icon-btn sidebar-toggle"
-              onClick={toggleCollapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              style={{ width: 24, height: 24 }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M9 4v16" />
-              </svg>
-            </button>
           </div>
 
           <div className="section-label">Workspace</div>
@@ -310,22 +364,7 @@ export default function Layout() {
           </nav>
 
           <div className="foot">
-            <div className="user-chip">
-              <div className="avatar">{initials.toLowerCase()}</div>
-              <div className="meta">
-                <span className="name">{user?.username ?? '—'}</span>
-                <span className="sub">Owner · IST</span>
-              </div>
-            </div>
-            <button
-              className="icon-btn signout-btn"
-              onClick={handleLogout}
-              title="Sign out"
-              style={{ width: '100%', borderRadius: 8 }}
-            >
-              <LogOut size={14} />
-              <span className="lbl" style={{ fontSize: 11.5 }}>Sign out</span>
-            </button>
+            <UserMenu username={user?.username ?? '—'} collapsed={collapsed} onSignOut={handleLogout} />
           </div>
         </aside>
 
