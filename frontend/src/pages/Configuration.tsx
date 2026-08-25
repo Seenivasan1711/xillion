@@ -1043,7 +1043,13 @@ function NotificationsTab() {
                   onClick={() => setSettings({ ...settings, [t.key]: !settings[t.key] })}
                   style={{
                     width: 36, height: 20, borderRadius: 10, cursor: 'pointer', transition: 'background 0.2s',
-                    background: settings[t.key] ? 'var(--accent)' : 'var(--surface-2)',
+                    // --accent is the button-fill token (near-white in dark
+                    // mode, near-black in light) -- using it here made an
+                    // "on" toggle render as a near-white track behind a
+                    // white knob, indistinguishable from off. --pos is the
+                    // real semantic "on/positive" color used everywhere
+                    // else (the Dev-page "tailing" badge, etc).
+                    background: settings[t.key] ? 'var(--pos)' : 'var(--surface-2)',
                     border: '1px solid var(--border)',
                     position: 'relative',
                   }}
