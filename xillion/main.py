@@ -29,6 +29,7 @@ from xillion.data.bus import MarketDataBus
 from xillion.db.plugin_sync import sync_registry_to_db
 from xillion.db.session import get_session_factory, init_db
 from xillion.engine.digest_scheduler import run_daily_digest, run_weekly_digest
+from xillion.engine.eod_scheduler import run_reconciliation_scheduler, run_square_off_scheduler
 from xillion.engine.market_scheduler import run_market_hours_scheduler
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
@@ -267,6 +268,11 @@ async def lifespan(app: FastAPI):
     log_persistence_task = supervise("log_persistence", run_log_persistence, notifier=telegram)
     daily_digest_task = supervise("daily_digest", lambda: run_daily_digest(app), notifier=telegram)
     weekly_digest_task = supervise("weekly_digest", lambda: run_weekly_digest(app), notifier=telegram)
+    # CP14: X02 (square-off, 15:15 IST) then M01 (reconciliation, 15:45 IST)
+    # -- deliberately separate supervised tasks, see eod_scheduler.py's
+    # docstring for why they aren't one combined job.
+    square_off_task = supervise("eod_square_off", lambda: run_square_off_scheduler(app), notifier=telegram)
+    reconciliation_task = supervise("eod_reconciliation", lambda: run_reconciliation_scheduler(app), notifier=telegram)
 
     logger.info("xillion ready")
     yield
@@ -277,6 +283,8 @@ async def lifespan(app: FastAPI):
     log_persistence_task.cancel()
     daily_digest_task.cancel()
     weekly_digest_task.cancel()
+    square_off_task.cancel()
+    reconciliation_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")

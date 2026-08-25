@@ -232,6 +232,29 @@ class AuditLogRecord(Base):
     )
 
 
+class ReconciliationReport(Base):
+    """CP14 / M01: the daily broker-vs-internal-state reconciliation.
+    Persisted (not just logged) so a DISCREPANCY/FAILED day is a durable,
+    queryable fact -- automation-platform-spec 08-JOBS-POSTMARKET.md M01's
+    own design: 'IF status != CLEAN -> block tomorrow's trading, require
+    manual sign-off to resume' depends on there being a real record to
+    check against, not a log line that scrolled past."""
+    __tablename__ = "reconciliation_report"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trading_date: Mapped[str] = mapped_column(Text, nullable=False)  # ISO date
+    broker_name: Mapped[str] = mapped_column(Text, nullable=False)
+    checked_at: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)  # CLEAN | DISCREPANCY | FAILED
+    position_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    eod_open_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+    __table_args__ = (
+        Index("idx_reconciliation_date", "trading_date"),
+    )
+
+
 # ── Daily risk state ───────────────────────────────────────────────────────────
 
 class DailyRiskState(Base):

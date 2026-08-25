@@ -833,18 +833,53 @@ before it reaches the broker adapter (`test_risk_audit_log.py`'s
 
 ---
 
-### ⬜ CP14 — Scheduled EOD reconciliation + flatten-at-close → *hard gate before live multi-leg*
-- [ ] **M01 — daily broker reconciliation**, scheduled at market close, not
-      just on startup (CP9 only reconciles when a process boots) — alerts on
-      any mismatch between xillion's DB and the broker's actual positions
-- [ ] **X02 — square-off enforcer that actually flattens**, distinct from
-      CP9's market-hours auto-stop (which stops the *strategy instance*, not
-      the *position*) — a position left open at close today just sits there
-      until the strategy resumes next session
+### ✅ CP14 — Scheduled EOD reconciliation + flatten-at-close `DONE 2026-08-25`
+- [x] **X02 — square-off enforcer** — [xillion/engine/square_off.py](../../xillion/engine/square_off.py).
+      Deliberately driven by a `Broker` only, nothing from `StrategyEngine`/
+      `StrategyContext` — per the spec, this job "must work when everything
+      else is broken" and "does not check whether strategies are armed…
+      it queries the broker for open positions and closes them." Queries
+      `broker.get_positions()`, closes anything nonzero at MARKET, then
+      **re-queries to verify** rather than trusting the close order's ack —
+      an unverified close is exactly the kind of assumption CP11's E06 also
+      refused to make. Scope note: implements the safety property (nothing
+      open past close) immediately at MARKET rather than the spec's full
+      13-minute price-improvement ladder (warn → soft LIMIT → aggressive →
+      MARKET → verify) — strictly safer, not price-optimal; the staged
+      ladder is a natural next refinement, honestly deferred, not silently
+      dropped.
+- [x] **M01 — broker reconciliation** — [xillion/engine/reconciliation.py](../../xillion/engine/reconciliation.py),
+      independent of X02 (runs 30 min later, its own scheduled trigger) so
+      it's a genuine second check, not just X02 grading its own homework.
+      Compares broker positions against `PositionRecord` three ways
+      (broker-only, internal-only, quantity-mismatch) and additionally
+      flags **any** open position at EOD as a discrepancy even when both
+      sides agree — matching the spec's "must be FLAT at EOD for intraday
+      strategies" rule. Persisted to a new `reconciliation_report` table
+      (migration 012) — not just logged, so a `DISCREPANCY`/`FAILED` day is
+      a durable, queryable fact per the spec's own "block tomorrow's
+      trading if not CLEAN" design (that blocking behaviour itself isn't
+      wired to anything yet — the report exists and is queryable, nothing
+      reads it to gate a new trading day). **Scope note:** positions only —
+      orders/fills reconciliation and funds (broker P&L vs computed P&L)
+      reconciliation are NOT implemented; funds specifically needs a
+      "today's realised P&L" broker capability the `Broker` ABC doesn't
+      expose today, honestly left as a gap rather than faked.
+- [x] Both wired as their own supervised background tasks in
+      [xillion/main.py](../../xillion/main.py) — X02 at 15:15 IST, M01 at
+      15:45 IST, same sleep-until-next-fixed-clock-time pattern as CP10's
+      digest scheduler, deliberately two separate loops (not one combined
+      job) so a bug in one can't silently take out the other.
 
-**Verify:** kill the process mid-position, restart after market close,
-confirm M01 reports the position was flattened (or alerts loudly that it
-wasn't) rather than silently carrying it forward.
+**Verify:** the crash scenario simulated directly — a real open position at
+the broker with nothing in xillion's memory aware of it (no StrategyEngine
+involved at all) — then X02 and M01 run in sequence exactly as the
+scheduler would: good path (`test_x02_flattens_then_m01_confirms_clean`)
+X02 flattens it and M01 independently confirms CLEAN; bad path
+(`test_x02_fails_to_flatten_and_m01_catches_it_loudly`) X02's close order
+is rejected, and M01 still shows the position as an EOD `DISCREPANCY` with
+a critical alert fired — never silently carried forward. 367/367 tests
+passing, no regressions.
 
 ---
 
