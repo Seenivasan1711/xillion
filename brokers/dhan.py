@@ -96,6 +96,7 @@ class DhanBroker(Broker):
         self._credentials: dict = {}
         self._feed = None            # dhanhq.marketfeed.MarketFeed
         self._feed_connected = False  # real socket state, separate from _connected (REST session)
+        self._feed_error_count = 0    # consecutive WS reconnect failures -- see _start_feed's _on_error
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._order_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -445,14 +446,46 @@ class DhanBroker(Broker):
 
         def _on_connect(feed):
             self._feed_connected = True
+            self._feed_error_count = 0
             logger.info("dhan: feed connected")
 
         def _on_close(feed):
             self._feed_connected = False
             logger.warning("dhan: feed closed")
 
+        # The SDK's own reconnect loop (_run_async) retries every ~1s
+        # forever with no cap and no backoff -- a persistently bad token/
+        # connection floods the log at ~1/s indefinitely (seen 2026-08-26:
+        # dozens of "feed error" lines/minute drowning out everything else
+        # on the Dev page) and hammers Dhan's WS endpoint just as fast.
+        # Stop retrying after repeated consecutive failures instead of
+        # forever; the daily token refresh / manual reconnect / next
+        # settings save will start a fresh feed later.
+        _MAX_CONSECUTIVE_ERRORS = 10
+
         def _on_error(feed, error):
-            logger.error("dhan: feed error", error=str(error))
+            self._feed_error_count += 1
+            if self._feed_error_count <= _MAX_CONSECUTIVE_ERRORS:
+                logger.error("dhan: feed error", error=str(error), attempt=self._feed_error_count)
+            if self._feed_error_count == _MAX_CONSECUTIVE_ERRORS:
+                logger.error(
+                    "dhan: feed error looping — giving up on this connection",
+                    error=str(error),
+                )
+                if self._notifier is not None:
+                    asyncio.run_coroutine_threadsafe(
+                        self._notifier.alert(
+                            title="Dhan feed disconnected",
+                            body=f"WebSocket failed {_MAX_CONSECUTIVE_ERRORS} times in a row ({error}). "
+                                 "Stopped retrying -- reconnect via Configuration → Dhan.",
+                            severity="warning",
+                        ),
+                        loop,
+                    )
+                try:
+                    feed.close_connection()
+                except Exception:
+                    pass
 
         # Rebuild security_by_id from whatever's already been resolved so
         # ticks arriving right after (re)connect can still be attributed.
@@ -462,6 +495,14 @@ class DhanBroker(Broker):
             self._context, instruments=[], version="v2",
             on_connect=_on_connect, on_ticks=_on_ticks, on_close=_on_close, on_error=_on_error,
         )
+        # MarketFeed.__init__ calls asyncio.set_event_loop(self.loop), which
+        # clobbers this (main) thread's default event loop with its own
+        # brand-new, never-run one -- a real hazard verified in the
+        # installed dhanhq SDK source (marketfeed.py), since we're on the
+        # same thread FastAPI/uvicorn's loop runs on. Restore it immediately
+        # so nothing on this thread that later calls asyncio.get_event_loop()
+        # outside a running-coroutine context picks up the wrong loop.
+        asyncio.set_event_loop(loop)
         self._feed.start()  # runs in its own background thread + event loop, same pattern as KiteTicker
 
     async def tick_stream(self) -> AsyncIterator[Tick]:

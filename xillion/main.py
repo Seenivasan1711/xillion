@@ -130,8 +130,17 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         }
         logger.info("zerodha: connected successfully")
 
-        # Start broadcasting ticks to WebSocket clients + MarketDataBus
-        supervise("tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
+        # Start broadcasting ticks to WebSocket clients + MarketDataBus.
+        # _try_connect_zerodha can run more than once (daily token refresh,
+        # manual reconnect, settings save) -- without cancelling the prior
+        # broadcaster, each run leaked a supervised task sitting forever on
+        # `await self._tick_queue.get()` against a disconnected broker.
+        old = getattr(app.state, "zerodha_broadcaster", None)
+        if old is not None:
+            old.cancel()
+        app.state.zerodha_broadcaster = supervise(
+            "tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram
+        )
     except Exception as exc:
         logger.error("zerodha: failed to connect", error=str(exc))
         asyncio.create_task(app.state.telegram.alert(
@@ -206,7 +215,17 @@ async def _try_connect_dhan(app: FastAPI) -> None:
         # _tick_broadcaster) -- without this, DhanBroker.tick_stream() is
         # never drained and its ticks never reach app.state.bus, so paper
         # mode never sees a price even once Dhan is connected.
-        supervise("dhan_tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
+        #
+        # _try_connect_dhan can run more than once (daily token refresh,
+        # manual reconnect, settings save) -- without cancelling the prior
+        # broadcaster, each run leaked a supervised task sitting forever on
+        # `await self._tick_queue.get()` against a disconnected broker.
+        old = getattr(app.state, "dhan_broadcaster", None)
+        if old is not None:
+            old.cancel()
+        app.state.dhan_broadcaster = supervise(
+            "dhan_tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram
+        )
     except Exception as exc:
         logger.error("dhan: failed to connect", error=str(exc))
         asyncio.create_task(app.state.telegram.alert(

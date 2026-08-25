@@ -16,6 +16,7 @@ so a self-healed blip is still visible, not just silently absorbed.
 """
 import asyncio
 import time
+import traceback
 from typing import Callable, Coroutine, Optional
 
 import structlog
@@ -68,7 +69,12 @@ class SupervisedTask:
         # _tick_broadcaster) already swallow their own exceptions and just
         # return -- exception-only detection would miss that case entirely.
         detail = str(exc) if exc is not None else "it exited without raising -- this loop is meant to run forever"
-        logger.error("background task stopped", task=self._name, error=detail)
+        # str(exc) alone (e.g. "cannot reuse already awaited coroutine")
+        # gives no file/line to act on -- capture the full traceback so a
+        # crash is diagnosable from the Dev/Logs page alone, without needing
+        # to reproduce it.
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc is not None else None
+        logger.error("background task stopped", task=self._name, error=detail, traceback=tb)
 
         now = time.monotonic()
         self._restart_times = [ts for ts in self._restart_times if now - ts < self._window_seconds]
