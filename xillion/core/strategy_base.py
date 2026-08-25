@@ -48,6 +48,14 @@ class StrategyContext(ABC):
     async def modify_order(self, client_order_id: str, **changes) -> Order:
         raise NotImplementedError
 
+    async def get_order(self, client_order_id: str) -> Optional[Order]:
+        """Look up the current state of a previously-placed order by its
+        client_order_id. Used by the multi-leg executor (CP11) to poll a
+        leg that came back non-terminal (SUBMITTED/ACCEPTED) from a real
+        broker connection -- paper/backtest brokers fill synchronously so
+        this is only ever consulted for a live broker."""
+        raise NotImplementedError
+
     # ── Convenience helpers ───────────────────────────────────────────────────
 
     async def buy(
@@ -196,6 +204,14 @@ class StrategyContext(ABC):
     # ── Logging ───────────────────────────────────────────────────────────────
 
     def log(self, level: str, message: str, **fields) -> None:
+        raise NotImplementedError
+
+    async def notify_critical(self, title: str, body: str) -> None:
+        """Best-effort Telegram alert for events that need a human now (e.g.
+        the multi-leg leg-failure protocol's FORCE_UNWOUND/HALTED_FOR_HUMAN
+        outcomes, CP11). Falls back to a structured log line if no notifier
+        is configured -- never raises, since a failed alert must not break
+        the leg-failure protocol itself."""
         raise NotImplementedError
 
 

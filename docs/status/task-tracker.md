@@ -5,19 +5,19 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-25
-**Current position:** Track A (CP1-CP10) done. **2026-08-25: Blocked-on-you
-#2 and #7 are resolved** — Rakesh supplied a real, sourced options-strategy
-knowledge base and a job-based automation platform spec (see
-[decisions-and-open-questions.md](decisions-and-open-questions.md) D17-D20
-and the stored specs in `docs/strategies/knowledge-base/` +
-`docs/architecture/automation-platform-spec/`). This unblocks **Options S1
-(Build)** and opens a new round of platform work: **CP11 onward**, gap-mapped
-from the automation spec's 52-job catalog onto what CP1-CP10 already built
-(see `architecture/overview.md` §12.1 for the full mapping — most P0 jobs
-already exist; the real gaps are multi-leg execution + protective orders,
-the trailing-stop engine, the expanded risk engine, EOD reconciliation +
-flatten-at-close, and Dhan as a second full trading broker). CP3/CP4/CP5/CP8
-remain "engineering done, one item needs something only you can supply" (real
+**Current position:** Track A (CP1-CP10) done. **CP11 (multi-leg execution +
+protective orders) mostly done** — `xillion/core/multileg.py` +
+`multileg_execution.py` + `protective_orders.py`, 33 unit tests, and the
+first real consumer (`strategies/credit_spread_weekly.py`, Options S1) all
+built and tested (280/280 passing). One honest gap remains: no broker plugin
+wires real bracket/GTT orders yet, so protective orders are software-stop
+only (the spec's own documented fallback, not a shortcut) — see CP11's own
+section below. Options S2 (Backtest) is next and blocked on a *different*
+gap: options resolution isn't wired into `BacktestEngine`. CP12-CP15 (trailing
+stops, expanded risk engine, EOD reconciliation, Dhan as a full broker) are
+gap-mapped from the automation spec's 52-job catalog (see
+`architecture/overview.md` §12.1) and not yet started. CP3/CP4/CP5/CP8 remain
+"engineering done, one item needs something only you can supply" (real
 backfill run, real Telegram bot + Kite Connect, a cloud LLM key — see
 Blocked on you). **Note:** CP8's code lives mostly in the separate
 `prosper-engine` repo and is uncommitted there — xillion's commit
@@ -598,34 +598,57 @@ in parallel with CP11-CP13 since the strategy itself is single-leg-testable
 before multi-leg execution is finished, but CP11 (multi-leg + protective
 orders) is a hard gate before Options S4 (live).
 
-### ⬜ CP11 — Multi-leg execution + protective orders → *unblocks Options S4*
-- [ ] Multi-leg position model — a credit spread/condor/butterfly is one
-      logical position spanning 2-4 broker orders, not N independent ones
-      (`automation-platform-spec/03-DATA-MODEL.md` §3.1 `positions.legs` JSONB
-      is the reference shape)
-- [ ] Leg-ordering discipline on entry/exit — **longs first on entry, shorts
-      first on exit** (`13-IMPLEMENTATION-ROADMAP.md` Phase 1 deliverables) —
-      the long leg is what caps the risk, so it must exist before the short
-      leg that creates exposure
-- [ ] **Leg-failure protocol (E05)** — Indian brokers don't support atomic
-      multi-leg execution; a 4-leg iron condor is 4 separate orders that can
-      partially fill. Never leave a naked short leg. This is flagged in the
-      spec as "the single most dangerous part of the system" — build and
-      test the rollback path before any multi-leg strategy goes live
-- [ ] **Protective order placement (E07)** — a stop-loss/target becomes a
-      real broker-side order the moment a position opens, not just strategy
-      logic that re-evaluates each bar. Today a process crash mid-position
-      leaves it unprotected; this closes that gap
-- [ ] Position sizing for multi-leg — `max_loss_per_lot = (width − credit) ×
-      lot_size`, `lots = floor(risk_pct × capital / max_loss_per_lot)`,
-      **lots < 1 → skip, don't round up** (per KB `10-FIRST-STRATEGY-SPEC.md`
-      §7 — this is the exact calculation that rules out most Nifty spreads
-      at ≤₹3L capital and is why Sensex/the butterfly get recommended instead)
+### 🟡 CP11 — Multi-leg execution + protective orders `MOSTLY DONE 2026-08-25 — one honest gap`
+- [x] Multi-leg position model — [xillion/core/multileg.py](../../xillion/core/multileg.py):
+      `MultiLegSpec`/`Leg`/`LegRole` group 2-4 broker orders into one logical
+      structure. Deliberately does NOT add a parallel position-tracking
+      table — each leg still flows through the existing per-symbol
+      `Position`/`PositionRecord` machinery (`ctx.place_order` per leg), so
+      there's one source of truth per symbol and the coordination layer
+      (ordering + rollback) sits on top rather than duplicating state
+- [x] Leg-ordering discipline on entry/exit — **longs first on entry, shorts
+      first on exit** — `order_entry_sequence`/`order_exit_sequence` in
+      `multileg.py`, enforced regardless of the caller's list order
+- [x] **Leg-failure protocol (E05)** — [xillion/core/multileg_execution.py](../../xillion/core/multileg_execution.py)
+      `MultiLegExecutor`. Naked-short detection is per-leg (`protects_leg_index`
+      pairing, not a hardcoded 2-leg assumption — generalises to condor/
+      butterfly). Force-unwinds at market on a naked short, retries once and
+      unwinds cleanly on a defined-risk partial, halts for human review on
+      an unclassifiable partial. 12 unit tests cover the spec's own E05
+      acceptance-test list (long fills/short rejected → retry→unwind; short
+      held without its protecting long → force-unwind; partial fill above/
+      below the 50% ratio; a leg stuck open past the fill timeout)
+- [x] **Protective order placement (E07)** — [xillion/core/protective_orders.py](../../xillion/core/protective_orders.py)
+      computes stop/target/time-stop levels from the real fill price; the
+      credit-spread strategy monitors them every tick and fires a real
+      market exit order (shorts-first) through the same leg-failure
+      protocol when triggered. **Honest gap:** no broker plugin in this
+      codebase wires a real bracket-order/GTT construction path yet —
+      Zerodha's `supports_bracket_orders` capability flag exists but
+      nothing in the execution path builds a bracket request. This is the
+      spec's own documented fallback (`06-JOBS-ENTRY.md` E07's ELSE
+      branch: register a SOFTWARE stop), not a shortcut around it — but it
+      does mean "a real stop/target order visible at the broker the moment
+      the position opens" (this section's old Verify line) is **not yet
+      true**. The spec's own caveat applies: a software stop needs the
+      process alive to fire; an always-on watchdog independent of the
+      strategy's own tick loop is CP12's job, not this one's
+- [x] Position sizing for multi-leg — `size_defined_risk_position()` in
+      `multileg.py`, `lots < 1 → skip, don't round up`, unit-tested against
+      the exact KB `10-FIRST-STRATEGY-SPEC.md` §7 worked-example numbers
+      (Nifty 200-wide → 0 lots, Nifty 50-wide → 1 lot, Sensex 100-wide →
+      1 lot)
+- [x] First real consumer built end-to-end: `strategies/credit_spread_weekly.py`
+      (Options Stage 1) — see [docs/strategies/credit-spread-weekly.md](../strategies/credit-spread-weekly.md)
 
-**Verify:** a paper 2-leg credit spread opens both legs correctly-ordered,
-survives a forced partial-fill-on-one-leg test without a naked exposure, and
-a real stop-loss/target order is visible at the broker (not just in xillion's
-DB) the moment the position opens.
+**Verify:** 33 unit tests (`test_multileg.py`, `test_multileg_execution.py`,
+`test_protective_orders.py`) + 6 integration tests
+(`test_credit_spread_strategy.py`) — a 2-leg credit spread opens
+correctly-ordered, a forced leg rejection during entry unwinds without ever
+holding a naked short, and STOP/TARGET both close shorts-first. 280/280
+tests passing, no regressions. **Not yet done:** the real-broker
+bracket/GTT gap above, and Options Stage 2 (backtest) — see that row in
+Track B below for why.
 
 ---
 
@@ -696,32 +719,37 @@ Each asset runs the same 6 stages — see
 
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
-| **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | 🟡 spec ready, not coded | ⬜ | ⬜ | ⬜ blocked on CP11 | ⬜ | ⬜ |
+| **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ⬜ blocked on backtest-engine options wiring | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
 | **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Crypto** · TBD exchange | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
-**2026-08-25: Options S1 unblocked.** The strategy is no longer TBD — it's
-the Nifty/Sensex weekly Bull Put / Bear Call credit spread, fully specced in
-`docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md` (entry timing,
-strike selection arms, management combinations, position sizing, pass/fail
-criteria to apply before ever going live). "🟡 spec ready, not coded" means:
-the rules exist and are written down per Stage 1's own exit criterion, but
-the strategy plugin itself (`strategies/credit_spread_weekly.py` or similar)
-hasn't been written yet — that's the next concrete build task. S4 (Live) is
-blocked on CP11 (multi-leg execution + protective orders) regardless of how
-fast S1-S3 move, since a credit spread is a 2-leg position.
+**2026-08-25: Options S1 built.** `strategies/credit_spread_weekly.py`
+implements the Nifty/Sensex weekly Bull Put / Bear Call credit spread from
+`docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md` — entry timing,
+trend-aligned direction, strike-count strike selection (a coarser proxy for
+the KB's delta arms — no greeks engine exists), credit-adequacy filter,
+KB §7 position sizing, multi-leg entry/exit via CP11, and software
+protective-order monitoring. Full rules + honest gaps written up in
+`docs/strategies/credit-spread-weekly.md`. S2 (Backtest) is now the actual
+blocker, and it's a **different** gap than CP11: `BacktestEngine`'s context
+(`xillion/engine/backtest_engine.py::_BacktestContext`) doesn't implement
+`get_spot`/`resolve_strike`/`get_option_price`, so no options strategy can
+run through it yet — needs historical options-chain data + backtest-mode
+strike resolution, not yet scoped as its own checkpoint. S4 (Live) is
+additionally blocked on the CP11 bracket/GTT gap above (software stops
+aren't a "ready for real money" state on their own without CP12's watchdog).
 
 ### Per-asset enablement work
 Infrastructure each asset needs before its pipeline can start:
 
-- **Options** — 🟡 mostly ready (Zerodha + NSE bhavcopy + instrument resolver
-  all exist); **blocked on CP11** for multi-leg execution before Stage 4.
-  Stages 1-3 (build, backtest, paper) can proceed on today's infrastructure
-  since backtesting/paper-testing a 2-leg spread doesn't yet require the
-  leg-failure protocol that only matters for a *live* partial fill
+- **Options** — 🟡 Stage 1 done. **Blocked on:** options resolution wired
+  into `BacktestEngine` (Stage 2), real-broker bracket/GTT + CP12's watchdog
+  (Stage 4). Stage 3 (paper) is unblocked today — CP11's leg-failure
+  protocol and software protective orders are both real and tested, just
+  not yet run against live market data for the required 2+ weeks
 - **Gold Lane B1 (XAUUSD/Funding Pips)** — ⬜ needs: MT5 broker plugin, 24×5
   session calendar, currency field, FX lot math, **Funding Pips drawdown
   rules as hard risk limits** (breaching one instantly fails the account) —

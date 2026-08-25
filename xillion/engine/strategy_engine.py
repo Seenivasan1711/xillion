@@ -328,6 +328,9 @@ class _StrategyContextImpl(StrategyContext):
     async def modify_order(self, client_order_id: str, **changes) -> Order:
         raise NotImplementedError("modify_order not yet implemented")
 
+    async def get_order(self, client_order_id: str) -> Optional[Order]:
+        return self._router.get_order(client_order_id)
+
     def position(self, symbol: str) -> Optional[Position]:
         return self._positions.get(symbol)
 
@@ -354,6 +357,17 @@ class _StrategyContextImpl(StrategyContext):
     def log(self, level: str, message: str, **fields) -> None:
         log_fn = getattr(logger, level.lower(), logger.info)
         log_fn(message, instance_id=self.instance_id, **fields)
+
+    async def notify_critical(self, title: str, body: str) -> None:
+        logger.critical(title, instance_id=self.instance_id, detail=body)
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.alert(
+                title=f"{self._instance_name}: {title}", body=body, severity="critical",
+            )
+        except Exception as exc:
+            logger.error("notify_critical: alert failed", instance_id=self.instance_id, error=str(exc))
 
     # ── Instrument resolution (options) ──────────────────────────────────────────
 
