@@ -4,7 +4,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart2, Bell, BookOpen, ChevronDown, CircleUserRound, Cpu, LogOut, Moon, Search,
   SlidersHorizontal, Skull, Sun, Terminal, TrendingUp,
-  LayoutDashboard, Link, Pause, X, RefreshCw, ArrowDownRight,
+  LayoutDashboard, Pause, X, RefreshCw, ArrowDownRight,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { wsClient } from '../lib/ws'
@@ -309,12 +309,8 @@ export default function Layout() {
     { key: '/journal',    label: 'Journal',    Icon: BookOpen,        pill: null },
     { key: '/backtest',   label: 'Backtest',   Icon: BarChart2,       pill: null },
     { key: '/logs',       label: 'Dev',        Icon: Terminal,        pill: null },
-    { key: '/configuration', label: 'Configuration', Icon: SlidersHorizontal, pill: null },
+    { key: '/configuration', label: 'Configuration', Icon: SlidersHorizontal, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
     { key: '/settings',   label: 'Settings',   Icon: CircleUserRound, pill: null },
-  ]
-
-  const systemItems = [
-    { key: '/configuration', label: 'Brokers', Icon: Link, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
   ]
 
   return (
@@ -334,22 +330,6 @@ export default function Layout() {
           <div className="section-label">Workspace</div>
           <nav>
             {navItems.map(({ key, label, Icon, pill }) => (
-              <div
-                key={key}
-                className={`nav-item ${path === key ? 'active' : ''}`}
-                onClick={() => navigate(key)}
-                title={label}
-              >
-                <Icon size={16} className="ico" />
-                <span className="lbl">{label}</span>
-                {pill && <span className="pill">{pill}</span>}
-              </div>
-            ))}
-          </nav>
-
-          <div className="section-label">System</div>
-          <nav>
-            {systemItems.map(({ key, label, Icon, pill }) => (
               <div
                 key={key}
                 className={`nav-item ${path === key ? 'active' : ''}`}
