@@ -97,10 +97,13 @@ per-instance `risk_limits_json`), and guessing at that mapping risks
 getting real risk enforcement wrong, not just a cosmetic bug. Left as an
 open design gap rather than faked. 404/404 tests passing.
 
-**Active branch:** `main` (merged from `feat/options-alert-engine` 2026-08-26,
-pushed). Next phase's work should start on a fresh branch off this `main` —
-name TBD, confirm with Rakesh before creating per the worktree convention in
-the global `CLAUDE.md`.
+**Active branch:** `feat/track-b-pipelines` (created 2026-08-26 off `main`
+at `0273cf3`, worktree at `.claude/worktrees/track-b-pipelines`). Covers the
+next phase broadly: the deferred Track A validation items (real pass/fail
+backtest run, paper-soak monitoring, Zerodha/Dhan product-type decision,
+static-IP research) first, then Track B asset pipelines (Gold/MT5, MCX,
+stocks, crypto) as they come up. `main` itself stays the stable baseline —
+`feat/options-alert-engine` is fully merged into it and can be deleted.
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
 > `status/ process/ architecture/ product/ strategies/ archive/` folders (all
