@@ -24,6 +24,7 @@ async def list_broker_classes(request: Request):
                     "supports_websocket": getattr(caps, "supports_websocket", True),
                     "supports_historical": getattr(caps, "supports_historical", True),
                     "supports_bracket_orders": getattr(caps, "supports_bracket_orders", False),
+                    "supports_gtt_orders": getattr(caps, "supports_gtt_orders", False),
                     "supported_timeframes": getattr(caps, "supported_timeframes", []),
                     "supported_exchanges": getattr(caps, "supported_exchanges", []),
                 },
@@ -49,20 +50,32 @@ async def list_connections(request: Request):
     return {"connections": connections}
 
 
+_RECONNECT_HANDLERS = {
+    "Zerodha Primary": "_try_connect_zerodha",
+    "Dhan Primary": "_try_connect_dhan",
+}
+
+
 @router.post("/connections/{name}/reconnect")
 async def reconnect_broker(name: str, request: Request):
-    """Trigger a reconnect for a specific broker connection."""
+    """Trigger a reconnect for a specific broker connection. Used to be
+    hardcoded to "Zerodha Primary" only -- Dhan's own Reconnect button in
+    Settings > Active connections would 400. Dispatches by connection name
+    the same way the connections themselves are keyed elsewhere
+    (app.state.broker_instances), so a future broker just needs an entry
+    here rather than a new branch."""
     instances = getattr(request.app.state, "broker_instances", {})
     if name not in instances:
         raise HTTPException(status_code=404, detail=f"Connection '{name}' not found")
 
-    if name == "Zerodha Primary":
-        from xillion.main import _try_connect_zerodha
-        await _try_connect_zerodha(request.app)
-        info = request.app.state.broker_instances.get(name, {})
-        return {"name": name, "status": info.get("status", "unknown")}
+    handler_name = _RECONNECT_HANDLERS.get(name)
+    if handler_name is None:
+        raise HTTPException(status_code=400, detail="Reconnect not implemented for this broker")
 
-    raise HTTPException(status_code=400, detail="Reconnect not implemented for this broker")
+    import xillion.main as main_module
+    await getattr(main_module, handler_name)(request.app)
+    info = request.app.state.broker_instances.get(name, {})
+    return {"name": name, "status": info.get("status", "unknown")}
 
 
 @router.get("/connections/{name}/status")

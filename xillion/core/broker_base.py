@@ -4,9 +4,10 @@ from Broker. The framework calls these; strategies never import brokers directly
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import AsyncIterator
+from decimal import Decimal
+from typing import AsyncIterator, Optional
 
-from xillion.core.events import Bar, Order, OrderRequest, Position, Tick
+from xillion.core.events import Bar, Order, OrderRequest, Position, Side, Tick
 
 
 @dataclass
@@ -16,6 +17,13 @@ class BrokerCapabilities:
     supports_historical: bool = True
     supports_bracket_orders: bool = False
     supports_cover_orders: bool = False
+    # CP11 follow-up, 2026-08-25: whether place_protective_gtt/cancel_gtt
+    # below are actually implemented. Zerodha's Kite Connect no longer
+    # offers bracket orders at all (confirmed against the current API docs
+    # -- "bo" isn't a valid `variety` any more) but does offer GTT triggers,
+    # which is what this flag maps to; supports_bracket_orders staying
+    # False for Zerodha reflects that real deprecation, not an oversight.
+    supports_gtt_orders: bool = False
     supports_modify_order: bool = True
     supports_partial_fills: bool = True
     supported_timeframes: list[str] = field(
@@ -122,3 +130,38 @@ class Broker(ABC):
     @abstractmethod
     async def get_quote(self, symbols: list[str]) -> dict[str, Tick]:
         ...
+
+    # ── Protective GTT / Forever Orders (optional) ────────────────────────────
+    # Not @abstractmethod: only brokers with capabilities.supports_gtt_orders
+    # True are ever called here, so PaperBroker/BacktestBroker/etc. don't
+    # need a real implementation. See xillion/core/protective_orders.py for
+    # the CP11 gap this closes (a real broker-side stop, not software-only).
+
+    async def place_protective_gtt(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        side: Side,
+        quantity: int,
+        stop_price: Decimal,
+        target_price: Optional[Decimal],
+        last_price: Decimal,
+    ) -> str:
+        """Place a broker-native trigger order that closes an existing
+        position when hit. `side` is the CLOSING side (opposite of how the
+        position was opened -- e.g. BUY to close a short). If
+        `target_price` is also given, forms an OCO pair with `stop_price`
+        (Zerodha's two-leg GTT / Dhan's Forever-Order-OCO shape) so
+        whichever triggers first cancels the other. `last_price` is the
+        reference price the broker's trigger-validation compares against
+        (both Kite's GTT and Dhan's Forever Order API require it). Returns
+        the broker's own trigger/order id, needed later by cancel_gtt()."""
+        raise NotImplementedError
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        """Cancel a previously placed protective GTT/Forever Order --
+        called when the software path closes the position through the
+        normal exit route, so the broker-side trigger can't fire later
+        against a position that no longer exists."""
+        raise NotImplementedError

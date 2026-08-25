@@ -6,8 +6,27 @@ import pytest
 
 from xillion.core.multileg import StructureType
 from xillion.core.protective_orders import (
-    check_exit_trigger, credit_spread_protective_levels, is_defined_risk, spread_value,
+    check_exit_trigger, credit_spread_protective_levels, is_defined_risk,
+    short_leg_gtt_levels, spread_value,
 )
+
+
+def test_short_leg_gtt_levels_holds_long_price_fixed_at_entry():
+    # entry_credit=10 -> stop_value=20, target_value=5 (KB 10 base combo).
+    # Anchored to a long leg that filled at 3: short-leg-only approximation
+    # is long_entry_price + spread_value_threshold.
+    spec = credit_spread_protective_levels(Decimal("10"))
+    stop_price, target_price = short_leg_gtt_levels(Decimal("3"), spec)
+    assert stop_price == Decimal("23")    # 3 + 20
+    assert target_price == Decimal("8")   # 3 + 5
+
+
+def test_short_leg_gtt_levels_omits_target_when_spec_has_none():
+    from xillion.core.protective_orders import ProtectiveOrderSpec
+    spec = ProtectiveOrderSpec(stop_value=Decimal("20"))  # no target_value
+    stop_price, target_price = short_leg_gtt_levels(Decimal("3"), spec)
+    assert stop_price == Decimal("23")
+    assert target_price is None
 
 
 def test_credit_spread_levels_match_kb_break_even_table():

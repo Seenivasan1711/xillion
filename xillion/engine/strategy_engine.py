@@ -430,6 +430,35 @@ class _StrategyContextImpl(StrategyContext):
         if self._runner is not None:
             self._runner.add_dynamic_symbol(symbol)
 
+    async def place_protective_gtt(
+        self, symbol: str, exchange: str, side, quantity: int,
+        stop_price, target_price, last_price,
+    ):
+        if self._broker is None or not self._broker.capabilities.supports_gtt_orders:
+            return None
+        try:
+            return await self._broker.place_protective_gtt(
+                symbol=symbol, exchange=exchange, side=side, quantity=quantity,
+                stop_price=stop_price, target_price=target_price, last_price=last_price,
+            )
+        except Exception as exc:
+            # Best-effort: the software stop (already running regardless)
+            # is what actually protects the position -- a failed GTT
+            # placement must not block or crash strategy entry.
+            logger.warning(
+                "protective GTT placement failed (software stop still active)",
+                symbol=symbol, error=str(exc),
+            )
+            return None
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        if not gtt_id or self._broker is None:
+            return
+        try:
+            await self._broker.cancel_gtt(gtt_id)
+        except Exception as exc:
+            logger.warning("GTT cancel failed (may already be stale/triggered)", gtt_id=gtt_id, error=str(exc))
+
     # ── Position tracking ──────────────────────────────────────────────────────
 
     def _update_position_from_order(self, order: Order) -> Optional[dict[str, Any]]:

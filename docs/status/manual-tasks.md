@@ -79,6 +79,23 @@ five items resolved by Rakesh's decisions — see Done)
       Running in the background, chunked by year, resumable. Will move to
       Done for real once it completes.
 
+- [ ] **Decide Zerodha/Dhan product type for multi-day option holds
+      (MIS/INTRADAY vs. NRML/CNC/MTF) — not urgent, flagging for
+      awareness.** Found while wiring CP11's real GTT/Forever-Order
+      support, 2026-08-25: both `brokers/zerodha.py` and `brokers/dhan.py`
+      currently hardcode every order to the intraday-margin product
+      (`MIS`/`INTRADAY`) — already a known, documented limitation from
+      earlier work, not new. The credit-spread weekly strategy holds
+      positions across multiple days until expiry, which an intraday
+      product would normally force-square-off same day at the broker —
+      worth understanding before this goes live with real capital. This
+      is also why Dhan's Forever Orders (their GTT equivalent) aren't
+      wired yet: Dhan's API only accepts `CNC`/`MTF` for that order type,
+      not `INTRADAY`. **Blocks:** nothing today (paper mode isn't affected
+      the same way) — decide before Options S4 (going live).
+      **Cost:** none — a decision, plus whatever margin difference
+      NRML/MTF carries vs. MIS/INTRADAY once you do go live.
+
 - [ ] **(Optional) free cloud LLM key** — Gemini or Groq free tier, for
       prosper-engine's AI-confidence hook.
       **Deferred — Rakesh's explicit call, 2026-08-25 ("keep for later").**

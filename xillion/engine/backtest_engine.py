@@ -340,6 +340,18 @@ class _BacktestContext(StrategyContext):
         fires here too."""
         self._dynamic_tick_symbols[symbol] = exchange
 
+    async def place_protective_gtt(
+        self, symbol: str, exchange: str, side, quantity: int,
+        stop_price, target_price, last_price,
+    ):
+        """No real broker in backtest mode -- the software stop (evaluated
+        every synthesized tick, same as live) is the only protection here,
+        same as it always was before this CP11 follow-up existed."""
+        return None
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        pass
+
     async def _dynamic_ticks_for_current_day(self) -> list[Tick]:
         if self._chain is None or not self._dynamic_tick_symbols:
             return []

@@ -58,7 +58,12 @@ class ZerodhaBroker(Broker):
     capabilities = BrokerCapabilities(
         supports_websocket=True,
         supports_historical=True,
-        supports_bracket_orders=True,
+        # Kite Connect discontinued bracket orders ("bo") -- confirmed
+        # against the current API docs, not assumed from the old flag's
+        # own value. GTT is the real, still-supported equivalent -- see
+        # place_protective_gtt below.
+        supports_bracket_orders=False,
+        supports_gtt_orders=True,
         supports_cover_orders=True,
         supports_modify_order=True,
         supports_partial_fills=True,
@@ -526,6 +531,63 @@ class ZerodhaBroker(Broker):
         except Exception as exc:
             logger.error("get_quote failed", error=str(exc))
             return {}
+
+    # ── Protective GTT (CP11 follow-up) ─────────────────────────────────────────
+    # Kite's GTT orders array requires an order_type per leg -- LIMIT at the
+    # trigger price itself (matching Kite's own docs example, which prices
+    # each leg's order at its trigger level, not a further slippage buffer;
+    # a buffer would be a strategy-level tuning choice, not this plumbing's).
+    _GTT_ORDER_TYPE = "LIMIT"
+
+    async def place_protective_gtt(
+        self, *, symbol: str, exchange: str, side: Side, quantity: int,
+        stop_price: Decimal, target_price: Optional[Decimal], last_price: Decimal,
+    ) -> str:
+        def _leg(price: Decimal) -> dict:
+            return {
+                "transaction_type": side.value,
+                "quantity": quantity,
+                "order_type": self._GTT_ORDER_TYPE,
+                "product": self._kite.PRODUCT_MIS,
+                "price": float(price),
+            }
+
+        trigger_values = [float(stop_price)]
+        orders = [_leg(stop_price)]
+        trigger_type = self._kite.GTT_TYPE_SINGLE
+        if target_price is not None:
+            trigger_type = self._kite.GTT_TYPE_OCO
+            # condition.trigger_values and orders[] must be built in the
+            # same order -- [stop, target] here, matching both lists above.
+            trigger_values.append(float(target_price))
+            orders.append(_leg(target_price))
+
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._kite.place_gtt(
+                trigger_type=trigger_type,
+                tradingsymbol=symbol,
+                exchange=exchange,
+                trigger_values=trigger_values,
+                last_price=float(last_price),
+                orders=orders,
+            ),
+        )
+        # Kite's own docs show the response as {"trigger_id": N} after the
+        # SDK's usual {"status","data"} envelope is stripped -- accept a
+        # bare id too rather than assume the exact shape unverifiable
+        # without a live account.
+        trigger_id = response.get("trigger_id") if isinstance(response, dict) else response
+        logger.info(
+            "zerodha: protective GTT placed", symbol=symbol, trigger_id=trigger_id,
+            stop_price=str(stop_price), target_price=str(target_price) if target_price else None,
+        )
+        return str(trigger_id)
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: self._kite.delete_gtt(gtt_id)
+        )
 
     # ── Instrument master (options resolution) ──────────────────────────────────
 

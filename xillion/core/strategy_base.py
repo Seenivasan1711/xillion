@@ -215,6 +215,30 @@ class StrategyContext(ABC):
         class only covers what's known at instance-creation time."""
         raise NotImplementedError
 
+    # ── Protective GTT / Forever Orders (CP11 follow-up) ────────────────────
+
+    async def place_protective_gtt(
+        self, symbol: str, exchange: str, side: Side, quantity: int,
+        stop_price: Decimal, target_price: Optional[Decimal], last_price: Decimal,
+    ) -> Optional[str]:
+        """Best-effort broker-native protective trigger, alongside (not
+        instead of) the software stop this codebase already runs -- see
+        xillion/core/protective_orders.py's module docstring for why both
+        exist. Returns the broker's trigger id if one was placed, or None
+        if the connected broker doesn't support this
+        (capabilities.supports_gtt_orders is False, e.g. paper/backtest
+        mode) -- callers must treat None as "no broker-native protection
+        exists," not as an error, since the software stop is still active
+        either way."""
+        raise NotImplementedError
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        """Cancel a GTT placed via place_protective_gtt -- call this when
+        the software path closes the position through any other route, so
+        the broker-side trigger doesn't fire later against a position that
+        no longer exists. A no-op if gtt_id is falsy."""
+        raise NotImplementedError
+
     # ── Logging ───────────────────────────────────────────────────────────────
 
     def log(self, level: str, message: str, **fields) -> None:

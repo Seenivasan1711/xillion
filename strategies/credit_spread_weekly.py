@@ -41,7 +41,9 @@ from xillion.core.multileg import (
     credit_adequate, max_loss_per_lot, size_defined_risk_position,
 )
 from xillion.core.multileg_execution import ExecutionOutcome, MultiLegExecutor
-from xillion.core.protective_orders import check_exit_trigger, credit_spread_protective_levels, spread_value
+from xillion.core.protective_orders import (
+    check_exit_trigger, credit_spread_protective_levels, short_leg_gtt_levels, spread_value,
+)
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
 from xillion.engine.indicators import ema, vwap
 
@@ -246,6 +248,21 @@ class CreditSpreadWeeklyStrategy(Strategy):
             time_stop_date=time_stop_date,
         )
 
+        # Broker-native backstop alongside the software stop below, not
+        # instead of it -- best-effort: only possible with a real long-leg
+        # fill price to anchor the approximation to (see
+        # short_leg_gtt_levels), and place_protective_gtt itself already
+        # returns None gracefully if the connected broker doesn't support
+        # GTT (paper/backtest/Dhan-not-yet-wired).
+        gtt_id = None
+        if long_fill and long_fill.avg_fill_price is not None and short_fill and short_fill.avg_fill_price is not None:
+            gtt_stop_price, gtt_target_price = short_leg_gtt_levels(long_fill.avg_fill_price, protective)
+            gtt_id = await ctx.place_protective_gtt(
+                symbol=short.tradingsymbol, exchange=short.exchange, side=Side.BUY,
+                quantity=qty, stop_price=gtt_stop_price, target_price=gtt_target_price,
+                last_price=short_fill.avg_fill_price,
+            )
+
         ctx.state["open_position"] = {
             "spec": {
                 "underlying": underlying, "side": side,
@@ -260,11 +277,13 @@ class CreditSpreadWeeklyStrategy(Strategy):
                 "target_value": str(protective.target_value) if protective.target_value is not None else None,
                 "time_stop_date": protective.time_stop_date.isoformat() if protective.time_stop_date else None,
             },
+            "gtt_id": gtt_id,
         }
         ctx.log(
             "info", "credit spread opened",
             underlying=underlying, side=side, credit=str(entry_credit), width=str(width),
             lots=size.lots, short=short.tradingsymbol, long=long_leg.tradingsymbol,
+            gtt_id=gtt_id,
         )
 
     # ── Protective-order monitoring + exit ──────────────────────────────────
@@ -324,6 +343,16 @@ class CreditSpreadWeeklyStrategy(Strategy):
             "info", "credit spread exit", reason=reason, outcome=result.outcome.value,
             current_spread_value=str(current_value),
         )
+        # HALTED_FOR_HUMAN means the short leg's real broker position is
+        # unclear -- do NOT cancel its GTT here, that broker-native stop
+        # is exactly the protection a human-review window still needs.
+        # Every other outcome means the position is genuinely flat, so a
+        # still-active GTT is now stale and must be torn down before it
+        # can fire against a symbol no longer held.
+        if result.outcome != ExecutionOutcome.HALTED_FOR_HUMAN:
+            gtt_id = pos.get("gtt_id")
+            if gtt_id:
+                await ctx.cancel_gtt(gtt_id)
         # Cleared regardless of outcome: FORCE_UNWOUND/UNWOUND both mean no
         # position remains; HALTED_FOR_HUMAN means a human takes it from
         # here, and this instance must not keep trying to exit an unclear

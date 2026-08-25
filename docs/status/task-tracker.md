@@ -657,7 +657,7 @@ in parallel with CP11-CP13 since the strategy itself is single-leg-testable
 before multi-leg execution is finished, but CP11 (multi-leg + protective
 orders) is a hard gate before Options S4 (live).
 
-### ✅ CP11 — Multi-leg execution + protective orders `DONE 2026-08-25 — one honest gap remains`
+### ✅ CP11 — Multi-leg execution + protective orders `DONE 2026-08-25 — bracket/GTT gap closed for Zerodha, verified-blocked for Dhan`
 - [x] Multi-leg position model — [xillion/core/multileg.py](../../xillion/core/multileg.py):
       `MultiLegSpec`/`Leg`/`LegRole` group 2-4 broker orders into one logical
       structure. Deliberately does NOT add a parallel position-tracking
@@ -681,16 +681,8 @@ orders) is a hard gate before Options S4 (live).
       computes stop/target/time-stop levels from the real fill price; the
       credit-spread strategy monitors them every tick and fires a real
       market exit order (shorts-first) through the same leg-failure
-      protocol when triggered. **Honest gap:** no broker plugin in this
-      codebase wires a real bracket-order/GTT construction path yet —
-      Zerodha's `supports_bracket_orders` capability flag exists but
-      nothing in the execution path builds a bracket request. This is the
-      spec's own documented fallback (`06-JOBS-ENTRY.md` E07's ELSE
-      branch: register a SOFTWARE stop), not a shortcut around it — but it
-      does mean "a real stop/target order visible at the broker the moment
-      the position opens" (this section's old Verify line) is **not yet
-      true**. The spec's own caveat applies: a software stop needs the
-      process alive to fire; an always-on watchdog independent of the
+      protocol when triggered. The spec's own caveat applies: a software
+      stop needs the process alive to fire; an always-on watchdog independent of the
       strategy's own tick loop is CP12's job, not this one's
 - [x] Position sizing for multi-leg — `size_defined_risk_position()` in
       `multileg.py`, `lots < 1 → skip, don't round up`, unit-tested against
@@ -738,19 +730,68 @@ orders) is a hard gate before Options S4 (live).
       intraday accuracy) — without this, `on_tick`-driven exit logic
       (CP11's protective-order monitoring) would never fire in a backtest
       at all, since `BacktestEngine.run()` only ever called `on_bar`.
+- [x] **Follow-up, 2026-08-25: the real-broker bracket/GTT gap, narrowed —
+      Zerodha done, Dhan verified-blocked, not guessed at either way.**
+      First verified the old `supports_bracket_orders=True` flag against
+      Kite Connect's *current* API docs, not assumed from the flag's own
+      value: Zerodha discontinued bracket orders entirely (`"bo"` isn't a
+      valid `variety` any more) — the flag now correctly reads `False`.
+      GTT triggers are still real and supported, so that's what got built:
+      `Broker.place_protective_gtt()`/`cancel_gtt()`
+      (`xillion/core/broker_base.py`) + a real `ZerodhaBroker`
+      implementation verified against the actual installed `kiteconnect`
+      SDK source (`place_gtt`/`_get_gtt_payload`), not the docs alone.
+      **A genuine, honestly-documented approximation, not an exact
+      mirror:** Kite's GTT triggers on ONE instrument's own LTP, but the
+      software stop triggers on `spread_value` (short leg LTP minus long
+      leg LTP) — no single-instrument trigger can express a two-leg net
+      condition. `short_leg_gtt_levels()` converts the spread-value
+      threshold to an approximate short-leg-only price by holding the long
+      leg's entry-fill price fixed — a real circuit-breaker for the worst
+      case (process down, software stop can't fire), not a precision
+      replacement for the tick-driven check that's still primary.
+      `credit_spread_weekly.py` places this GTT right after entry fills
+      and cancels it on any genuine exit — but deliberately **not** on
+      `HALTED_FOR_HUMAN` (an unclassifiable partial fill), since the
+      broker-side position is unclear exactly then and cancelling would
+      remove the protection that window most needs.
+      **Dhan verified-blocked, not silently skipped:** Dhan's own
+      equivalent ("Forever Orders") is real and documented
+      (dhanhq.co/docs/v2/forever/), but its `productType` field only
+      accepts `CNC`/`MTF` — `brokers/dhan.py` hardcodes every regular
+      order's product to `INTRADAY` (a known, already-documented
+      simplification from CP15, not new). Building Forever-Order support
+      today would either silently fail against the real API or require
+      changing what product type Dhan positions trade under — a bigger,
+      separate decision, not guessed at here.
+      **Also found and fixed in the same broker-capability area:**
+      `POST /brokers/connections/{name}/reconnect` was hardcoded to
+      `"Zerodha Primary"` only — Dhan's own Reconnect button in Settings →
+      Active connections would have 400'd. Now dispatches by connection
+      name generically.
 
 **Verify:** 33 unit tests (`test_multileg.py`, `test_multileg_execution.py`,
 `test_protective_orders.py`) + 6 integration tests
 (`test_credit_spread_strategy.py`) for the original CP11 scope, PLUS 7 unit
 tests (`test_option_chain.py`, including the real-column-name parser check)
 and 2 integration tests (`test_credit_spread_backtest.py`) for the
-backtest follow-up — one proves entry, the other runs a 10-day window with
-decaying premiums to a real TARGET exit and a genuine closed trade
-(non-zero, non-fabricated entry/exit prices). 289/289 tests passing at this
-point, no regressions. **Not yet done:** the real-broker bracket/GTT gap
-above (now CP12-partially-addressed — see below), and NSE-listed
-underlyings only for backtest options (NIFTY/BANKNIFTY; Sensex is
-BSE-listed, NSE Bhavcopy doesn't cover it).
+backtest follow-up, PLUS the 2026-08-25 GTT follow-up: 5 unit tests
+(`test_zerodha_protective_gtt.py`, against the real installed SDK's method
+signature) + 2 unit tests (`short_leg_gtt_levels` in
+`test_protective_orders.py`) + 3 integration tests (GTT placed on entry,
+cancelled on genuine exit, preserved on `HALTED_FOR_HUMAN`, in
+`test_credit_spread_strategy.py`) + 4 unit tests
+(`test_broker_reconnect.py`) for the reconnect fix. **A real,
+pre-existing test-isolation bug found and fixed along the way:**
+`test_credit_spread_strategy.py`'s `FakeContext.OPTION_PRICE` was a shared
+*class-level* dict — one test's `ctx.OPTION_PRICE[...] = X` silently
+leaked into every later test's fresh instance, since Python attribute
+lookup falls through to the class for an unshadowed mutable default. Now
+copied per-instance in `__init__`. 418/418 tests passing, no regressions.
+**Not yet done:** NSE-listed underlyings only for backtest options
+(NIFTY/BANKNIFTY; Sensex is BSE-listed, NSE Bhavcopy doesn't cover it),
+and Dhan's Forever-Order path (blocked on the product-type decision
+above).
 
 ---
 

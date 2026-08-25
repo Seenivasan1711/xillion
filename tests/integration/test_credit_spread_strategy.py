@@ -22,6 +22,7 @@ from strategies.credit_spread_weekly import CreditSpreadWeeklyStrategy
 from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, OrderType, Side, Tick
 from xillion.core.instruments import ResolvedInstrument
 from xillion.core.market_calendar import IST
+from xillion.core.multileg_execution import ExecutionOutcome, ExecutionResult, MultiLegExecutor
 
 DEFAULT_PARAMS = {p.name: p.default for p in CreditSpreadWeeklyStrategy.params_schema}
 FIXED_NOW = datetime(2026, 1, 6, 10, 0, tzinfo=IST)  # a Tuesday, inside the entry window
@@ -43,6 +44,11 @@ class FakeContext:
     def __init__(self, params: dict, spot=Decimal("24000"), expiry: date | None = None) -> None:
         self.params = params
         self.state: dict = {}
+        # Real bug found while adding GTT tests: OPTION_PRICE was a shared
+        # class-level dict -- ctx.OPTION_PRICE[...] = X in one test mutated
+        # it for every later test's fresh FakeContext too. Own copy per
+        # instance so tests are order-independent.
+        self.OPTION_PRICE = dict(self.OPTION_PRICE)
         self.capital_allocated = Decimal("1000000")
         self.mode = "paper"
         self._spot = spot
@@ -52,6 +58,10 @@ class FakeContext:
         self.subscribed: list[tuple[str, str]] = []
         self.critical_alerts: list[tuple[str, str]] = []
         self._order_status_override: dict[str, OrderStatus] = {}
+        self.gtt_enabled = False  # simulates a connected Zerodha-like broker
+        self.gtt_calls: list[dict] = []
+        self.gtt_cancelled: list[str] = []
+        self._next_gtt_id = 1
 
     # ── order placement (mirrors a synchronous paper/backtest fill) ────────
     async def place_order(self, request: OrderRequest) -> Order:
@@ -103,6 +113,20 @@ class FakeContext:
 
     async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
         self.subscribed.append((symbol, exchange))
+
+    async def place_protective_gtt(self, symbol, exchange, side, quantity, stop_price, target_price, last_price):
+        if not self.gtt_enabled:
+            return None  # no broker connected -- same as paper/backtest mode
+        self.gtt_calls.append(dict(
+            symbol=symbol, exchange=exchange, side=side, quantity=quantity,
+            stop_price=stop_price, target_price=target_price, last_price=last_price,
+        ))
+        gtt_id = str(self._next_gtt_id)
+        self._next_gtt_id += 1
+        return gtt_id
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        self.gtt_cancelled.append(gtt_id)
 
     def log(self, level: str, message: str, **fields) -> None:
         pass
@@ -209,6 +233,80 @@ async def test_profit_target_closes_position():
     await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("4"), ltt=now), ctx)
 
     assert ctx.state["open_position"] is None
+
+
+@pytest.mark.asyncio
+async def test_entry_places_a_protective_gtt_when_broker_supports_it():
+    """CP11 follow-up: a real broker-native backstop on the short leg,
+    alongside the software stop, when the connected broker offers GTT."""
+    params = dict(DEFAULT_PARAMS, short_offset_strikes=2, width_strikes=2)
+    ctx = FakeContext(params)
+    ctx.gtt_enabled = True
+    strategy = CreditSpreadWeeklyStrategy()
+
+    await strategy.on_bar(_entry_bar(ctx._spot), ctx)
+
+    spec_state = ctx.state["open_position"]["spec"]
+    assert len(ctx.gtt_calls) == 1
+    call = ctx.gtt_calls[0]
+    assert call["symbol"] == spec_state["short_symbol"]
+    assert call["side"] == Side.BUY  # closing side for a short position
+    assert call["quantity"] == spec_state["qty"]
+    # long fill=10, credit=20 -> stop_value=40, target_value=10 (base combo)
+    # short_leg_gtt_levels: long_entry_price + threshold.
+    assert call["stop_price"] == Decimal("10") + Decimal("40")
+    assert call["target_price"] == Decimal("10") + Decimal("10")
+    assert ctx.state["open_position"]["gtt_id"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_stop_loss_cancels_the_protective_gtt_on_genuine_exit():
+    params = dict(DEFAULT_PARAMS, short_offset_strikes=2, width_strikes=2)
+    ctx = FakeContext(params)
+    ctx.gtt_enabled = True
+    strategy = CreditSpreadWeeklyStrategy()
+    await strategy.on_bar(_entry_bar(ctx._spot), ctx)
+    gtt_id = ctx.state["open_position"]["gtt_id"]
+    assert gtt_id is not None
+
+    spec_state = ctx.state["open_position"]["spec"]
+    ctx.OPTION_PRICE[spec_state["short_symbol"]] = Decimal("55")
+    ctx.OPTION_PRICE[spec_state["long_symbol"]] = Decimal("10")
+    now = datetime.now(timezone.utc)
+    await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("55"), ltt=now), ctx)
+    await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("10"), ltt=now), ctx)
+
+    assert ctx.state["open_position"] is None
+    assert ctx.gtt_cancelled == [gtt_id]
+
+
+@pytest.mark.asyncio
+async def test_halted_for_human_preserves_the_protective_gtt(monkeypatch):
+    """The real broker-side position is unclear when execution halts for
+    human review -- cancelling the GTT here would remove exactly the
+    protection that unclear window still needs."""
+    params = dict(DEFAULT_PARAMS, short_offset_strikes=2, width_strikes=2)
+    ctx = FakeContext(params)
+    ctx.gtt_enabled = True
+    strategy = CreditSpreadWeeklyStrategy()
+    await strategy.on_bar(_entry_bar(ctx._spot), ctx)
+    gtt_id = ctx.state["open_position"]["gtt_id"]
+    assert gtt_id is not None
+
+    async def _halted_exit(self, spec, tag=None):
+        return ExecutionResult(outcome=ExecutionOutcome.HALTED_FOR_HUMAN, message="simulated unclear partial")
+
+    monkeypatch.setattr(MultiLegExecutor, "execute_exit", _halted_exit)
+
+    spec_state = ctx.state["open_position"]["spec"]
+    ctx.OPTION_PRICE[spec_state["short_symbol"]] = Decimal("55")
+    ctx.OPTION_PRICE[spec_state["long_symbol"]] = Decimal("10")
+    now = datetime.now(timezone.utc)
+    await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("55"), ltt=now), ctx)
+    await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("10"), ltt=now), ctx)
+
+    assert ctx.gtt_cancelled == []  # NOT cancelled -- position state is unclear
+    assert len(ctx.critical_alerts) == 1
 
 
 @pytest.mark.asyncio
