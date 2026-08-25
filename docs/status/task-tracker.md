@@ -171,12 +171,12 @@ call makes 0.
 
 ---
 
-### 🔵 CP3 — Backfill + run history `IN PROGRESS 2026-08-25 — real backfill running now`
+### ✅ CP3 — Backfill + run history `DONE 2026-08-26 — 2021-2026 NIFTY+BANKNIFTY backfilled`
 - [x] Backfill CLI (`scripts/backfill.py`, resumable year-by-year) +
       `POST /api/data/backfill` + `GET /api/data/backfill` (job status) +
       `GET /api/data/coverage`, plus a Coverage & backfill panel under
       Settings → Data Providers
-- [ ] **Run the real 2–5 year backfill — 🔵 IN PROGRESS (second pass).**
+- [x] **Run the real 2–5 year backfill — DONE 2026-08-26.**
       Was blocked on this sandbox not reaching Supabase; turned out the
       project was paused (Rakesh resumed it 2026-08-25), and the
       direct-connection hostname is IPv6-only anyway — switched `.env` to
@@ -252,8 +252,15 @@ call makes 0.
       first run's bad `bar_coverage` row (`from_date` moved from
       2021-01-01 to 2024-01-01, the genuinely-verified boundary) and
       re-ran the backfill for just 2021-2023 through the fixed code.
-      Running now; will be marked done here once it completes and the
-      `bar` table is spot-checked again.
+      **Completed 2026-08-26** — 2,680,368 real bars persisted for
+      2021-01-01 → 2023-12-29 (spot-checked directly against the live
+      Supabase DB, not trusted from the run's own log line, which
+      misleadingly printed "0 bars" — a known cosmetic quirk: it counts
+      rows matching the literal `--symbol NIFTY` argument, not the many
+      distinct per-contract tradingsymbols the whole-file-bulk fetch
+      actually persists). Combined with the earlier 2024-2026 run,
+      `bar_coverage` now shows one continuous row
+      (`*:BANKNIFTY,NIFTY`/NFO) spanning **2021-01-01 → 2026-08-25**.
 - [x] Persist `BacktestRun`/`BacktestTrade` — tables existed since migration
       001/002 but nothing ever wrote to them; wired into all three
       `/backtest/run*` endpoints
@@ -263,8 +270,8 @@ call makes 0.
 **Verify:** Browser-verified end-to-end against a disposable local SQLite DB
 (same Supabase-unreachable reason above) — real login, real click-through,
 real NSE network fetch. **2+ years of NIFTY/BANKNIFTY option history
-queryable locally** is not yet true for the real Supabase DB — that's
-exactly the one unchecked item above.
+queryable locally is now true for the real Supabase DB too** — 5+ years,
+2021-2026, confirmed by direct query, not just the run's own log output.
 
 **🐛 Real bug caught by the browser check, not the unit tests:** the CP2
 bulk `upsert_bars` blew past SQLite's default 999-bound-parameter limit

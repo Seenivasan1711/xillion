@@ -65,20 +65,6 @@ five items resolved by Rakesh's decisions — see Done)
       **Blocks:** alerts, kill-switch notifications.
       **Cost:** free, ~5 min.
 
-- [ ] **Run the real 2–5yr NSE backfill — 🔵 IN PROGRESS, Claude is running
-      it, nothing left for you here.** The original blocker (this dev
-      sandbox couldn't resolve Supabase's direct-connection hostname)
-      turned out to be your project being paused — you resumed it
-      2026-08-25. Switched `.env` to the Session pooler connection
-      (IPv4-reachable) once resumed. Scoped to **NIFTY + BANKNIFTY only**
-      (your call, 2026-08-25) — the unfiltered whole-NFO-market version
-      would have been ~85M rows / ~25-30GB, well past free-tier Supabase
-      storage; added a real `--underlying-filter` option to
-      `scripts/backfill.py` + `data_providers/nse_bhavcopy.py` to scope it
-      down (~3.7M rows / ~850MB estimated for the full filtered range).
-      Running in the background, chunked by year, resumable. Will move to
-      Done for real once it completes.
-
 - [ ] **Decide Zerodha/Dhan product type for multi-day option holds
       (MIS/INTRADAY vs. NRML/CNC/MTF) — not urgent, flagging for
       awareness.** Found while wiring CP11's real GTT/Forever-Order
@@ -125,6 +111,10 @@ five items resolved by Rakesh's decisions — see Done)
 - [x] **Funding Pips account + challenge purchase.** Already had this
       before being asked (2026-08-25) — will use it when Gold Lane B1
       actually starts.
+- [x] **Real 2-5yr NSE backfill — done 2026-08-26.** 2021-2026 NIFTY +
+      BANKNIFTY history fully persisted (2,680,368 bars for 2021-2023 legacy
+      format alone). `bar_coverage` shows one continuous span 2021-01-01 →
+      2026-08-25.
 - [x] **Redis provider choice — decided: Upstash** (2026-08-25, free tier
       with the more generous usage limit, same reasoning as Supabase for
       Postgres). Not wired into anything yet — only needed if CP13's
