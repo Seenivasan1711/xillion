@@ -2,6 +2,7 @@ export { default as Sparkline } from './Sparkline'
 export { default as Gauge } from './Gauge'
 export { default as SegmentedControl } from './SegmentedControl'
 export { default as Badge } from './Badge'
+export { Skeleton, SkeletonCard, SkeletonRows } from './Skeleton'
 
 export function fmtINR(n: number | null | undefined, opts: { signed?: boolean } = {}): string {
   if (n == null || isNaN(n)) return '—'

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { BookOpen, Download, RefreshCw } from 'lucide-react'
 import { api, type JournalEntryRow, type StrategyClass } from '../lib/api'
-import { Badge, fmtINR, fmtTime } from '../components/ui'
+import { Badge, fmtINR, fmtTime, SkeletonRows } from '../components/ui'
 
 const FAILURE_MODES = [
   'stopped_out', 'target_missed', 'late_entry', 'slippage',
@@ -142,7 +142,7 @@ export default function Journal() {
         )}
 
         {loading && entries.length === 0 ? (
-          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>Loading journal…</div>
+          <div style={{ padding: '16px 18px' }}><SkeletonRows rows={6} cols={5} /></div>
         ) : entries.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
             <BookOpen size={20} style={{ color: 'var(--text-faint)', marginBottom: 8 }} />

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, RefreshCw, Search } from 'lucide-react'
 import { api, MatchedTrade } from '../lib/api'
 import { wsClient } from '../lib/ws'
-import { Badge, SegmentedControl, fmtINR, fmtTime } from '../components/ui'
+import { Badge, SegmentedControl, fmtINR, fmtTime, Skeleton, SkeletonRows } from '../components/ui'
 
 export default function Trades() {
   const [trades, setTrades] = useState<MatchedTrade[]>([])
@@ -93,29 +93,40 @@ export default function Trades() {
       </div>
 
       {/* Stat strip */}
-      <div className="grid-4">
-        <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total trades</div>
-          <div className="hero-num sm">{filtered.length}</div>
+      {loading ? (
+        <div className="grid-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card card-pad">
+              <Skeleton width="60%" height={10} style={{ marginBottom: 10 }} />
+              <Skeleton width="45%" height={22} />
+            </div>
+          ))}
         </div>
-        <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total P&L</div>
-          <div className={`hero-num sm ${totalPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(totalPnl, { signed: true })}</div>
-        </div>
-        <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Avg P&L / trade</div>
-          <div className={`hero-num sm ${avgPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(avgPnl, { signed: true })}</div>
-        </div>
-        <div className="card card-pad">
-          <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Win rate</div>
-          <div className="hero-num sm">
-            {winRate}<span className="faint" style={{ fontSize: 18 }}>%</span>
+      ) : (
+        <div className="grid-4">
+          <div className="card card-pad">
+            <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total trades</div>
+            <div className="hero-num sm">{filtered.length}</div>
           </div>
-          <div className="prog" style={{ marginTop: 10 }}>
-            <span style={{ width: `${winRate}%` }} />
+          <div className="card card-pad">
+            <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total P&L</div>
+            <div className={`hero-num sm ${totalPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(totalPnl, { signed: true })}</div>
+          </div>
+          <div className="card card-pad">
+            <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Avg P&L / trade</div>
+            <div className={`hero-num sm ${avgPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(avgPnl, { signed: true })}</div>
+          </div>
+          <div className="card card-pad">
+            <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Win rate</div>
+            <div className="hero-num sm">
+              {winRate}<span className="faint" style={{ fontSize: 18 }}>%</span>
+            </div>
+            <div className="prog" style={{ marginTop: 10 }}>
+              <span style={{ width: `${winRate}%` }} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Table with embedded filter */}
       <div className="card" style={{ overflow: 'hidden' }}>
@@ -148,7 +159,7 @@ export default function Trades() {
         </div>
 
         {loading ? (
-          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>Loading trades…</div>
+          <div style={{ padding: '16px 18px' }}><SkeletonRows rows={6} cols={6} /></div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
             {trades.length === 0

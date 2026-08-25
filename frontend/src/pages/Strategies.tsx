@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Pause, Play, Trash2, X, Clock } from 'lucide-react'
 import { api, type CreateInstanceRequest, type ParamSpec, type StrategyClass, type StrategyInstance } from '../lib/api'
-import { Badge, SegmentedControl, fmtINR } from '../components/ui'
+import { Badge, SegmentedControl, fmtINR, SkeletonCard } from '../components/ui'
 
 // Re-use lucide Gear as Settings icon
 import { Settings as GearIcon } from 'lucide-react'
@@ -106,7 +106,11 @@ export default function Strategies() {
 
       {/* Instances tab */}
       {tab === 'instances' && (
-        instances.length === 0 ? (
+        loading && instances.length === 0 ? (
+          <div className="grid-2">
+            {Array.from({ length: 2 }).map((_, i) => <SkeletonCard key={i} lines={2} />)}
+          </div>
+        ) : instances.length === 0 ? (
           <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
             <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>No instances yet</div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6 }}>
@@ -139,7 +143,11 @@ export default function Strategies() {
 
       {/* Classes tab */}
       {tab === 'classes' && (
-        strategies.length === 0 && !loading ? (
+        loading && strategies.length === 0 ? (
+          <div className="grid-2">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} lines={3} />)}
+          </div>
+        ) : strategies.length === 0 && !loading ? (
           <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
             <div style={{ fontSize: 13, color: 'var(--text-faint)' }}>No strategies found</div>
             <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 6 }}>

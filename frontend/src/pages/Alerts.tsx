@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bell, CheckCircle, RefreshCw, Search } from 'lucide-react'
 import { api, type SignalLogEntry } from '../lib/api'
-import { Badge, fmtTime } from '../components/ui'
+import { Badge, fmtTime, SkeletonRows } from '../components/ui'
 
 export default function Alerts() {
   const [signals, setSignals] = useState<SignalLogEntry[]>([])
@@ -100,7 +100,7 @@ export default function Alerts() {
         </div>
 
         {loading && signals.length === 0 ? (
-          <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>Loading signals…</div>
+          <div style={{ padding: '16px 18px' }}><SkeletonRows rows={6} cols={5} /></div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
             <Bell size={20} style={{ color: 'var(--text-faint)', marginBottom: 8 }} />

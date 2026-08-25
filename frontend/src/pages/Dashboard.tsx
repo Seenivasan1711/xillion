@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCw, Pause, Play } from 'lucide-react'
 import { api, type BrokerStatus, type PortfolioSummary, type StrategyInstance } from '../lib/api'
 import { wsClient } from '../lib/ws'
-import { Sparkline, Gauge, Badge, fmtINR, fmtPct, fmtTime } from '../components/ui'
+import { Sparkline, Gauge, Badge, fmtINR, fmtPct, fmtTime, SkeletonRows } from '../components/ui'
 
 interface LiveTick {
   symbol: string
@@ -365,7 +365,9 @@ export default function Dashboard() {
           <span className="title">Active strategies</span>
           <button className="btn ghost sm">View all</button>
         </div>
-        {instances.length === 0 ? (
+        {loading && instances.length === 0 ? (
+          <div style={{ padding: '16px 18px' }}><SkeletonRows rows={3} cols={6} /></div>
+        ) : instances.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-faint)' }}>
             <div style={{ fontSize: 13 }}>No strategy instances yet</div>
             <div style={{ fontSize: 11, marginTop: 6 }}>Create an instance in the Strategies page to get started</div>
