@@ -4,8 +4,45 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-25
-**Current position:** **The entire Track A extension (CP11-CP15) is now
+**Last updated:** 2026-08-26
+**Current position:** **`feat/options-alert-engine` was merged to `main`
+2026-08-26 (fast-forward, 259 files, all of Track A + Track A extension +
+CP15 + a full frontend UX overhaul) and pushed.** `main` is now the current
+baseline; a new branch will be created off it for the next phase (Track B
+asset pipelines + remaining deferred Track A items). This session (2026-08-25
+into 2026-08-26) also did a large frontend UX pass not itemized as its own
+checkpoint: new SVG logo/favicon, sidebar collapse, command palette,
+skeleton loaders, a redesigned login page, light-theme contrast/glassy
+rebalance, Settings split into Settings + Configuration, Logs merged into a
+single Dev page with a real WS-connection-status badge, and a Telegram
+"send test message" / Dhan "check connection" flow. Both Dhan and Telegram
+are now genuinely connected and verified live on Render (manual-tasks.md
+items #10/#11 resolved).
+
+**Real production bug found and fixed 2026-08-26, while diagnosing why a
+Dhan paper instance kept showing "No live tick source":** the `dhanhq` SDK's
+`MarketFeed.__init__` calls `asyncio.set_event_loop(self.loop)` on whatever
+thread constructs it — since `brokers/dhan.py`'s `_start_feed()` runs on the
+main thread (the same one FastAPI/uvicorn's server loop runs on), this
+silently overwrote the process's default event loop. Manifested in
+production as `dhan_tick_broadcaster` crash-looping with `cannot reuse
+already awaited coroutine` until `task_supervisor.py`'s restart budget (5
+restarts/10min) was exhausted, after which the feed just silently stayed
+dead — no further alert, nothing to notice short of checking Dev logs.
+Fixed by restoring the correct event loop immediately after constructing
+`MarketFeed`. Two related bugs found in the same pass: (1) every
+`_try_connect_dhan()`/`_try_connect_zerodha()` call (daily refresh, manual
+reconnect, settings save) leaked a supervised broadcaster task, since the
+previous one's handle was never stored or cancelled — now tracked on
+`app.state` and cancelled before starting a new one; (2) the SDK's own WS
+reconnect loop retries every ~1s forever uncapped, so a bad connection
+flooded the Dev-page logs at roughly 1 line/sec indefinitely — now gives up
+after 10 consecutive failures and alerts once via Telegram instead. Also
+added full-traceback capture to `task_supervisor.py`'s crash logging (it
+previously only logged `str(exc)`, making a crash like this one very hard to
+diagnose from Telegram/Dev-log output alone).
+
+**Previous position (2026-08-25), preserved for history:** **The entire Track A extension (CP11-CP15) is now
 code-complete.** Track A original (CP1-CP10) was already done. In this
 session: CP11 (multi-leg execution + protective orders) done, plus its own
 follow-up (Options Stage 2 backtest genuinely unblocked, with a real
@@ -60,7 +97,10 @@ per-instance `risk_limits_json`), and guessing at that mapping risks
 getting real risk enforcement wrong, not just a cosmetic bug. Left as an
 open design gap rather than faked. 404/404 tests passing.
 
-**Active branch:** `feat/options-alert-engine`
+**Active branch:** `main` (merged from `feat/options-alert-engine` 2026-08-26,
+pushed). Next phase's work should start on a fresh branch off this `main` —
+name TBD, confirm with Rakesh before creating per the worktree convention in
+the global `CLAUDE.md`.
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
 > `status/ process/ architecture/ product/ strategies/ archive/` folders (all
@@ -1239,12 +1279,12 @@ Infrastructure each asset needs before its pipeline can start:
 | ~~3~~ | ~~CA opinion on Funding Pips prop-firm income~~ | ~~Gold Lane B1 S4~~ | ✅ **Resolved 2026-08-25** — decided not needed, will declare as foreign income on ITR directly |
 | ~~4~~ | ~~Funding Pips account + challenge~~ | ~~Gold Lane B1 S3 onward~~ | ✅ **Resolved 2026-08-25** — already had this |
 | ~~5~~ | ~~Confirm ₹50k starting capital, ₹1,000/mo first milestone~~ | ~~Options S4~~ | ✅ **Resolved 2026-08-25** — confirmed yes |
-| 6 | Run `python scripts/backfill.py` for real (2-5yr) | CP3 close-out, Options S2 | 🔵 **In progress** — Claude running it now (NIFTY+BANKNIFTY-scoped, see CP3 follow-up below), no longer blocked on you |
+| ~~6~~ | ~~Run `python scripts/backfill.py` for real (2-5yr)~~ | ~~CP3 close-out, Options S2~~ | ✅ **Done 2026-08-26** — 2021-2026 NIFTY+BANKNIFTY, one continuous `bar_coverage` span, confirmed via direct DB query |
 | ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
 | ~~8~~ | ~~Confirm free-tier Redis provider choice~~ | ~~CP13 (only if in-memory state turns out insufficient)~~ | ✅ **Resolved 2026-08-25** — decided: Upstash. Not wired in yet, only needed if CP13's in-memory state turns out insufficient |
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking — **explicitly deferred by Rakesh 2026-08-25** |
-| 10 | **Dhan API access token + client ID** (dhan.co → generate via web/app UI, enter via Settings → Brokers → Dhan) | CP15 live verification, **and now the fastest free path to seeing paper mode run end-to-end (no Zerodha needed)** | Open — **top priority**, see `manual-tasks.md`, code + DB-backed Settings UI both done and waiting |
-| 11 | Telegram bot (create via @BotFather, ~5 min) | Alerts, kill-switch notifications | Open — enter via Settings → Notifications (DB-backed as of 2026-08-25, no `.env` editing) |
+| ~~10~~ | ~~**Dhan API access token + client ID**~~ | ~~CP15 live verification~~ | ✅ **Resolved 2026-08-26** — connected live on Render; see the crash-loop bug found+fixed same day, above |
+| ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
 
 ---
 

@@ -18,13 +18,19 @@ engine, live/paper trading engine, multi-leg option execution, protective
 stops (software + real Zerodha GTT), trailing stops, an 18-check risk
 engine, EOD reconciliation, a strategy journal, an MCP server + AI
 assistant, Telegram alerting, and Dhan as a second broker — all tested
-(431 tests passing), all deployed.
+(441 tests passing), all deployed. `feat/options-alert-engine` was merged
+to `main` 2026-08-26 (fast-forward) and pushed — `main` is now the current
+baseline for the next phase.
 
 You can use all of this today:
 
 - **Paper trading** — spawn any strategy in paper mode against real live
-  Dhan market data. No real money. (Just fixed 2026-08-26: a Dhan-only
-  setup couldn't resolve option strikes at all — see §4.)
+  Dhan market data. No real money. Two real bugs fixed 2026-08-26: a
+  Dhan-only setup couldn't resolve option strikes at all (see §4), and
+  separately, the Dhan live-tick feed itself was crash-looping in
+  production and silently dying for good after 5 restarts — a genuine SDK
+  event-loop bug, not a config issue. Both Dhan and Telegram are now
+  connected and verified working live on Render.
 - **Backtesting** — 2021–2026 real NIFTY + BANKNIFTY history is fully
   loaded (5+ years, continuous). Run any strategy against it from the
   Backtest page.
@@ -76,7 +82,7 @@ exists. None of it is started.
 
 | I want to... | Blocked by | Whose call |
 |---|---|---|
-| See a paper trade actually open | ~~Instrument cache was Zerodha-only~~ **Fixed 2026-08-26** — just needs the strategy's entry-day gate to line up (see below) | Done |
+| See a paper trade actually open | ~~Instrument cache was Zerodha-only~~ + ~~Dhan feed crash-looping~~ **both fixed 2026-08-26** — just needs the strategy's entry-day gate to line up (see below) | Done |
 | Trade Options live with real money | (a) Zerodha/Dhan product-type decision — credit spread holds multi-day, both brokers hardcode intraday-only product today (b) static-IP whitelisting for Zerodha orders | You |
 | Get real-broker GTT protection on Dhan (not just software stops) | Dhan's Forever Orders only accept CNC/MTF, not the INTRADAY product currently used — same product-type decision as above | You |
 | Start the Gold/XAUUSD pipeline | MT5 hosting decision (VPS vs. bridge service) | You |

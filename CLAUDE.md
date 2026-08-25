@@ -70,7 +70,10 @@ Local dev and Render share the **same Supabase Postgres** database (same
 
 1. Develop and test locally against Supabase (`make dev`; local `.env` has
    `APP_ENV=production` intentionally — see the comment in `.env` for why).
-2. Push to GitHub (`feat/options-alert-engine`) once local testing looks good.
+2. Push to GitHub (whatever the active branch is — see `docs/status/task-tracker.md`'s
+   "Active branch" line; `feat/options-alert-engine` was merged to `main`
+   2026-08-26, a new branch follows for the next phase) once local testing
+   looks good.
 3. Render is normally **stopped/paused** — it's not the primary dev loop.
    It only gets manually resumed to demo/share the app while away from home.
    Don't assume Render is live, and don't suggest keeping it running "just in

@@ -13,35 +13,13 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-25 (Dhan promoted to top priority, Kite Connect
-demoted to low-priority/later; Telegram config also moved to Settings UI;
-five items resolved by Rakesh's decisions — see Done)
+**Last updated:** 2026-08-26 (Dhan + Telegram both connected live on Render;
+a real crash-loop bug in the Dhan feed found and fixed same day — see
+`task-tracker.md`)
 
 ---
 
 ## Open
-
-- [ ] **🔴 Dhan API access token + client ID — IMPORTANT, DO THIS NOW.**
-      dhan.co account → generate an access token via the Dhan web/app UI
-      (Profile → DhanHQ Trading APIs). Optional: PIN + TOTP secret for
-      auto-refresh when the token expires (~daily).
-      **Enter it in the app itself now, not `.env`:** Settings → Brokers →
-      Dhan card → paste Client ID + Access Token → Save & Connect. As of
-      2026-08-25 this is stored encrypted in the DB (`BrokerCredential`
-      table via `xillion/auth/credstore.py`), the same pattern Zerodha
-      already used — added this session specifically so multi-provider
-      credentials don't have to live in `.env` and can be entered/rotated
-      from the running app (see the question this answered, further down
-      in `task-tracker.md`'s CP15 follow-up).
-      As of the same session, paper mode no longer needs Zerodha at all —
-      three real bugs were found and fixed that had hardcoded paper mode's
-      live-tick feed to Zerodha and silently dropped `PaperBroker`'s price
-      updates for *any* broker. With this token, you can see the app place
-      real paper trades end-to-end for **free**, no Kite Connect
-      subscription needed.
-      **Blocks:** CP15 live verification, and now the fastest path to
-      seeing the whole system run for real.
-      **Cost:** free.
 
 - [ ] **Kite Connect developer app — LOW PRIORITY, LATER.** Register at
       developers.kite.trade, get API key + secret. Needs a Zerodha account
@@ -54,16 +32,6 @@ five items resolved by Rakesh's decisions — see Done)
       not before.
       **Blocks:** the Zerodha-specific live path, Options S4 going live.
       **Cost:** ₹500/mo.
-
-- [ ] **Telegram bot** — create via @BotFather, get the bot token + your
-      chat ID.
-      **Enter it in the app now, not `.env`:** Settings → Notifications →
-      paste Bot token + Chat ID → Save. As of 2026-08-25 this is DB-backed
-      (`/settings/notifications`, same encrypted-storage pattern as
-      Dhan/Zerodha) and applies immediately to the running notifier, no
-      restart needed.
-      **Blocks:** alerts, kill-switch notifications.
-      **Cost:** free, ~5 min.
 
 - [ ] **Decide Zerodha/Dhan product type for multi-day option holds
       (MIS/INTRADAY vs. NRML/CNC/MTF) — not urgent, flagging for
@@ -100,6 +68,21 @@ five items resolved by Rakesh's decisions — see Done)
 
 ## Done
 
+- [x] **Dhan API access token + client ID — connected live on Render,
+      2026-08-26.** Entered via Settings → Brokers → Dhan card, stored
+      encrypted in the DB. **Same day, a real production bug was found and
+      fixed:** the `dhanhq` SDK's `MarketFeed.__init__` was corrupting the
+      main event loop, crash-looping `dhan_tick_broadcaster` with "cannot
+      reuse already awaited coroutine" until it exhausted its restart
+      budget and gave up silently — this is why paper instances on Dhan
+      showed "No live tick source" with the feed never coming back. Fixed
+      in `brokers/dhan.py` + `xillion/main.py` + `xillion/observability/
+      task_supervisor.py` (see `task-tracker.md` for the full writeup);
+      also fixed a leaked-broadcaster-task bug and an unbounded feed-error
+      log flood found while chasing it. Merged to `main` 2026-08-26.
+- [x] **Telegram bot — connected live on Render, 2026-08-26.** Bot token +
+      chat ID entered via Settings → Notifications, confirmed working via
+      the "Send test message" button.
 - [x] **Deploy checklist** (Render Blueprint, secrets, `APP_BASE_URL`) —
       **all completed, confirmed by Rakesh 2026-08-25.**
 - [x] **Confirm ₹50k starting capital / ₹1,000/mo first milestone.**
