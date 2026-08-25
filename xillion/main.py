@@ -309,6 +309,28 @@ async def _daily_token_refresh(app: FastAPI) -> None:
             logger.error("daily token refresh failed", error=str(exc))
 
 
+def _select_instrument_cache_broker(app: FastAPI) -> tuple:
+    """Pick which connected broker's instrument dump refreshes the shared
+    `instrument` table. Zerodha preferred when both are connected (matches
+    the existing convention of Zerodha as primary broker elsewhere in this
+    file) -- refreshing from both would be wrong anyway, since the table is
+    truncate-and-reload, not additive, and a second broker's own dump would
+    just overwrite the first's.
+
+    Was hardcoded to Zerodha-only, which meant a Dhan-only setup (no
+    Zerodha connected at all) never populated the `instrument` table --
+    resolve_strike() reads it via load_instrument_rows() and would silently
+    find zero rows, so a Dhan-only paper/live instance could start and run
+    but could never actually resolve an option strike to trade. Found
+    2026-08-26 while a real Dhan-only paper instance sat at 0 trades."""
+    for name in ("Zerodha Primary", "Dhan Primary"):
+        info = app.state.broker_instances.get(name)
+        broker = info.get("instance") if info else None
+        if broker is not None:
+            return broker, name
+    return None, None
+
+
 async def _daily_instrument_refresh(app: FastAPI) -> None:
     """At 8:45 AM IST (after the 6:15 AM token refresh, before 9:15 market
     open), refresh the cached options instrument dump."""
@@ -328,13 +350,12 @@ async def _daily_instrument_refresh(app: FastAPI) -> None:
         logger.info("instrument cache refresh scheduled", sleep_seconds=int(sleep_secs))
         await asyncio.sleep(sleep_secs)
         try:
-            info = app.state.broker_instances.get("Zerodha Primary")
-            broker = info.get("instance") if info else None
+            broker, source = _select_instrument_cache_broker(app)
             if broker is None:
-                logger.warning("instrument cache refresh skipped — Zerodha not connected")
+                logger.warning("instrument cache refresh skipped — no broker connected")
                 continue
             count = await refresh_instrument_cache(broker, get_session_factory)
-            logger.info("instrument cache refresh complete", row_count=count)
+            logger.info("instrument cache refresh complete", row_count=count, source=source)
         except Exception as exc:
             logger.error("instrument cache refresh failed", error=str(exc))
 

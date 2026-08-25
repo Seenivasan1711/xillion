@@ -35,6 +35,7 @@ symbol -- OrderRequest carries neither field explicitly, matching the same
 limitation zerodha.py already has (it hardcodes NSE + MIS product type).
 """
 import asyncio
+import csv
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -60,6 +61,7 @@ from xillion.core.events import (
     Tick,
     TimeInForce,
 )
+from xillion.core.instruments import InstrumentRow
 
 logger = structlog.get_logger(__name__)
 
@@ -519,3 +521,70 @@ class DhanBroker(Broker):
                     continue
                 out[sym] = Tick(symbol=sym, ltp=Decimal(str(payload.get("last_price", 0))), ltt=now)
         return out
+
+    # ── Instrument master (options resolution) ──────────────────────────────────
+
+    async def fetch_instrument_dump(
+        self, exchanges: Optional[list[str]] = None,
+    ) -> list[InstrumentRow]:
+        """Fetch Dhan's scrip master and filter to F&O contracts, translated
+        into the same InstrumentRow shape zerodha.py's fetch_instrument_dump
+        produces so xillion/core/instruments.py's resolve_option() works
+        identically regardless of which broker is the instrument-cache
+        source (see xillion/core/instrument_cache.py -- one shared `instrument`
+        DB table, refreshed from whichever broker main.py picks).
+
+        Verified 2026-08-26 against a real download of the live scrip master
+        (images.dhan.co/api-data/api-scrip-master-detailed.csv), not
+        assumed: SYMBOL_NAME is per-contract-unique for options (e.g.
+        "NIFTY-Sep2026-29150-CE"), matching the exact convention
+        _resolve()/resolve_security() already looks up by -- so that's used
+        as tradingsymbol here, not the human-readable DISPLAY_NAME
+        ("NIFTY 29 SEP 29150 CALL"), so a strike resolved from this dump can
+        be round-tripped straight into place_order().
+        """
+        exchanges = exchanges if exchanges is not None else ["NFO", "BFO"]
+        wanted_exch_ids = {"NSE" if e == "NFO" else "BSE" for e in exchanges if e in ("NFO", "BFO")}
+        wanted_instruments = {"FUTIDX", "OPTIDX", "FUTSTK", "OPTSTK"}
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            master_path = await ensure_scrip_master(client)
+
+        rows: list[InstrumentRow] = []
+        with master_path.open(encoding="utf-8", errors="replace") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("EXCH_ID") not in wanted_exch_ids:
+                    continue
+                if row.get("INSTRUMENT") not in wanted_instruments:
+                    continue
+                try:
+                    security_id = int(row["SECURITY_ID"])
+                except (KeyError, ValueError):
+                    continue
+                symbol_name = row.get("SYMBOL_NAME")
+                if not symbol_name:
+                    continue
+                expiry_raw = row.get("SM_EXPIRY_DATE")
+                expiry = date.fromisoformat(expiry_raw) if expiry_raw else None
+                strike_raw = row.get("STRIKE_PRICE")
+                strike: Optional[Decimal] = None
+                if strike_raw:
+                    parsed_strike = Decimal(strike_raw)
+                    if parsed_strike > 0:
+                        strike = parsed_strike
+                option_type = row.get("OPTION_TYPE") if row.get("OPTION_TYPE") in ("CE", "PE") else None
+                exchange = "NFO" if row["EXCH_ID"] == "NSE" else "BFO"
+                rows.append(InstrumentRow(
+                    instrument_token=security_id,
+                    exchange=exchange,
+                    tradingsymbol=symbol_name,
+                    name=row.get("UNDERLYING_SYMBOL") or symbol_name,
+                    expiry=expiry,
+                    strike=strike,
+                    option_type=option_type,
+                    segment=row.get("SEGMENT", ""),
+                    lot_size=int(float(row.get("LOT_SIZE") or 1)),
+                    tick_size=Decimal(row.get("TICK_SIZE") or "0.05"),
+                ))
+        return rows

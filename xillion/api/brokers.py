@@ -101,3 +101,23 @@ async def connection_status(name: str, request: Request):
         "last_error": info.get("last_error"),
         "connected_at": info.get("connected_at"),
     }
+
+
+@router.post("/refresh-instruments")
+async def refresh_instruments(request: Request):
+    """Manually refresh the shared `instrument` table (options strike
+    resolution) from whichever broker is connected, instead of waiting for
+    the 8:45 AM IST scheduled refresh. Useful right after connecting a new
+    broker for the first time -- resolve_strike() reads this table, so an
+    instance can be "running" with zero trades simply because nothing has
+    populated it yet, not because anything is actually broken."""
+    import xillion.main as main_module
+    from xillion.core.instrument_cache import refresh_instrument_cache
+    from xillion.db.session import get_session_factory
+
+    broker, source = main_module._select_instrument_cache_broker(request.app)
+    if broker is None:
+        raise HTTPException(status_code=409, detail="No broker connected to refresh instruments from")
+
+    count = await refresh_instrument_cache(broker, get_session_factory)
+    return {"source": source, "row_count": count}

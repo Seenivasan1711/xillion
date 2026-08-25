@@ -149,3 +149,86 @@ def test_dhan_to_order_falls_back_to_order_id_with_no_correlation_id():
     row = {"orderId": "555", "transactionType": "BUY", "orderStatus": "TRANSIT", "tradingSymbol": "X", "quantity": 1}
     order = _broker()._dhan_to_order(row)
     assert order.client_order_id == "555"
+
+
+# ── fetch_instrument_dump (2026-08-26 fix: Dhan-only setups couldn't ───────
+# resolve option strikes, since only zerodha.py had ever implemented this) ─
+
+_REAL_HEADER = (
+    "EXCH_ID,SEGMENT,SECURITY_ID,ISIN,INSTRUMENT,UNDERLYING_SECURITY_ID,UNDERLYING_SYMBOL,"
+    "SYMBOL_NAME,DISPLAY_NAME,INSTRUMENT_TYPE,SERIES,LOT_SIZE,SM_EXPIRY_DATE,STRIKE_PRICE,"
+    "OPTION_TYPE,TICK_SIZE,EXPIRY_FLAG,BRACKET_FLAG,COVER_FLAG,ASM_GSM_FLAG,ASM_GSM_CATEGORY,"
+    "BUY_SELL_INDICATOR,BUY_CO_MIN_MARGIN_PER,BUY_CO_SL_RANGE_MAX_PERC,BUY_CO_SL_RANGE_MIN_PERC,"
+    "BUY_BO_MIN_MARGIN_PER,BUY_BO_PROFIT_RANGE_MAX_PERC,BUY_BO_PROFIT_RANGE_MIN_PERC,MTF_LEVERAGE,"
+    "SM_UPPER_LIMIT,SM_LOWER_LIMIT,SM_FREEZE_QTY,"
+)
+# Real NIFTY OPTIDX row, copied verbatim from a live fetch of
+# images.dhan.co/api-data/api-scrip-master-detailed.csv (2026-08-26).
+_REAL_NIFTY_CE_ROW = (
+    "NSE,D,35084,NA,OPTIDX,26000,NIFTY,NIFTY-Sep2026-29150-CE,NIFTY 29 SEP 29150 CALL,OP,NA,65.0,"
+    "2026-09-29,29150.00000,CE,5.0000,M,N,N,N,NA,A,0,0,0,0,0,0,0,20.1000,0.0500,1756,"
+)
+# A NIFTY future -- STRIKE_PRICE is a negative placeholder, not a real strike.
+_REAL_NIFTY_FUT_ROW = (
+    "NSE,D,49081,NA,FUTIDX,26000,NIFTY,NIFTY-Sep2026-FUT,NIFTY SEP FUT,FF,NA,65.0,"
+    "2026-09-29,-0.01000,XX,0.0500,M,N,N,N,NA,A,0,0,0,0,0,0,0,26050.0000,20450.0000,1800,"
+)
+# An equity row -- should be filtered out (not F&O).
+_REAL_EQUITY_ROW = (
+    "NSE,E,11536,INE002A01018,EQUITY,NA,RELIANCE,RELIANCE,RELIANCE INDUSTRIES,ES,EQ,1.0,,,,"
+    "0.0500,,N,N,N,NA,A,0,0,0,0,0,0,0,0,0,0,"
+)
+
+
+def _write_master(tmp_path, rows):
+    p = tmp_path / "scrip_master.csv"
+    p.write_text(_REAL_HEADER + "\n" + "\n".join(rows) + "\n")
+    return p
+
+
+@pytest.mark.asyncio
+async def test_fetch_instrument_dump_parses_a_real_option_row(tmp_path, monkeypatch):
+    master_path = _write_master(tmp_path, [_REAL_NIFTY_CE_ROW, _REAL_EQUITY_ROW])
+    async def _fake_ensure(client): return master_path
+    monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
+
+    broker = _broker()
+    rows = await broker.fetch_instrument_dump(["NFO"])
+
+    assert len(rows) == 1, "the equity row should have been filtered out"
+    row = rows[0]
+    assert row.tradingsymbol == "NIFTY-Sep2026-29150-CE", "must match what _resolve() looks up by"
+    assert row.name == "NIFTY"
+    assert row.exchange == "NFO"
+    assert row.option_type == "CE"
+    assert row.strike == Decimal("29150.00000")
+    assert row.expiry.isoformat() == "2026-09-29"
+    assert row.lot_size == 65
+    assert row.instrument_token == 35084
+
+
+@pytest.mark.asyncio
+async def test_fetch_instrument_dump_future_has_no_strike_or_option_type(tmp_path, monkeypatch):
+    master_path = _write_master(tmp_path, [_REAL_NIFTY_FUT_ROW])
+    async def _fake_ensure(client): return master_path
+    monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
+
+    broker = _broker()
+    rows = await broker.fetch_instrument_dump(["NFO"])
+
+    assert len(rows) == 1
+    assert rows[0].strike is None, "STRIKE_PRICE is a negative placeholder for futures, not a real strike"
+    assert rows[0].option_type is None
+    assert rows[0].tradingsymbol == "NIFTY-Sep2026-FUT"
+
+
+@pytest.mark.asyncio
+async def test_fetch_instrument_dump_defaults_to_nfo_and_bfo(tmp_path, monkeypatch):
+    master_path = _write_master(tmp_path, [_REAL_NIFTY_CE_ROW])
+    async def _fake_ensure(client): return master_path
+    monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
+
+    broker = _broker()
+    rows = await broker.fetch_instrument_dump()  # no exchanges arg
+
+    assert len(rows) == 1
