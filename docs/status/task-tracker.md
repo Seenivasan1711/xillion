@@ -25,17 +25,21 @@ hardcoded to Zerodha only), but running an actual order through it needs a
 real Dhan account — logged as the literal next thing to do in
 [manual-tasks.md](manual-tasks.md), not silently skipped.
 
-**What's left to trade real money, in order:** (1) the real 2-5yr NSE
-backfill for a genuine multi-year backtest (Blocked-on-you #6), (2) Kite
-Connect + Telegram (#1) to unblock live/paper testing at all, (3) a real
-broker-side bracket/GTT order path (CP11's own honest gap — protective
-orders are software-stop only today), (4) a Dhan account to verify CP15
-end-to-end (#10), (5) the static-IP whitelisting SEBI requires for live
-order placement. None of these are code work — see `manual-tasks.md` for
-the full checklist. CP3/CP4/CP5/CP8 remain "engineering done, one item
-needs something only you can supply." **Note:** CP8's code lives mostly in
-the separate `prosper-engine` repo and is uncommitted there — xillion's
-commit standing-authorization doesn't extend to it.
+**What's left to trade real money, in order:** (1) **a free Dhan account +
+token (#10) is now the fastest path to seeing the app run for real** — as
+of the 2026-08-25 paper-tick-wiring follow-up (see CP15), paper mode no
+longer needs Zerodha at all, so this can go first and costs nothing;
+(2) the real 2-5yr NSE backfill for a genuine multi-year backtest
+(Blocked-on-you #6); (3) Kite Connect + Telegram (#1) — deferred, not
+needed to validate the system today, only for the eventual Zerodha-specific
+live path; (4) a real broker-side bracket/GTT order path (CP11's own honest
+gap — protective orders are software-stop only today); (5) the static-IP
+whitelisting SEBI requires for live order placement. None of these are
+code work — see `manual-tasks.md` for the full checklist. CP3/CP4/CP5/CP8
+remain "engineering done, one item needs something only you can supply."
+**Note:** CP8's code lives mostly in the separate `prosper-engine` repo and
+is uncommitted there — xillion's commit standing-authorization doesn't
+extend to it.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -956,6 +960,45 @@ account and is not yet done** — logged in
 blocker, not silently skipped. 391/391 tests passing overall, no
 regressions.
 
+**Follow-up, 2026-08-25: paper mode is now genuinely free-to-verify on Dhan
+alone, no Zerodha subscription required.** Prompted by the user asking
+whether Kite Connect's ₹500/mo was actually necessary before seeing the app
+work, or could be deferred. It could — but three separate bugs stood
+between "Dhan is code-complete" and "paper mode actually shows a live price
+sourced from Dhan":
+1. `start_instance_core`'s live-tick subscription (a *second*, separate
+   spot from `_resolve_broker`, which this checkpoint's own fix above
+   didn't cover) was still hardcoded to the literal string `"Zerodha
+   Primary"` — a Dhan-only instance got no ticks even with Dhan connected.
+   Now resolves via `broker_connection_id` → `BrokerConnection.name`, same
+   pattern as `_resolve_broker`.
+2. **Dead code, real bug:** `PaperBroker.on_tick` was never actually
+   subscribed to `MarketDataBus` — the wiring sketched in `_resolve_broker`
+   was written but never connected (the comment there admitted as much:
+   "not implemented in bus"). `PaperBroker._last_prices` — used for both
+   fills and `get_quote` — silently never updated from live ticks in
+   production, for *any* broker, Zerodha included, this whole time. Now
+   `start_instance_core` subscribes a handler per instrument for paper-mode
+   instances, tracked in `app.state.paper_tick_handlers` and unsubscribed
+   in `stop_instance_core` (otherwise every restart leaks a handler holding
+   a reference to the discarded `PaperBroker`).
+3. `_try_connect_dhan` connected the broker but never started a
+   `_tick_broadcaster` task for it the way `_try_connect_zerodha` does —
+   `DhanBroker.tick_stream()` was never drained, so its ticks never reached
+   `app.state.bus` regardless of (1) and (2). Now wired identically to
+   Zerodha's (`_tick_broadcaster` is broker-agnostic, just needed the
+   `supervise(...)` call).
+
+New `test_paper_tick_wiring.py` (4 tests) proves paper mode subscribes
+through whichever broker the instance is configured for (not hardcoded),
+that `PaperBroker._last_prices` genuinely updates from a published bus
+tick, and that stopping an instance unsubscribes its handler. 395/395
+tests passing. **Net effect: a paper instance configured for "Dhan
+Primary" now works end-to-end once a free Dhan account + token exists —
+Kite Connect's ₹500/mo is no longer required to see the app trade for
+real** (still needed eventually for the Zerodha-specific path, but not to
+validate the system today).
+
 ---
 
 ## TRACK B — Asset pipelines
@@ -1027,7 +1070,7 @@ Infrastructure each asset needs before its pipeline can start:
 
 | # | Item | Blocks | Status |
 |---|---|---|---|
-| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward | Open |
+| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward (Zerodha-specific path only — deferred, see #10) | Open |
 | ~~2~~ | ~~Real strategy rules from trading-course videos~~ | ~~Options S1~~ | ✅ **Resolved 2026-08-25** — `docs/strategies/knowledge-base/` |
 | 3 | CA opinion on Funding Pips prop-firm income | Gold Lane B1 S4 | Open |
 | 4 | Funding Pips account + challenge | Gold Lane B1 S3 onward | Open |
@@ -1036,7 +1079,7 @@ Infrastructure each asset needs before its pipeline can start:
 | ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
 | 8 | Confirm free-tier Redis provider choice (Upstash vs Redis Cloud) once/if it becomes load-bearing — see decisions Q12 | CP13 (only if in-memory state turns out insufficient) | Open, low priority |
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking |
-| 10 | Dhan API access token + client ID (dhan.co → generate via web/app UI) | CP15 live verification | Open — see `manual-tasks.md`, code is done and waiting |
+| 10 | Dhan API access token + client ID (dhan.co → generate via web/app UI) | CP15 live verification, **and now the fastest free path to seeing paper mode run end-to-end (no Zerodha needed)** | Open — see `manual-tasks.md`, code is done and waiting, do this one first |
 
 ---
 

@@ -302,22 +302,55 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
 
     instruments = json.loads(inst.instruments_json)
 
-    # Subscribe to live ticks if Zerodha is connected (paper/alert modes use real ticks)
+    # Subscribe to live ticks from whichever broker this instance is
+    # configured for (paper/live/alert all need real ticks). Used to be
+    # hardcoded to "Zerodha Primary" -- same bug _resolve_broker had before
+    # its CP15 fix, just in a second spot that fix didn't cover, so a
+    # Dhan-only instance never got ticks even once Dhan was connected.
+    conn_result = await db.execute(
+        select(BrokerConnection).where(BrokerConnection.id == inst.broker_connection_id)
+    )
+    conn = conn_result.scalar_one_or_none()
+    connection_name = conn.name if conn is not None else "Zerodha Primary"
+
     tick_source: str = "none"
     if inst.mode in ("paper", "live", "alert"):
-        zerodha_info = getattr(app.state, "broker_instances", {}).get("Zerodha Primary")
-        if zerodha_info and zerodha_info.get("status") == "connected":
-            zerodha = zerodha_info["instance"]
+        broker_info = getattr(app.state, "broker_instances", {}).get(connection_name)
+        if broker_info and broker_info.get("status") == "connected":
+            data_broker = broker_info["instance"]
             try:
-                await zerodha.subscribe_ticks(instruments)
-                tick_source = "zerodha"
-                logger.info("subscribed instruments to Zerodha", instruments=instruments)
+                await data_broker.subscribe_ticks(instruments)
+                tick_source = connection_name
+                logger.info(
+                    "subscribed instruments to live ticks",
+                    source=connection_name, instruments=instruments,
+                )
+                # Paper mode's broker is a fresh PaperBroker (see
+                # _resolve_broker) -- it isn't the data_broker just
+                # subscribed above, so its _last_prices only updates if we
+                # wire it to the bus ourselves. Tracked in
+                # app.state.paper_tick_handlers so stop_instance_core can
+                # unsubscribe it again (otherwise every restart leaks a
+                # handler holding a reference to the old PaperBroker).
+                if inst.mode == "paper":
+                    bus = getattr(app.state, "bus", None)
+                    if bus:
+                        paper_broker = broker
+
+                        async def _on_bus_tick(tick, _pb=paper_broker):
+                            _pb.on_tick(tick)
+
+                        for sym in instruments:
+                            bus.subscribe_ticks(sym, _on_bus_tick)
+                        if not hasattr(app.state, "paper_tick_handlers"):
+                            app.state.paper_tick_handlers = {}
+                        app.state.paper_tick_handlers[instance_id] = (_on_bus_tick, list(instruments))
             except Exception as exc:
                 logger.warning("tick subscription failed (non-fatal)", error=str(exc))
         else:
             logger.warning(
                 "instance starting without a live tick source — strategy will idle. "
-                "Connect Zerodha (Settings) or use Backtest to validate strategy logic.",
+                f"Connect {connection_name} (Settings) or use Backtest to validate strategy logic.",
                 instance_id=instance_id,
                 mode=inst.mode,
                 instruments=instruments,
@@ -367,7 +400,7 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
         "status": runner.status,
         "tick_source": tick_source,
         "warning": (
-            "No live tick source. Strategy will idle until Zerodha is connected. "
+            f"No live tick source. Strategy will idle until {connection_name} is connected. "
             "Use Backtest to validate strategy logic offline."
             if tick_source == "none" and inst.mode == "paper"
             else None
@@ -452,6 +485,18 @@ async def stop_instance_core(app: FastAPI, db: AsyncSession, instance_id: str, r
     engine = getattr(app.state, "strategy_engine", None)
     if engine:
         await engine.stop_instance(instance_id, reason=reason)
+
+    # Undo the paper-mode bus wiring start_instance_core set up, if any --
+    # otherwise every restart leaks a handler holding a reference to the
+    # old PaperBroker.
+    paper_handlers = getattr(app.state, "paper_tick_handlers", {})
+    entry = paper_handlers.pop(instance_id, None)
+    if entry:
+        handler, symbols = entry
+        bus = getattr(app.state, "bus", None)
+        if bus:
+            for sym in symbols:
+                bus.unsubscribe_ticks(sym, handler)
 
     inst.status = "idle"
     inst.last_stopped_at = _now()

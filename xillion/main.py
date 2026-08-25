@@ -182,6 +182,12 @@ async def _try_connect_dhan(app: FastAPI) -> None:
             "connected_at": datetime.now(timezone.utc).isoformat(),
         }
         logger.info("dhan: connected successfully")
+
+        # Same broadcaster Zerodha uses (broker-agnostic -- see
+        # _tick_broadcaster) -- without this, DhanBroker.tick_stream() is
+        # never drained and its ticks never reach app.state.bus, so paper
+        # mode never sees a price even once Dhan is connected.
+        supervise("dhan_tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram)
     except Exception as exc:
         logger.error("dhan: failed to connect", error=str(exc))
         asyncio.create_task(app.state.telegram.alert(

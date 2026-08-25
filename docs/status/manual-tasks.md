@@ -19,12 +19,31 @@
 
 ## Open
 
+- [ ] **Dhan API access token + client ID** — dhan.co account → generate an
+      access token via the Dhan web/app UI (Profile → DhanHQ Trading APIs),
+      set `DHAN_PRIMARY_CLIENT_ID` + `DHAN_PRIMARY_ACCESS_TOKEN`. Optional:
+      `DHAN_PRIMARY_PIN` + `DHAN_PRIMARY_TOTP_SECRET` for auto-refresh when
+      the token expires (~daily).
+      **Do this one first.** As of 2026-08-25, paper mode no longer needs
+      Zerodha at all — three real bugs were found and fixed that had
+      hardcoded paper mode's live-tick feed to Zerodha and silently dropped
+      `PaperBroker`'s price updates for *any* broker (see CP15 follow-up in
+      `task-tracker.md`). With this token, you can see the app place real
+      paper trades end-to-end for **free**, no Kite Connect subscription
+      needed.
+      **Blocks:** CP15 live verification, and now the fastest path to
+      seeing the whole system run for real.
+      **Cost:** free.
+
 - [ ] **Kite Connect developer app** — register at developers.kite.trade,
       get API key + secret. Needs a Zerodha account with TOTP 2FA already
       enabled (for the auto-login secret).
-      **Blocks:** live/paper broker testing (CP4 onward), Options S3/S4.
-      **Cost:** ₹500/mo. **This is the actual blocker for testing anything
-      beyond backtests.**
+      **Deferred — not needed to see the app work.** Do this when you
+      actually want the Zerodha-specific live-trading path (better
+      liquidity data, real order routing there), not before. Do the Dhan
+      item above first — it's free and unblocks paper mode on its own.
+      **Blocks:** the Zerodha-specific live path, Options S4 going live.
+      **Cost:** ₹500/mo.
 
 - [ ] **Telegram bot** — create via @BotFather, get the bot token + your
       chat ID.
@@ -53,22 +72,6 @@
 - [ ] **Funding Pips account + challenge purchase.** Real money, LRS
       remittance — only when actually starting the gold/forex lane.
       **Blocks:** Gold Lane B1, Stage 3 onward. **Cost:** paid (challenge fee).
-
-- [ ] **Dhan API access token + client ID** — dhan.co account → generate
-      an access token via the Dhan web/app UI (Profile → DhanHQ Trading APIs),
-      set `DHAN_PRIMARY_CLIENT_ID` + `DHAN_PRIMARY_ACCESS_TOKEN`. Optional:
-      `DHAN_PRIMARY_PIN` + `DHAN_PRIMARY_TOTP_SECRET` for auto-refresh when
-      the token expires (~daily).
-      **Code is done and waiting on this** — `brokers/dhan.py` (CP15) is
-      built against DhanHQ's real, verified API docs and official SDK
-      (order placement, positions, funds, live WebSocket ticks all
-      implemented), auto-discovered, and selectable per strategy instance
-      alongside Zerodha. It just hasn't been run against a real account —
-      structurally correct, unverified end-to-end, same honest caveat the
-      `DhanHQ` data provider already carried. **This is the actual blocker**
-      for verifying CP15's own Verify line ("a real Dhan order placed and
-      filled in paper mode, live ticks flowing").
-      **Cost:** free.
 
 - [ ] **Redis provider choice** (Upstash vs. Redis Cloud, both free tier) —
       just a decision, nothing to set up yet.
