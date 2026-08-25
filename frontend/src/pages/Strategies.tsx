@@ -449,21 +449,27 @@ function NewInstanceModal({
 }
 
 function ParamInput({ spec, value, onChange }: { spec: ParamSpec; value: unknown; onChange: (v: unknown) => void }) {
+  if (spec.type === 'bool') {
+    return (
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
+        <span className="dim" style={{ fontSize: 11.5 }}>{spec.name}</span>
+      </div>
+    )
+  }
   return (
-    <div className="row" style={{ gap: 10 }}>
-      <span className="dim" style={{ fontSize: 11.5, width: 110, flexShrink: 0 }}>
+    <div>
+      <span className="dim" style={{ fontSize: 11.5, display: 'block', marginBottom: 4, wordBreak: 'break-word' }}>
         {spec.name}
       </span>
-      {spec.type === 'bool' ? (
-        <input type="checkbox" checked={Boolean(value)} onChange={e => onChange(e.target.checked)} />
-      ) : spec.choices ? (
-        <select className="input" style={{ flex: 1, fontSize: 11.5 }} value={String(value)} onChange={e => onChange(e.target.value)}>
+      {spec.choices ? (
+        <select className="input" style={{ width: '100%', fontSize: 11.5 }} value={String(value)} onChange={e => onChange(e.target.value)}>
           {spec.choices.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       ) : (
         <input
           className="input"
-          style={{ flex: 1, fontSize: 11.5 }}
+          style={{ width: '100%', fontSize: 11.5 }}
           type={spec.type === 'int' || spec.type === 'float' ? 'number' : 'text'}
           value={String(value ?? '')}
           onChange={e => onChange(

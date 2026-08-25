@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Download, Trash2, Search, ExternalLink } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download, RefreshCw, Trash2, Search, ExternalLink } from 'lucide-react'
 import { api } from '../lib/api'
 import { wsClient } from '../lib/ws'
 import { Badge, SegmentedControl } from '../components/ui'
@@ -27,21 +27,44 @@ export default function Logs() {
   const [filter, setFilter] = useState('')
   const [level, setLevel] = useState('all')
   const [paused, setPaused] = useState(false)
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed'>(wsClient.getStatus())
+  const [refreshing, setRefreshing] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const idRef = useRef(0)
 
-  useEffect(() => {
-    api.logs.list({ limit: 500 })
+  const loadHistory = useCallback(() => {
+    setRefreshing(true)
+    return api.logs.list({ limit: 500 })
       .then(res => {
         const history: LogLine[] = res.logs.map(l => ({
           id: l.id, ts: l.ts, level: l.level, source: l.source,
           message: l.message, fields: l.fields,
         }))
-        idRef.current = history.reduce((max, l) => Math.max(max, l.id), 0)
+        idRef.current = history.reduce((max, l) => Math.max(max, l.id), idRef.current)
         setLogs(history)
       })
       .catch(e => console.error('failed to load log history', e))
+      .finally(() => setRefreshing(false))
   }, [])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
+
+  // The WS auto-reconnects on drop, but nothing emitted during the gap is
+  // replayed -- without this, a real disconnect (backend restart, network
+  // blip, Render free-tier idling) looks exactly like "logs stopped
+  // coming" with no way to tell the difference from actually-quiet.
+  useEffect(() => {
+    let wasClosed = false
+    const unsub = wsClient.onStatus((s) => {
+      setWsStatus(s)
+      if (s === 'closed') wasClosed = true
+      if (s === 'open' && wasClosed) {
+        wasClosed = false
+        loadHistory()
+      }
+    })
+    return unsub
+  }, [loadHistory])
 
   useEffect(() => {
     const unsub = wsClient.subscribe((event) => {
@@ -97,6 +120,9 @@ export default function Logs() {
           <button className="btn ghost" onClick={() => window.open('/api/docs', '_blank', 'noopener')}>
             <ExternalLink size={13} /> API Docs
           </button>
+          <button className="btn ghost" onClick={loadHistory} disabled={refreshing}>
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} /> Refresh
+          </button>
           <button className="btn ghost" onClick={exportLogs} disabled={logs.length === 0}>
             <Download size={13} /> Download
           </button>
@@ -142,9 +168,11 @@ export default function Logs() {
             />
           </div>
           <div className="row" style={{ gap: 8 }}>
-            {!paused
-              ? <Badge tone="pos" dot>tailing</Badge>
-              : <Badge>paused</Badge>
+            {wsStatus !== 'open'
+              ? <Badge tone="warn" dot>{wsStatus === 'connecting' ? 'connecting…' : 'disconnected'}</Badge>
+              : paused
+                ? <Badge>paused</Badge>
+                : <Badge tone="pos" dot>tailing</Badge>
             }
             <span className="faint" style={{ fontSize: 11 }}>{filtered.length} lines</span>
             <button
@@ -157,7 +185,7 @@ export default function Logs() {
         </div>
 
         {/* Log stream */}
-        <div style={{ maxHeight: '65vh', overflowY: 'auto', background: 'rgba(7,9,12,0.4)' }}>
+        <div className="log-stream" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
           {filtered.length === 0 ? (
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>
               {logs.length === 0 ? 'Waiting for log events from backend…' : 'No logs match your filters'}
