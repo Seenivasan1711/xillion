@@ -3,6 +3,7 @@ Strategy instance CRUD and lifecycle management (Phase 4).
 Instances are persisted in DB; the strategy engine manages the running tasks.
 """
 import json
+import pickle
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -321,6 +322,21 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
                 instruments=instruments,
             )
 
+    # CP12: restore ctx.state from the last clean stop (or the last on_bar
+    # before a crash -- see StrategyRunner._handle_bar's fire-and-forget
+    # persist). A malformed/incompatible blob (e.g. the strategy's state
+    # shape changed between versions) must not block starting -- log and
+    # start flat rather than refuse to start at all.
+    restored_state: Optional[dict] = None
+    if inst.state_blob:
+        try:
+            restored_state = pickle.loads(inst.state_blob)
+        except Exception as exc:
+            logger.warning(
+                "failed to restore strategy state, starting flat",
+                instance_id=instance_id, error=str(exc),
+            )
+
     from xillion.api.ws import broadcast as ws_broadcast
     runner = await engine.spawn(
         instance_id=instance_id,
@@ -336,6 +352,7 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
         on_trade_close=ws_broadcast,
         notifier=getattr(app.state, "telegram", None),
         risk_limits=json.loads(inst.risk_limits_json),
+        restored_state=restored_state,
     )
 
     inst.status = "running"

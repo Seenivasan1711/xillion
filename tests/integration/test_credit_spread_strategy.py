@@ -2,15 +2,14 @@
 CreditSpreadWeeklyStrategy end-to-end (CP11 + Options Stage 1 build): drives
 on_bar (entry: trend check, DTE gate, credit-adequacy filter, sizing,
 multi-leg entry) and on_tick (protective-order monitoring + exit) against a
-hand-built fake StrategyContext.
+hand-built fake StrategyContext -- proves the strategy's own logic
+integrates correctly with multileg.py, multileg_execution.py, and
+protective_orders.py, using a fake broker callback that fills every leg the
+way a paper/live broker would.
 
-Not run through BacktestEngine: options resolution (get_spot/resolve_strike/
-get_option_price) isn't wired into the backtest context yet (a pre-existing
-gap, not something this strategy or CP11 fixes -- see the strategy's module
-docstring and docs/strategies/credit-spread-weekly.md). This test instead
-proves the strategy's own logic integrates correctly with multileg.py,
-multileg_execution.py, and protective_orders.py, using a fake broker
-callback that fills every leg the way a paper/live broker would.
+The real-BacktestEngine version of this same strategy (options resolution
+against an actual OptionChainWarehouse, not a fake) lives in
+tests/integration/test_credit_spread_backtest.py.
 """
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -25,6 +24,11 @@ from xillion.core.instruments import ResolvedInstrument
 from xillion.core.market_calendar import IST
 
 DEFAULT_PARAMS = {p.name: p.default for p in CreditSpreadWeeklyStrategy.params_schema}
+FIXED_NOW = datetime(2026, 1, 6, 10, 0, tzinfo=IST)  # a Tuesday, inside the entry window
+
+
+async def _fake_now_ist(ctx) -> datetime:
+    return FIXED_NOW
 
 
 class FakeContext:
@@ -42,7 +46,7 @@ class FakeContext:
         self.capital_allocated = Decimal("1000000")
         self.mode = "paper"
         self._spot = spot
-        self._expiry = expiry or (csw._now_ist().date() + timedelta(days=params["entry_dte"]))
+        self._expiry = expiry or (FIXED_NOW.date() + timedelta(days=params["entry_dte"]))
         self.placed: list[OrderRequest] = []
         self.cancelled: list[str] = []
         self.subscribed: list[tuple[str, str]] = []
@@ -114,11 +118,10 @@ def _entry_bar(spot: Decimal) -> Bar:
 
 @pytest.fixture(autouse=True)
 def _freeze_entry_window(monkeypatch):
-    """Pin wall-clock IST time to 10:00 (inside the 09:45-10:30 entry
-    window) so the test is deterministic regardless of when it runs."""
-    fixed = datetime(2026, 1, 6, 10, 0, tzinfo=IST)  # a Tuesday
-    monkeypatch.setattr(csw, "_now_ist", lambda: fixed)
-    return fixed
+    """Pin "now" to FIXED_NOW (inside the 09:45-10:30 entry window) so the
+    test is deterministic regardless of when it runs."""
+    monkeypatch.setattr(csw, "_now_ist", _fake_now_ist)
+    return FIXED_NOW
 
 
 @pytest.mark.asyncio
@@ -158,7 +161,7 @@ async def test_entry_skipped_when_position_too_large_for_account():
 async def test_entry_skipped_outside_dte_window():
     params = dict(DEFAULT_PARAMS, short_offset_strikes=2, width_strikes=2, entry_dte=4)
     # Expiry 10 days out -> DTE won't equal 4.
-    ctx = FakeContext(params, expiry=csw._now_ist().date() + timedelta(days=10))
+    ctx = FakeContext(params, expiry=FIXED_NOW.date() + timedelta(days=10))
     strategy = CreditSpreadWeeklyStrategy()
 
     await strategy.on_bar(_entry_bar(ctx._spot), ctx)

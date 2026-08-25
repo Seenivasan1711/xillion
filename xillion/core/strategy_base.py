@@ -5,6 +5,7 @@ lifecycle hooks; strategy authors implement only what they need.
 """
 from abc import ABC
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -46,6 +47,19 @@ class StrategyContext(ABC):
         raise NotImplementedError
 
     async def modify_order(self, client_order_id: str, **changes) -> Order:
+        raise NotImplementedError
+
+    async def now(self) -> datetime:
+        """"What time is it right now" -- environment-aware, not a bare
+        datetime.now() call. Live/paper mode returns real wall-clock time;
+        backtest mode returns the timestamp of the bar currently being
+        processed. A strategy that needs a time-of-day or days-to-expiry
+        gate (e.g. CP11's credit-spread strategy) must call this rather than
+        datetime.now() directly -- calling datetime.now() in a strategy
+        would make every backtest run only ever check against today's real
+        date, regardless of which historical period it's replaying, so the
+        gate would only pass by coincidence. Timezone-aware UTC; convert to
+        the exchange's local zone at the call site."""
         raise NotImplementedError
 
     async def get_order(self, client_order_id: str) -> Optional[Order]:

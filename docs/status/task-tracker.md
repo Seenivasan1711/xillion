@@ -6,22 +6,37 @@
 
 **Last updated:** 2026-08-25
 **Current position:** Track A (CP1-CP10) done. **CP11 (multi-leg execution +
-protective orders) mostly done** — `xillion/core/multileg.py` +
-`multileg_execution.py` + `protective_orders.py`, 33 unit tests, and the
-first real consumer (`strategies/credit_spread_weekly.py`, Options S1) all
-built and tested (280/280 passing). One honest gap remains: no broker plugin
-wires real bracket/GTT orders yet, so protective orders are software-stop
-only (the spec's own documented fallback, not a shortcut) — see CP11's own
-section below. Options S2 (Backtest) is next and blocked on a *different*
-gap: options resolution isn't wired into `BacktestEngine`. CP12-CP15 (trailing
-stops, expanded risk engine, EOD reconciliation, Dhan as a full broker) are
-gap-mapped from the automation spec's 52-job catalog (see
-`architecture/overview.md` §12.1) and not yet started. CP3/CP4/CP5/CP8 remain
-"engineering done, one item needs something only you can supply" (real
-backfill run, real Telegram bot + Kite Connect, a cloud LLM key — see
-Blocked on you). **Note:** CP8's code lives mostly in the separate
-`prosper-engine` repo and is uncommitted there — xillion's commit
-standing-authorization doesn't extend to it.
+protective orders) done**, including its own follow-up: Options S2
+(backtest) is now genuinely unblocked — `xillion/data/option_chain.py` +
+`_BacktestContext` wiring in `backtest_engine.py` resolve real historical
+strikes/expiries from NSE Bhavcopy's own per-contract columns (confirmed
+against a live file, not guessed), and the real `credit_spread_weekly.py`
+strategy now opens AND closes a real position end-to-end through
+`BacktestEngine` with a genuine recorded trade (see CP11 section below for
+the full list, including a real bug this run surfaced and fixed: option-leg
+MARKET orders filling at price 0 the moment they opened).
+**CP12 (trailing-stop engine) done** — `xillion/core/trailing_stop.py`
+(ratchet + 3 algorithms, property-tested against 1000+ random price paths
+per direction) plus the OTHER, arguably more load-bearing half: `ctx.state`
+now genuinely persists to `StrategyInstance.state_blob` and restores on
+restart — that column has existed in the schema since migration 001 and
+the class docstring claimed this happened, but nothing ever wrote or read
+it until now. This is what actually closes CP11's "software stop needs the
+process alive" gap for the real strategy that exists today.
+One honest gap remains in CP11: no broker plugin wires real bracket/GTT
+orders yet, so protective orders are still software-stop only (the spec's
+own documented fallback, not a shortcut) — now backed by real persistence
+across a clean restart, and by fire-and-forget persistence after every
+`on_bar` for crash resilience, but NOT yet by a fully independent watchdog
+process that could restart a *crashed* instance itself (a K03-equivalent —
+still open, see CP12 section). CP13-CP15 (expanded risk engine, EOD
+reconciliation, Dhan as a full broker) are gap-mapped from the automation
+spec's 52-job catalog (see `architecture/overview.md` §12.1) and not yet
+started. CP3/CP4/CP5/CP8 remain "engineering done, one item needs something
+only you can supply" (real backfill run, real Telegram bot + Kite Connect,
+a cloud LLM key — see Blocked on you). **Note:** CP8's code lives mostly in
+the separate `prosper-engine` repo and is uncommitted there — xillion's
+commit standing-authorization doesn't extend to it.
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
@@ -598,7 +613,7 @@ in parallel with CP11-CP13 since the strategy itself is single-leg-testable
 before multi-leg execution is finished, but CP11 (multi-leg + protective
 orders) is a hard gate before Options S4 (live).
 
-### 🟡 CP11 — Multi-leg execution + protective orders `MOSTLY DONE 2026-08-25 — one honest gap`
+### ✅ CP11 — Multi-leg execution + protective orders `DONE 2026-08-25 — one honest gap remains`
 - [x] Multi-leg position model — [xillion/core/multileg.py](../../xillion/core/multileg.py):
       `MultiLegSpec`/`Leg`/`LegRole` group 2-4 broker orders into one logical
       structure. Deliberately does NOT add a parallel position-tracking
@@ -640,28 +655,114 @@ orders) is a hard gate before Options S4 (live).
       1 lot)
 - [x] First real consumer built end-to-end: `strategies/credit_spread_weekly.py`
       (Options Stage 1) — see [docs/strategies/credit-spread-weekly.md](../strategies/credit-spread-weekly.md)
+- [x] **Follow-up, 2026-08-25: Options Stage 2 (backtest) unblocked.**
+      [xillion/data/option_chain.py](../../xillion/data/option_chain.py) —
+      `HistoricalOptionRow` + `OptionChainWarehouse`, same cache-on-fetch/
+      whole-file-bulk pattern as CP2's `BarWarehouse`, sourced from NSE
+      Bhavcopy's own `StrkPric`/`XpryDt`/`OptnTp`/`UndrlygPric` columns
+      (confirmed against a real live file fetched 2026-08-24, not assumed —
+      `UndrlygPric` in particular is the exchange's own recorded underlying
+      close, used as the backtest's spot proxy with no separate index feed
+      needed). New `option_chain_snapshot` table (migration 011) — a
+      DATE-SCOPED snapshot, deliberately separate from the live `instrument`
+      table (a truncate-and-reload cache of TODAY only, useless for "what
+      did NIFTY's chain look like on 2026-03-06"). `_BacktestContext` in
+      `backtest_engine.py` now implements `get_spot`/`resolve_strike`/
+      `get_option_price`/`subscribe_instrument`, reusing the SAME
+      `resolve_option()` the live path uses — no second resolver. Wired
+      into all three `/backtest/run*` API endpoints.
+      **A deeper bug this surfaced and fixed, not assumed away:**
+      `StrategyContext` had no environment-aware "what time is it" — the
+      credit-spread strategy's entry-window/DTE gates called a bare
+      `datetime.now()`, which only works for live/paper (bars arrive in
+      real time); a real multi-year backtest replaying history would only
+      ever check against *today's* real date regardless of which period
+      was being simulated, so the DTE gate would pass by coincidence at
+      best. Fixed by adding `StrategyContext.now()` (live: real wall-clock;
+      backtest: the currently-simulated bar's own timestamp) — the
+      strategy now calls `ctx.now()`, not `datetime.now()`.
+      **Also found and fixed:** a MARKET order for a freshly-resolved
+      option leg filled at price 0 in backtest mode, because
+      `_last_price` (what `place_order`'s MARKET fallback reads) was only
+      ever populated by the bar-driven symbol, never by a dynamically
+      resolved leg — fixed by caching the fetched close in `get_option_price`
+      itself, the same place the strategy already fetches it to compute
+      credit.
+      BacktestEngine's main loop now also synthesizes a daily Tick for
+      every dynamically-subscribed option leg after each `on_bar` (bhavcopy
+      is EOD-only, so this is honestly daily granularity, not a claim of
+      intraday accuracy) — without this, `on_tick`-driven exit logic
+      (CP11's protective-order monitoring) would never fire in a backtest
+      at all, since `BacktestEngine.run()` only ever called `on_bar`.
 
 **Verify:** 33 unit tests (`test_multileg.py`, `test_multileg_execution.py`,
 `test_protective_orders.py`) + 6 integration tests
-(`test_credit_spread_strategy.py`) — a 2-leg credit spread opens
-correctly-ordered, a forced leg rejection during entry unwinds without ever
-holding a naked short, and STOP/TARGET both close shorts-first. 280/280
-tests passing, no regressions. **Not yet done:** the real-broker
-bracket/GTT gap above, and Options Stage 2 (backtest) — see that row in
-Track B below for why.
+(`test_credit_spread_strategy.py`) for the original CP11 scope, PLUS 7 unit
+tests (`test_option_chain.py`, including the real-column-name parser check)
+and 2 integration tests (`test_credit_spread_backtest.py`) for the
+backtest follow-up — one proves entry, the other runs a 10-day window with
+decaying premiums to a real TARGET exit and a genuine closed trade
+(non-zero, non-fabricated entry/exit prices). 289/289 tests passing at this
+point, no regressions. **Not yet done:** the real-broker bracket/GTT gap
+above (now CP12-partially-addressed — see below), and NSE-listed
+underlyings only for backtest options (NIFTY/BANKNIFTY; Sensex is
+BSE-listed, NSE Bhavcopy doesn't cover it).
 
 ---
 
-### ⬜ CP12 — Trailing-stop engine → *Goal #7 extension*
-- [ ] At least one trailing algorithm properly implemented and
-      **ratchet-property-tested** — the stop must never loosen, including
-      across a process restart (`13-IMPLEMENTATION-ROADMAP.md` Gate 2)
-- [ ] Breakeven-shift trigger (move stop to entry once R-multiple threshold hit)
-- [ ] Time-stop enforcement (exit at N DTE regardless of P&L — the credit
-      spread spec's "exit at 1 DTE to avoid expiry-day gamma entirely")
+### ✅ CP12 — Trailing-stop engine `DONE 2026-08-25 — watchdog gap narrowed, not fully closed`
+- [x] Three trailing algorithms + the ratchet enforcement point —
+      [xillion/core/trailing_stop.py](../../xillion/core/trailing_stop.py):
+      `fixed_trail` (spec §3.2.1, generic baseline), `r_ladder_trail` (spec's
+      own "recommended default"), `credit_trail` (spec §3.2.6 — the
+      credit-spread-specific one, trails on captured credit %, never on
+      underlying spot per the spec's explicit "category error" warning).
+      ATR/chandelier and swing-structure trails (need bar history +
+      indicators) not implemented — a natural next addition, not required
+      by this checkpoint's own "at least one algorithm" bar
+- [x] **Ratchet property-tested**: `ratchet()` is the single point every
+      algorithm routes through (`max` for LONG, `min` for SHORT); a
+      dedicated property test runs 1000 independent random price paths ×
+      2 directions × 30 steps each (30,000 checks total) asserting the
+      stop is monotonic at EVERY step, not just start-vs-end. Stdlib
+      `random` with a fixed seed rather than adding a `hypothesis`
+      dependency for one property
+- [x] Breakeven-shift trigger (T05) — `breakeven_shift()`/`apply_breakeven_shift()`,
+      fires once at the configured R-multiple, sets a flag so it can't
+      re-fire, still routes through the ratchet
+- [x] Time-stop enforcement — already existed from CP11
+      (`protective_orders.py`'s `check_exit_trigger` TIME_STOP branch); not
+      duplicated here
+- [x] **"Survives a process restart" — the real watchdog-gap work.**
+      `ctx.state` now genuinely persists to `StrategyInstance.state_blob`
+      and restores on the next `spawn()` — that column has existed in the
+      schema since migration 001 and `StrategyContext`'s own docstring
+      claimed this happened ("persisted to DB on on_stop, restored on
+      on_start"), but nothing ever wrote or read it; `ctx.state` silently
+      reset to `{}` on every single spawn. This is what actually would let
+      a real trailing-stop's state (or CP11's credit-spread protective
+      levels) survive a deliberate restart. Persisted two ways: awaited on
+      a clean `StrategyRunner.stop()` (guarantees the FINAL state lands),
+      and fire-and-forget after every `on_bar` (crash resilience for the
+      common case — a process killed between bars still has the last
+      bar's state on disk). Pickle, not JSON, matching the column's
+      `LargeBinary` type and the state's potential non-JSON contents
+      (Decimal, etc)
 
-**Verify:** property test proves the stop never loosens across 1000+
-randomised price paths and survives a simulated restart mid-trail.
+**Honest gap, narrowed but not closed:** this makes a *deliberate* restart
+(redeploy, manual stop/start) safe — state is genuinely there when the
+process comes back. It does **not** add an independent watchdog that
+detects an *ungraceful crash* and restarts the instance itself (the
+automation spec's K03 heartbeat/watchdog job) — if the process dies without
+calling `stop()`, only the last on_bar's fire-and-forget snapshot exists,
+and nothing currently notices the crash and acts on it. That remains open.
+
+**Verify:** `test_trailing_stop.py` (20 tests, including the 30,000-check
+ratchet property test) + `test_strategy_state_persistence.py` (3 integration
+tests: state survives a clean stop+respawn with a brand-new engine/bus,
+`on_start`'s `setdefault` doesn't clobber restored values, and fire-and-
+forget persistence after `on_bar` doesn't require waiting for a clean
+stop). 312/312 tests passing, no regressions.
 
 ---
 
@@ -719,37 +820,42 @@ Each asset runs the same 6 stages — see
 
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
-| **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ⬜ blocked on backtest-engine options wiring | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
+| **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
 | **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Crypto** · TBD exchange | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 
-**2026-08-25: Options S1 built.** `strategies/credit_spread_weekly.py`
+**2026-08-25: Options S1 + S2 built.** `strategies/credit_spread_weekly.py`
 implements the Nifty/Sensex weekly Bull Put / Bear Call credit spread from
 `docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md` — entry timing,
 trend-aligned direction, strike-count strike selection (a coarser proxy for
 the KB's delta arms — no greeks engine exists), credit-adequacy filter,
 KB §7 position sizing, multi-leg entry/exit via CP11, and software
 protective-order monitoring. Full rules + honest gaps written up in
-`docs/strategies/credit-spread-weekly.md`. S2 (Backtest) is now the actual
-blocker, and it's a **different** gap than CP11: `BacktestEngine`'s context
-(`xillion/engine/backtest_engine.py::_BacktestContext`) doesn't implement
-`get_spot`/`resolve_strike`/`get_option_price`, so no options strategy can
-run through it yet — needs historical options-chain data + backtest-mode
-strike resolution, not yet scoped as its own checkpoint. S4 (Live) is
-additionally blocked on the CP11 bracket/GTT gap above (software stops
-aren't a "ready for real money" state on their own without CP12's watchdog).
+`docs/strategies/credit-spread-weekly.md`. S2 (Backtest) is now real, not
+just wired: `xillion/data/option_chain.py` + `_BacktestContext` resolve
+actual historical strikes from NSE Bhavcopy, and the strategy has run a
+genuine open→close cycle through `BacktestEngine` with a real recorded
+trade (see CP11 section above for the full writeup, including two real
+bugs this surfaced and fixed). **What Stage 2 still can't do:** run the
+real, multi-year, pass/fail-criteria backtest KB `10-FIRST-STRATEGY-SPEC.md`
+§10 calls for — that needs the actual 2-5yr NSE backfill (Blocked-on-you
+#6) and is NSE-listed underlyings only (NIFTY/BANKNIFTY; Sensex is
+BSE-listed, out of reach of this provider). S4 (Live) is blocked on the
+CP11 bracket/GTT gap (software stops now survive a restart via CP12, but
+that's not the same as a fully independent crash-watchdog — see CP12).
 
 ### Per-asset enablement work
 Infrastructure each asset needs before its pipeline can start:
 
-- **Options** — 🟡 Stage 1 done. **Blocked on:** options resolution wired
-  into `BacktestEngine` (Stage 2), real-broker bracket/GTT + CP12's watchdog
-  (Stage 4). Stage 3 (paper) is unblocked today — CP11's leg-failure
-  protocol and software protective orders are both real and tested, just
-  not yet run against live market data for the required 2+ weeks
+- **Options** — 🟡 Stage 1+2 done (engine-level). **Blocked on:** the real
+  multi-year backfill for a genuine pass/fail backtest run (#6 below),
+  real-broker bracket/GTT for Stage 4. Stage 3 (paper) is unblocked today —
+  CP11's leg-failure protocol and software protective orders are both real,
+  tested, and now restart-safe (CP12), just not yet run against live market
+  data for the required 2+ weeks
 - **Gold Lane B1 (XAUUSD/Funding Pips)** — ⬜ needs: MT5 broker plugin, 24×5
   session calendar, currency field, FX lot math, **Funding Pips drawdown
   rules as hard risk limits** (breaching one instantly fails the account) —

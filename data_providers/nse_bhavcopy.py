@@ -25,6 +25,7 @@ import structlog
 
 from xillion.core.data_provider_base import DataProviderCapabilities, HistoricalDataProvider
 from xillion.core.events import Bar
+from xillion.data.option_chain import HistoricalOptionRow
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +135,72 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             logger.warning("nse bhavcopy parse failed", date=str(day), error=str(exc))
             return {}
         return result
+
+    async def fetch_option_chain_for_day(self, day: date) -> list[HistoricalOptionRow]:
+        """Point-in-time option/future chain for EVERY underlying traded
+        that day, sourced from the same bhavcopy row bar-building already
+        parses -- but capturing StrkPric/XpryDt/OptnTp/UndrlygPric, which
+        _fetch_and_parse_day discards. Real column names confirmed against
+        a live file (2026-08-24), not assumed:
+        TckrSymb=underlying, XpryDt=expiry, StrkPric=strike, OptnTp=CE/PE,
+        FinInstrmNm=tradingsymbol, NewBrdLotQty=lot size, ClsPric=close,
+        UndrlygPric=the exchange's own recorded underlying close -- used as
+        the backtest spot proxy so no separate index-bhavcopy fetch is
+        needed. NSE-listed derivatives only (exchange hardcoded "NFO") --
+        Sensex is BSE-listed and isn't in this file at all."""
+        if day.weekday() >= 5:
+            return []
+        url = _URL_TEMPLATE.format(ymd=day.strftime("%Y%m%d"))
+        async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 404:
+                    return []
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                logger.warning("nse bhavcopy option-chain fetch failed", date=str(day), error=str(exc))
+                return []
+
+            rows: list[HistoricalOptionRow] = []
+            try:
+                with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                    csv_name = next(n for n in zf.namelist() if n.lower().endswith(".csv"))
+                    with zf.open(csv_name) as f:
+                        reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
+                        for raw in reader:
+                            parsed = self._row_to_option_row(raw)
+                            if parsed is not None:
+                                rows.append(parsed)
+            except (zipfile.BadZipFile, StopIteration) as exc:
+                logger.warning("nse bhavcopy option-chain parse failed", date=str(day), error=str(exc))
+                return []
+        return rows
+
+    @staticmethod
+    def _row_to_option_row(row: dict) -> "HistoricalOptionRow | None":
+        try:
+            tradingsymbol = row["FinInstrmNm"]
+            underlying = row["TckrSymb"]
+            if not tradingsymbol or not underlying:
+                return None
+            expiry_str = row.get("XpryDt") or ""
+            expiry = date.fromisoformat(expiry_str) if expiry_str else None
+            strike_str = (row.get("StrkPric") or "").strip()
+            strike = Decimal(strike_str) if strike_str and strike_str != "-1" else None
+            option_type = (row.get("OptnTp") or "").strip() or None
+            if option_type not in ("CE", "PE"):
+                option_type = None
+            lot_size = int(float(row.get("NewBrdLotQty") or 0))
+            close = Decimal(row["ClsPric"])
+            underlying_price_str = (row.get("UndrlygPric") or "").strip()
+            underlying_price = Decimal(underlying_price_str) if underlying_price_str else None
+            return HistoricalOptionRow(
+                tradingsymbol=tradingsymbol, exchange="NFO", underlying=underlying,
+                expiry=expiry, strike=strike, option_type=option_type, lot_size=lot_size,
+                close=close, underlying_price=underlying_price,
+            )
+        except (KeyError, InvalidOperation, ValueError):
+            return None
 
     @staticmethod
     def _row_to_bar(row: dict, symbol: str, day: date) -> Bar | None:

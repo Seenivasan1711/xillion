@@ -276,6 +276,37 @@ class BarRecord(Base):
     __table_args__ = (Index("idx_bar_symbol_tf", "symbol", "timeframe"),)
 
 
+class OptionChainSnapshot(Base):
+    """One option/future contract's metadata + close, as it actually stood
+    on `trade_date` -- NOT the live `Instrument` table above, which is a
+    truncate-and-reload cache of TODAY's listing only and can't answer "what
+    strikes existed for NIFTY's 2026-03-10 expiry, as of 2026-03-06" (a past
+    date's own point-in-time chain). Backtest-mode options resolution
+    (CP11 follow-up) needs exactly that, so this is a separate,
+    date-scoped table rather than a repurposing of `instrument`.
+
+    `underlying_price` comes directly from NSE bhavcopy's own `UndrlygPric`
+    column -- the exchange's own recorded underlying close at settlement,
+    used as the backtest's spot proxy. Confirmed present against a real
+    live bhavcopy file (2026-08-24) before this was built, not assumed."""
+    __tablename__ = "option_chain_snapshot"
+
+    trade_date: Mapped[str] = mapped_column(Text, primary_key=True)  # ISO date
+    exchange: Mapped[str] = mapped_column(Text, primary_key=True)
+    tradingsymbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    underlying: Mapped[str] = mapped_column(Text, nullable=False)   # e.g. "NIFTY"
+    expiry: Mapped[str | None] = mapped_column(Text)                # ISO date
+    strike: Mapped[float | None] = mapped_column(Numeric)
+    option_type: Mapped[str | None] = mapped_column(Text)           # CE | PE | None (futures)
+    lot_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    close: Mapped[float] = mapped_column(Numeric, nullable=False)
+    underlying_price: Mapped[float | None] = mapped_column(Numeric)
+
+    __table_args__ = (
+        Index("idx_option_chain_lookup", "underlying", "exchange", "trade_date"),
+    )
+
+
 class BarCoverage(Base):
     """Tracks which contiguous date range is already fetched for a
     (symbol, exchange, timeframe, provider) combination, so BarWarehouse can

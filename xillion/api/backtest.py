@@ -17,6 +17,7 @@ from xillion.auth.data_provider_credstore import load_provider_credentials
 from xillion.core.events import Bar
 from xillion.data.backtest_runs import get_backtest_run, list_backtest_runs, persist_backtest_run
 from xillion.data.coverage import BarCoverageRepository
+from xillion.data.option_chain import OptionChainRepository, OptionChainWarehouse
 from xillion.data.repository import BarRepository
 from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser
@@ -25,6 +26,17 @@ from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 from xillion.engine.optimization import grid_search, walk_forward
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
+
+
+def _option_chain_warehouse() -> OptionChainWarehouse:
+    """NSE Bhavcopy is the only option-chain-capable provider today --
+    constructed directly rather than looked up by name, same as how
+    _resolve_strategy_and_bars below already special-cases providers.
+    Cheap and stateless if a strategy never calls get_spot/resolve_strike."""
+    from data_providers.nse_bhavcopy import NSEBhavcopyProvider
+
+    factory = get_session_factory()
+    return OptionChainWarehouse(NSEBhavcopyProvider(), OptionChainRepository(factory))
 
 
 def _parse_csv_bars(content: bytes, default_timeframe: str = "1m") -> tuple[list[Bar], list[str]]:
@@ -101,6 +113,7 @@ async def run_backtest(body: RunBacktestRequest, request: Request):
         initial_capital=body.initial_capital,
         params=body.params,
         slippage_bps=body.slippage_bps,
+        option_chain_warehouse=_option_chain_warehouse(),
     )
     await persist_backtest_run(get_session_factory(), result)
 
@@ -163,6 +176,7 @@ async def run_backtest_csv(
         initial_capital=initial_capital,
         params=params_dict,
         slippage_bps=slippage_bps,
+        option_chain_warehouse=_option_chain_warehouse(),
     )
     await persist_backtest_run(get_session_factory(), result)
 
@@ -293,6 +307,7 @@ async def run_backtest_provider(
         initial_capital=body.initial_capital,
         params=body.params,
         slippage_bps=body.slippage_bps,
+        option_chain_warehouse=_option_chain_warehouse(),
     )
     await persist_backtest_run(get_session_factory(), result)
 

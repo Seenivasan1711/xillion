@@ -51,13 +51,22 @@ class _StrategyContextImpl(StrategyContext):
         on_trade_close: Optional[Callable] = None,
         notifier: Optional[TelegramNotifier] = None,
         broker: Optional[Broker] = None,
+        restored_state: Optional[dict] = None,
     ) -> None:
         self.instance_id = instance_id
         self._instance_name = instance_name
         self.mode = mode
         self.capital_allocated = capital_allocated
         self.params = params
-        self.state: dict = {}
+        # CP12: this used to always start at {} on every spawn, silently
+        # contradicting the class's own docstring ("persisted to DB on
+        # on_stop, restored on on_start") -- StrategyInstance.state_blob has
+        # existed in the schema since migration 001, but nothing ever wrote
+        # or read it. A strategy like credit_spread_weekly.py stores its
+        # protective-order stop/target levels here; without this, a restart
+        # mid-position forgot them entirely (the exact "software stop needs
+        # the process alive" gap CP11's protective_orders.py flagged).
+        self.state: dict = restored_state if restored_state is not None else {}
         self._router = execution_router
         self._history = history_manager
         self._risk_mgr = risk_manager
@@ -331,6 +340,9 @@ class _StrategyContextImpl(StrategyContext):
     async def get_order(self, client_order_id: str) -> Optional[Order]:
         return self._router.get_order(client_order_id)
 
+    async def now(self):
+        return _now()
+
     def position(self, symbol: str) -> Optional[Position]:
         return self._positions.get(symbol)
 
@@ -571,6 +583,30 @@ class _StrategyContextImpl(StrategyContext):
                 error=str(exc),
             )
 
+    async def _persist_state(self) -> None:
+        """Write ctx.state to StrategyInstance.state_blob (CP12). Called
+        fire-and-forget after every on_bar (crash resilience -- a process
+        killed between bars still has the last bar's state on disk) and
+        awaited directly from StrategyRunner.stop() (so a clean shutdown
+        is guaranteed to have the FINAL state persisted, not just
+        whatever the last on_bar happened to write). Pickle, not JSON --
+        state_blob is a LargeBinary column and strategy state may hold
+        non-JSON types (Decimal, etc); matches the already-imported (until
+        now unused) `pickle` at the top of this file."""
+        if self._db_factory is None:
+            return
+        try:
+            from xillion.db.models import StrategyInstance
+
+            blob = pickle.dumps(self.state)
+            async with self._db_factory()() as session:
+                inst = await session.get(StrategyInstance, self.instance_id)
+                if inst is not None:
+                    inst.state_blob = blob
+                    await session.commit()
+        except Exception as exc:
+            logger.error("persist_state failed", instance_id=self.instance_id, error=str(exc))
+
 
 class StrategyRunner:
     """Manages one running strategy instance."""
@@ -642,6 +678,11 @@ class StrategyRunner:
             await self._strategy.on_stop(self._ctx, reason)
         except Exception as exc:
             logger.error("strategy on_stop failed", instance_id=self._instance_id, error=str(exc))
+        # Awaited, not fire-and-forget, unlike the on_bar persistence below --
+        # a clean shutdown must guarantee the FINAL state actually lands
+        # before the process exits or the instance is deleted from the
+        # in-memory registry (StrategyEngine.stop_instance).
+        await self._ctx._persist_state()
         self.status = "idle"
         logger.info("strategy stopped", instance_id=self._instance_id, reason=reason)
 
@@ -658,6 +699,14 @@ class StrategyRunner:
         self._ctx._history.add_bar(bar)
         try:
             await self._strategy.on_bar(bar, self._ctx)
+            # Fire-and-forget, same precedent as _persist_trade_close/
+            # _notify_order_update -- crash resilience for the common case
+            # (process killed between bars), not a guarantee for every
+            # possible failure mode (a crash mid-on_tick, between bar
+            # closes, can still lose a state change made there -- see CP12
+            # task-tracker notes for the honest boundary of this fix).
+            if self._ctx._db_factory is not None:
+                asyncio.create_task(self._ctx._persist_state())
         except Exception as exc:
             self.status = "error"
             self.last_error = str(exc)
@@ -727,6 +776,7 @@ class StrategyEngine:
         on_trade_close: Optional[Callable] = None,
         notifier: Optional[TelegramNotifier] = None,
         risk_limits: Optional[dict] = None,
+        restored_state: Optional[dict] = None,
     ) -> StrategyRunner:
         if self._registry is None:
             raise RuntimeError("PluginRegistry not set on StrategyEngine")
@@ -764,6 +814,7 @@ class StrategyEngine:
             on_trade_close=on_trade_close,
             notifier=notifier,
             broker=broker,
+            restored_state=restored_state,
         )
         strategy = cls()
         runner = StrategyRunner(

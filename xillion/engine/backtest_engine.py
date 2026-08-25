@@ -12,12 +12,20 @@ from uuid import uuid4
 import structlog
 
 from xillion.core.contracts import ContractSpec
-from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Position, Side
+from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Position, Side, Tick
+from xillion.core.instruments import resolve_option
 from xillion.core.strategy_base import Strategy, StrategyContext
+from xillion.data.option_chain import OptionChainWarehouse
 from xillion.engine.metrics import ClosedTrade, compute_metrics
 from xillion.engine.position_math import PositionState, apply_fill
 
 logger = structlog.get_logger(__name__)
+
+# Underlyings this backtest engine can resolve options for -- NSE Bhavcopy
+# (the only option-chain-capable provider today) is NSE-listed derivatives
+# only, so Sensex (BSE) isn't reachable here. Raising a clear error for it
+# beats a silent wrong answer.
+_BACKTEST_OPTION_EXCHANGE = {"NIFTY": "NFO", "BANKNIFTY": "NFO"}
 
 
 @dataclass
@@ -66,6 +74,7 @@ class _BacktestContext(StrategyContext):
         fee_config: FeeConfig,
         bars_by_sym_tf: dict[tuple[str, str], list[Bar]],
         contracts: Optional[dict[str, ContractSpec]] = None,
+        option_chain_warehouse: Optional[OptionChainWarehouse] = None,
     ) -> None:
         self.instance_id = instance_id
         self.mode = "backtest"
@@ -88,6 +97,13 @@ class _BacktestContext(StrategyContext):
         self.equity_curve: list[float] = []
         self._orders: list[Order] = []
         self._pending: dict[str, Order] = {}
+        self._chain = option_chain_warehouse
+        # Symbols resolved at runtime via resolve_strike + subscribe_instrument
+        # (options legs) -- the engine synthesizes a daily Tick for each of
+        # these from the chain snapshot's close so on_tick-driven logic (e.g.
+        # CP11's protective-order monitoring) actually runs in a backtest,
+        # which is otherwise driven purely by on_bar. See BacktestEngine.run().
+        self._dynamic_tick_symbols: dict[str, str] = {}  # symbol -> exchange
 
     def _multiplier(self, symbol: str) -> int:
         spec = self._contracts.get(symbol)
@@ -233,6 +249,111 @@ class _BacktestContext(StrategyContext):
         log_fn = getattr(logger, level.lower(), logger.info)
         log_fn(message, mode="backtest", **fields)
 
+    async def now(self) -> datetime:
+        if self._current_ts is None:
+            raise RuntimeError("now() called before the first bar was processed")
+        return self._current_ts
+
+    async def notify_critical(self, title: str, body: str) -> None:
+        # No Telegram in backtest mode -- a structured critical log line is
+        # the whole channel (surfaced via the same structlog pipeline every
+        # other backtest log line goes through).
+        logger.critical(title, mode="backtest", detail=body)
+
+    # ── Options resolution (Options Stage 2 / CP11 follow-up) ──────────────────
+
+    def _current_date(self):
+        if self._current_ts is None:
+            raise RuntimeError("options resolution called before the first bar was processed")
+        return self._current_ts.date()
+
+    def _option_exchange(self, underlying: str) -> str:
+        exchange = _BACKTEST_OPTION_EXCHANGE.get(underlying)
+        if exchange is None:
+            raise NotImplementedError(
+                f"backtest options resolution doesn't support {underlying!r} -- only "
+                f"{sorted(_BACKTEST_OPTION_EXCHANGE)} are resolvable via the free NSE "
+                "Bhavcopy provider (NSE-listed derivatives only; Sensex is BSE-listed "
+                "and isn't in this file)"
+            )
+        return exchange
+
+    async def get_spot(self, underlying: str) -> Decimal:
+        if self._chain is None:
+            raise RuntimeError(
+                "get_spot requires an option_chain_warehouse -- this backtest run "
+                "wasn't configured for options (see BacktestEngine.run)"
+            )
+        exchange = self._option_exchange(underlying)
+        price = await self._chain.get_underlying_price(underlying, exchange, self._current_date())
+        if price is None:
+            raise RuntimeError(
+                f"no option chain data for {underlying!r} {exchange} on {self._current_date()} "
+                "-- likely a non-trading day or a gap in the backfill"
+            )
+        return price
+
+    async def resolve_strike(self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str):
+        if self._chain is None:
+            raise RuntimeError(
+                "resolve_strike requires an option_chain_warehouse -- this backtest run "
+                "wasn't configured for options (see BacktestEngine.run)"
+            )
+        exchange = self._option_exchange(underlying)
+        day = self._current_date()
+        chain_rows = await self._chain.get_chain(underlying, exchange, day)
+        instrument_rows = [r.as_instrument_row() for r in chain_rows]
+        return resolve_option(instrument_rows, underlying, expiry_selector, strike_offset, opt_type, await self.get_spot(underlying), as_of=day)
+
+    async def get_option_price(self, symbol: str, exchange: str) -> Decimal:
+        if self._chain is None:
+            raise RuntimeError(
+                "get_option_price requires an option_chain_warehouse -- this backtest run "
+                "wasn't configured for options (see BacktestEngine.run)"
+            )
+        # get_close needs an underlying to scope its chain lookup, and this
+        # call site only has a bare symbol/exchange -- scan the underlyings
+        # this engine can resolve at all (small, fixed set) rather than
+        # threading underlying through every StrategyContext caller.
+        for candidate in _BACKTEST_OPTION_EXCHANGE:
+            price = await self._chain.get_close(symbol, exchange, candidate, self._current_date())
+            if price is not None:
+                # Real bug found running the credit-spread strategy through
+                # this end-to-end: a MARKET order for a freshly-resolved
+                # option leg filled at price 0 the moment it was opened,
+                # because place_order's MARKET-order fallback reads
+                # self._last_price, which _set_time() only ever populates
+                # for the bar-driven symbol -- a dynamically resolved leg
+                # has no bar of its own. Caching the fetched close here (the
+                # same "last known price" _dynamic_ticks_for_current_day
+                # already caches after on_bar) means the very first order
+                # for this symbol, placed within the SAME on_bar call that
+                # just fetched this price, fills correctly instead of at 0.
+                self._last_price[symbol] = price
+                return price
+        raise RuntimeError(f"no close price found for {symbol!r} on {exchange} for {self._current_date()}")
+
+    async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
+        """Live mode subscribes real ticks; backtest instead remembers to
+        synthesize a daily Tick for this symbol from its chain-snapshot
+        close (see BacktestEngine.run) so on_tick-driven logic actually
+        fires here too."""
+        self._dynamic_tick_symbols[symbol] = exchange
+
+    async def _dynamic_ticks_for_current_day(self) -> list[Tick]:
+        if self._chain is None or not self._dynamic_tick_symbols:
+            return []
+        day = self._current_date()
+        ticks: list[Tick] = []
+        for symbol, exchange in self._dynamic_tick_symbols.items():
+            for underlying in _BACKTEST_OPTION_EXCHANGE:
+                price = await self._chain.get_close(symbol, exchange, underlying, day)
+                if price is not None:
+                    ticks.append(Tick(symbol=symbol, ltp=price, ltt=self._current_ts))
+                    self._last_price[symbol] = price
+                    break
+        return ticks
+
 
 class BacktestEngine:
     """Runs a strategy against historical data and returns BacktestResult."""
@@ -248,6 +369,7 @@ class BacktestEngine:
         slippage_bps: int = 5,
         fee_config: Optional[FeeConfig] = None,
         contracts: Optional[dict[str, ContractSpec]] = None,
+        option_chain_warehouse: Optional[OptionChainWarehouse] = None,
     ) -> BacktestResult:
         if fee_config is None:
             fee_config = FeeConfig()
@@ -287,6 +409,7 @@ class BacktestEngine:
             fee_config=fee_config,
             bars_by_sym_tf=bars_by_sym_tf,
             contracts=contracts,
+            option_chain_warehouse=option_chain_warehouse,
         )
 
         ctx.equity_curve.append(float(capital))
@@ -298,6 +421,14 @@ class BacktestEngine:
                     continue
                 ctx._set_time(bar)
                 await strategy.on_bar(bar, ctx)
+                # Synthesize a daily Tick for any dynamically-resolved option
+                # leg (see _BacktestContext.subscribe_instrument) so on_tick-
+                # driven logic -- e.g. CP11's protective-order monitoring --
+                # actually runs in a backtest, which otherwise only calls
+                # on_bar. Matches bhavcopy's own daily granularity honestly;
+                # this is not a claim of intraday accuracy.
+                for tick in await ctx._dynamic_ticks_for_current_day():
+                    await strategy.on_tick(tick, ctx)
                 ctx.equity_curve.append(float(ctx.equity()))
             await strategy.on_stop(ctx, "backtest_complete")
         except Exception as exc:

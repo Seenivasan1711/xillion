@@ -24,8 +24,14 @@ Honest scope notes (read before trusting a backtest run of this):
   trend" arm -- KB 10 §3 explicitly allows SKIP as the simpler alternative,
   and the spec picked 2 legs specifically to keep the first validation run
   fast.
+- Options-Stage-2 backtesting IS wired (xillion/data/option_chain.py +
+  BacktestEngine's option_chain_warehouse), NSE-listed underlyings only
+  (NIFTY/BANKNIFTY -- Sensex is BSE-listed and NSE Bhavcopy doesn't cover
+  it). This strategy calls `ctx.now()`, not a bare wall-clock read, so its
+  entry-window/DTE gates correctly track the backtest's simulated time
+  instead of always checking against today's real date.
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 
 from xillion.core.events import Bar, OrderType, Side, Tick
@@ -42,15 +48,14 @@ from xillion.engine.indicators import ema, vwap
 _UNDERLYING_SPOT_SYMBOL = {"NIFTY": "NIFTY 50", "SENSEX": "SENSEX"}
 
 
-def _now_ist() -> datetime:
-    """Wall-clock IST time -- extracted to one call site so tests can
-    monkeypatch it. Matches the rest of the codebase's convention for
-    time-gated logic (see StrategyRunner._handle_bar's is_market_open(_now())
-    gate in xillion/engine/strategy_engine.py): paper/live bars and ticks
-    arrive in real time, so "is it currently in the entry window" is
-    correctly a wall-clock question, not a backtest-time one. This strategy
-    is not yet backtest-wired (see module docstring)."""
-    return datetime.now(timezone.utc).astimezone(IST)
+async def _now_ist(ctx: StrategyContext) -> datetime:
+    """Environment-aware "now", in IST -- live/paper gets real wall-clock
+    time, backtest gets the currently-simulated bar's timestamp (see
+    StrategyContext.now()'s docstring for why this must not be a bare
+    datetime.now() call: that would make every backtest only ever check
+    against today's real date, regardless of which historical period is
+    being replayed)."""
+    return (await ctx.now()).astimezone(IST)
 
 
 class CreditSpreadWeeklyStrategy(Strategy):
@@ -114,7 +119,7 @@ class CreditSpreadWeeklyStrategy(Strategy):
         if ctx.state.get("open_position") is not None:
             return  # one spread at a time per instance
 
-        now_ist = _now_ist()
+        now_ist = await _now_ist(ctx)
         if not (now_ist.hour == 9 and now_ist.minute >= 45 or (now_ist.hour == 10 and now_ist.minute <= 30)):
             return  # KB 10 §2: 09:45-10:30 IST entry window only
 
@@ -290,7 +295,7 @@ class CreditSpreadWeeklyStrategy(Strategy):
                 if protective_state["time_stop_date"] else None
             ),
         )
-        trigger = check_exit_trigger(protective, current_value, _now_ist().date())
+        trigger = check_exit_trigger(protective, current_value, (await _now_ist(ctx)).date())
         if trigger is None:
             return
 
