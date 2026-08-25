@@ -176,13 +176,13 @@ call makes 0.
       `POST /api/data/backfill` + `GET /api/data/backfill` (job status) +
       `GET /api/data/coverage`, plus a Coverage & backfill panel under
       Settings → Data Providers
-- [ ] **Run the real 2–5 year backfill — 🔵 IN PROGRESS.** Was blocked on
-      this sandbox not reaching Supabase; turned out the project was
-      paused (Rakesh resumed it 2026-08-25), and the direct-connection
-      hostname is IPv6-only anyway — switched `.env` to the Session pooler
-      (IPv4). **Scoped to NIFTY + BANKNIFTY only**, not the whole NFO
-      market: an unfiltered 2021→today run would be ~85M rows / ~25-30GB,
-      well past free-tier Postgres storage. Added a real
+- [ ] **Run the real 2–5 year backfill — 🔵 IN PROGRESS (second pass).**
+      Was blocked on this sandbox not reaching Supabase; turned out the
+      project was paused (Rakesh resumed it 2026-08-25), and the
+      direct-connection hostname is IPv6-only anyway — switched `.env` to
+      the Session pooler (IPv4). **Scoped to NIFTY + BANKNIFTY only**, not
+      the whole NFO market: an unfiltered 2021→today run would be ~85M
+      rows / ~25-30GB, well past free-tier Postgres storage. Added a real
       `underlying_filter` parameter threaded through
       `xillion/core/data_provider_base.py` →
       `data_providers/nse_bhavcopy.py` → `xillion/data/warehouse.py` →
@@ -193,11 +193,67 @@ call makes 0.
       coverage key, or a later full-market request for the same dates
       would wrongly think it's already covered and skip the excluded
       contracts — uses a distinct coverage key (`*:NIFTY,BANKNIFTY`)
-      instead. Empirically measured before committing to the full run (not
-      just estimated): a real 3.5-week fetch against the actual Supabase
-      DB persisted 43,438 rows / 10MB, extrapolating to ~3.7M rows / ~850MB
-      for the full 5.6-year range. Running in the background now, chunked
-      by year; will be marked done here once it completes.
+      instead.
+
+      **First run "completed" but was silently wrong for 2021-2023 —
+      caught by checking the actual data, not by trusting the log
+      output.** NSE's current bhavcopy URL (the "UDiFF" format this
+      provider used exclusively) genuinely 404s for any date before
+      2024-01-01 — confirmed by directly probing the URL across several
+      dates, not assumed. `_fetch_and_parse_day` treats a 404 as "holiday,
+      no trading" (correct for a real holiday) and marks that date range
+      as covered — so 2021-2023 got marked fully covered in
+      `bar_coverage` while genuinely containing zero real bars for
+      2,646+ days straight. Caught by querying the actual `bar` table
+      after the "successful" run and finding the earliest row was
+      2024-01-01, not 2021-01-01.
+
+      **Fixed for real, not patched around:** found (via WebSearch, then
+      verified by downloading and parsing an actual 2021-06-15 file, not
+      trusting the search result) that NSE's older archive format still
+      exists at a different URL with different columns
+      (`archives.nseindia.com/content/historical/DERIVATIVES/...`,
+      `INSTRUMENT`/`SYMBOL`/`EXPIRY_DT`/`STRIKE_PR` instead of the new
+      format's `TckrSymb`/`FinInstrmNm`/`XpryDt`/`StrkPric`, and no
+      ready-made tradingsymbol column at all). Both
+      `_fetch_and_parse_day` (bars) and `fetch_option_chain_for_day`
+      (strike/premium resolution — separately verified as the thing a
+      real backtest actually depends on for options, not the `bar` table)
+      now try the new-format URL first and fall back to this legacy one
+      on a 404 — no hardcoded cutover date needed, correct regardless of
+      exactly which day NSE switched formats.
+
+      **Two honestly-documented approximations the legacy path carries
+      that the new format doesn't need** (see
+      `data_providers/nse_bhavcopy.py`'s module docstring for the full
+      reasoning): (1) `underlying_price` — the legacy file has no
+      equivalent to the new format's `UndrlygPric` (NSE's own recorded
+      spot), approximated from the same-day nearest-expiry index future's
+      own close (index futures trade close to spot, but this is a proxy,
+      not an exact recorded value); (2) `lot_size` — no equivalent to
+      `NewBrdLotQty` exists pre-2024 either, and NIFTY/BANKNIFTY's real
+      lot size changed multiple times across 2021-2023 with no verified
+      free source for the exact value on an arbitrary date — rather than
+      guess, this returns `lot_size=0`, which `size_defined_risk_position`
+      already turns into a loud `ValueError` instead of a silently
+      mis-sized trade. **A pre-2024 backtest cannot size positions yet**
+      until a real historical lot-size table replaces this — flagged
+      here, not hidden.
+
+      Tradingsymbols for legacy dates are a synthetic, internal-only
+      convention (`_legacy_tradingsymbol_from_row`), not NSE's or
+      Zerodha's real naming — safe only because this data never leaves
+      the backtest engine (never placed as a live order, never
+      reconciled against a live broker). 6 new unit tests
+      (`test_nse_bhavcopy_legacy_format.py`), verified end-to-end against
+      the real 2021-06-15 file before trusting it (4,384 bars, 50,734
+      option-chain rows, spot-proxy and symbol-consistency between the
+      bar and option-chain paths both confirmed by hand). Corrected the
+      first run's bad `bar_coverage` row (`from_date` moved from
+      2021-01-01 to 2024-01-01, the genuinely-verified boundary) and
+      re-ran the backfill for just 2021-2023 through the fixed code.
+      Running now; will be marked done here once it completes and the
+      `bar` table is spot-checked again.
 - [x] Persist `BacktestRun`/`BacktestTrade` — tables existed since migration
       001/002 but nothing ever wrote to them; wired into all three
       `/backtest/run*` endpoints
