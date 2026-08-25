@@ -131,6 +131,17 @@ export const api = {
       ),
     deleteZerodha: () =>
       request<{ deleted: boolean }>('/settings/zerodha', { method: 'DELETE' }),
+    getDhan: () =>
+      request<{ configured: boolean; client_id?: string; updated_at?: string }>(
+        '/settings/dhan'
+      ),
+    saveDhan: (body: DhanCredentials) =>
+      request<{ saved: boolean; connection_status: string; last_error: string | null }>(
+        '/settings/dhan',
+        { method: 'PUT', body: JSON.stringify(body) }
+      ),
+    deleteDhan: () =>
+      request<{ deleted: boolean }>('/settings/dhan', { method: 'DELETE' }),
     getNotifications: () =>
       request<NotificationSettings>('/settings/notifications'),
     saveNotifications: (body: NotificationSettings) =>
@@ -673,5 +684,12 @@ export interface ZerodhaCredentials {
   api_secret: string
   user_id: string
   password: string
+  totp_secret: string
+}
+
+export interface DhanCredentials {
+  client_id: string
+  access_token: string
+  pin: string
   totp_secret: string
 }

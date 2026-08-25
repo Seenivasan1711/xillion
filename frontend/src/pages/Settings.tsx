@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle, QrCode, Shield, Smartphone, Bell, User, AlertTriangle, Wifi, Database } from 'lucide-react'
 import { api } from '../lib/api'
-import type { ZerodhaCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob } from '../lib/api'
+import type { ZerodhaCredentials, DhanCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Badge } from '../components/ui'
 
@@ -65,9 +65,22 @@ function BrokersTab() {
   const [brokers, setBrokers] = useState<BrokerStatus[]>([])
   const [reconnecting, setReconnecting] = useState<string | null>(null)
 
+  const [dhanStatus, setDhanStatus] = useState<{
+    configured: boolean
+    client_id?: string
+    updated_at?: string
+  } | null>(null)
+  const [dhanForm, setDhanForm] = useState<DhanCredentials>({
+    client_id: '', access_token: '', pin: '', totp_secret: '',
+  })
+  const [dhanSaving, setDhanSaving] = useState(false)
+  const [dhanMsg, setDhanMsg] = useState('')
+  const [dhanMsgKind, setDhanMsgKind] = useState<'ok' | 'err'>('ok')
+
   useEffect(() => {
-    Promise.all([api.settings.getZerodha(), api.brokers.connections()]).then(([z, b]) => {
+    Promise.all([api.settings.getZerodha(), api.settings.getDhan(), api.brokers.connections()]).then(([z, d, b]) => {
       setZerodhaStatus(z)
+      setDhanStatus(d)
       setBrokers(b.connections)
     }).catch(() => {})
   }, [])
@@ -107,6 +120,44 @@ function BrokersTab() {
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Remove failed')
       setMsgKind('err')
+    }
+  }
+
+  const saveDhan = async () => {
+    setDhanSaving(true)
+    setDhanMsg('')
+    try {
+      const res = await api.settings.saveDhan(dhanForm)
+      if (res.connection_status === 'connected') {
+        setDhanMsg('Saved and connected successfully')
+        setDhanMsgKind('ok')
+      } else {
+        setDhanMsg(`Saved, but connection failed: ${res.last_error ?? 'unknown error'}`)
+        setDhanMsgKind('err')
+      }
+      const [d, b] = await Promise.all([api.settings.getDhan(), api.brokers.connections()])
+      setDhanStatus(d)
+      setBrokers(b.connections)
+    } catch (e) {
+      setDhanMsg(e instanceof Error ? e.message : 'Save failed')
+      setDhanMsgKind('err')
+    } finally {
+      setDhanSaving(false)
+    }
+  }
+
+  const removeDhan = async () => {
+    if (!confirm('Remove Dhan credentials? You will need to re-enter them to reconnect.')) return
+    try {
+      await api.settings.deleteDhan()
+      setDhanMsg('Credentials removed')
+      setDhanMsgKind('ok')
+      const [d, b] = await Promise.all([api.settings.getDhan(), api.brokers.connections()])
+      setDhanStatus(d)
+      setBrokers(b.connections)
+    } catch (e) {
+      setDhanMsg(e instanceof Error ? e.message : 'Remove failed')
+      setDhanMsgKind('err')
     }
   }
 
@@ -202,6 +253,101 @@ function BrokersTab() {
               disabled={saving || !form.api_key || !form.api_secret || !form.user_id}
             >
               {saving ? 'Saving…' : 'Save & Connect'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Dhan credentials */}
+      <div className="card">
+        <div className="card-head">
+          <span className="title">Dhan</span>
+          {dhanStatus?.configured
+            ? <Badge tone="pos"><CheckCircle size={11} style={{ marginRight: 4 }} />Configured</Badge>
+            : <Badge>Not configured</Badge>
+          }
+        </div>
+        <div className="card-pad stack" style={{ gap: 14 }}>
+          <div className="faint" style={{ fontSize: 11 }}>
+            Free — no subscription, unlike Zerodha's Kite Connect (₹500/mo). Generate an access token at
+            dhan.co (Profile → DhanHQ Trading APIs). PIN + TOTP secret are optional, only needed for
+            automatic daily token refresh.
+          </div>
+          {dhanStatus?.configured && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8,
+              border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 12 }}>
+                <span className="faint">Client ID: </span>
+                <span className="mono-num">{dhanStatus.client_id ?? '—'}</span>
+              </div>
+              <button className="btn ghost sm" onClick={removeDhan} style={{ color: 'var(--neg)' }}>Remove</button>
+            </div>
+          )}
+
+          <div className="grid-2">
+            <div className="field">
+              <label>Client ID</label>
+              <input
+                type="text"
+                className="input"
+                value={dhanForm.client_id}
+                onChange={e => setDhanForm({ ...dhanForm, client_id: e.target.value })}
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>Access Token</label>
+              <input
+                type="password"
+                className="input"
+                value={dhanForm.access_token}
+                onChange={e => setDhanForm({ ...dhanForm, access_token: e.target.value })}
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>PIN (optional)</label>
+              <input
+                type="password"
+                className="input"
+                value={dhanForm.pin}
+                onChange={e => setDhanForm({ ...dhanForm, pin: e.target.value })}
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>TOTP Secret (optional, base32)</label>
+              <input
+                type="password"
+                className="input"
+                value={dhanForm.totp_secret}
+                onChange={e => setDhanForm({ ...dhanForm, totp_secret: e.target.value })}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
+          {dhanMsg && (
+            <div style={{
+              fontSize: 12, padding: '8px 12px', borderRadius: 7,
+              background: dhanMsgKind === 'ok' ? 'var(--pos-dim)' : 'var(--neg-dim)',
+              color: dhanMsgKind === 'ok' ? 'var(--pos)' : 'var(--neg)',
+              border: `1px solid ${dhanMsgKind === 'ok' ? 'color-mix(in srgb, var(--pos) 25%, transparent)' : 'color-mix(in srgb, var(--neg) 25%, transparent)'}`,
+            }}>
+              {dhanMsg}
+            </div>
+          )}
+
+          <div className="row">
+            <button
+              className="btn primary"
+              onClick={saveDhan}
+              disabled={dhanSaving || !dhanForm.client_id || !dhanForm.access_token}
+            >
+              {dhanSaving ? 'Saving…' : 'Save & Connect'}
             </button>
           </div>
         </div>

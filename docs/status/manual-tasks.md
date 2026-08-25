@@ -13,35 +13,45 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-25 (Dhan promoted to top priority, Kite Connect
+demoted to low-priority/later — Rakesh's explicit call, both now saved via
+Settings UI into the DB instead of `.env`)
 
 ---
 
 ## Open
 
-- [ ] **Dhan API access token + client ID** — dhan.co account → generate an
-      access token via the Dhan web/app UI (Profile → DhanHQ Trading APIs),
-      set `DHAN_PRIMARY_CLIENT_ID` + `DHAN_PRIMARY_ACCESS_TOKEN`. Optional:
-      `DHAN_PRIMARY_PIN` + `DHAN_PRIMARY_TOTP_SECRET` for auto-refresh when
-      the token expires (~daily).
-      **Do this one first.** As of 2026-08-25, paper mode no longer needs
-      Zerodha at all — three real bugs were found and fixed that had
-      hardcoded paper mode's live-tick feed to Zerodha and silently dropped
-      `PaperBroker`'s price updates for *any* broker (see CP15 follow-up in
-      `task-tracker.md`). With this token, you can see the app place real
-      paper trades end-to-end for **free**, no Kite Connect subscription
-      needed.
+- [ ] **🔴 Dhan API access token + client ID — IMPORTANT, DO THIS NOW.**
+      dhan.co account → generate an access token via the Dhan web/app UI
+      (Profile → DhanHQ Trading APIs). Optional: PIN + TOTP secret for
+      auto-refresh when the token expires (~daily).
+      **Enter it in the app itself now, not `.env`:** Settings → Brokers →
+      Dhan card → paste Client ID + Access Token → Save & Connect. As of
+      2026-08-25 this is stored encrypted in the DB (`BrokerCredential`
+      table via `xillion/auth/credstore.py`), the same pattern Zerodha
+      already used — added this session specifically so multi-provider
+      credentials don't have to live in `.env` and can be entered/rotated
+      from the running app (see the question this answered, further down
+      in `task-tracker.md`'s CP15 follow-up).
+      As of the same session, paper mode no longer needs Zerodha at all —
+      three real bugs were found and fixed that had hardcoded paper mode's
+      live-tick feed to Zerodha and silently dropped `PaperBroker`'s price
+      updates for *any* broker. With this token, you can see the app place
+      real paper trades end-to-end for **free**, no Kite Connect
+      subscription needed.
       **Blocks:** CP15 live verification, and now the fastest path to
       seeing the whole system run for real.
       **Cost:** free.
 
-- [ ] **Kite Connect developer app** — register at developers.kite.trade,
-      get API key + secret. Needs a Zerodha account with TOTP 2FA already
-      enabled (for the auto-login secret).
-      **Deferred — not needed to see the app work.** Do this when you
-      actually want the Zerodha-specific live-trading path (better
-      liquidity data, real order routing there), not before. Do the Dhan
-      item above first — it's free and unblocks paper mode on its own.
+- [ ] **Kite Connect developer app — LOW PRIORITY, LATER.** Register at
+      developers.kite.trade, get API key + secret. Needs a Zerodha account
+      with TOTP 2FA already enabled (for the auto-login secret). Also
+      DB-backed now — Settings → Brokers → Zerodha card, no `.env` editing.
+      **Deferred by your own call, 2026-08-25** — not needed to see the app
+      work, and costs money the free Dhan path doesn't. Pick this up only
+      when you actually want the Zerodha-specific live-trading path (better
+      liquidity data, real order routing there) — after Dhan is running,
+      not before.
       **Blocks:** the Zerodha-specific live path, Options S4 going live.
       **Cost:** ₹500/mo.
 

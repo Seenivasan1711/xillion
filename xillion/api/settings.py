@@ -21,6 +21,8 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 ZERODHA_NAME = "Zerodha Primary"
 ZERODHA_BROKER = "Zerodha"
+DHAN_NAME = "Dhan Primary"
+DHAN_BROKER = "Dhan"
 
 
 class ZerodhaCredentialsRequest(BaseModel):
@@ -109,4 +111,89 @@ async def delete_zerodha_credentials(
             pass
     request.app.state.broker_instances.pop(ZERODHA_NAME, None)
     logger.info("zerodha credentials deleted", user=user.username)
+    return {"deleted": True}
+
+
+class DhanCredentialsRequest(BaseModel):
+    client_id: str
+    access_token: str
+    pin: str = ""
+    totp_secret: str = ""
+
+
+class DhanCredentialsStatus(BaseModel):
+    configured: bool
+    client_id: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@router.get("/dhan", response_model=DhanCredentialsStatus)
+async def get_dhan_status(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    creds = await load_credentials(db, DHAN_NAME)
+    if not creds:
+        return DhanCredentialsStatus(configured=False)
+    rows = await list_credential_names(db)
+    updated_at = next((r["updated_at"] for r in rows if r["name"] == DHAN_NAME), None)
+    return DhanCredentialsStatus(
+        configured=True,
+        client_id=creds.get("client_id"),
+        updated_at=updated_at,
+    )
+
+
+@router.put("/dhan")
+async def put_dhan_credentials(
+    body: DhanCredentialsRequest,
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    payload = body.model_dump()
+    await save_credentials(db, DHAN_NAME, DHAN_BROKER, payload)
+    logger.info("dhan credentials saved", user=user.username, client_id=body.client_id)
+
+    # Invalidate any cached token so the new credentials are used --
+    # DhanBroker keys its cache to a fixed path, same shape as Zerodha's.
+    from pathlib import Path
+
+    token_cache = Path("data/dhan_token.json")
+    if token_cache.exists():
+        token_cache.unlink()
+
+    from xillion.main import _try_connect_dhan
+
+    await _try_connect_dhan(request.app)
+    info = request.app.state.broker_instances.get(DHAN_NAME, {})
+    return {
+        "saved": True,
+        "connection_status": info.get("status", "unknown"),
+        "last_error": info.get("last_error"),
+    }
+
+
+@router.delete("/dhan")
+async def delete_dhan_credentials(
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    from xillion.db.models import BrokerCredential
+
+    row = await db.get(BrokerCredential, DHAN_NAME)
+    if row:
+        await db.delete(row)
+        await db.commit()
+
+    info = request.app.state.broker_instances.get(DHAN_NAME, {})
+    instance = info.get("instance")
+    if instance:
+        try:
+            await instance.disconnect()
+        except Exception:
+            pass
+    request.app.state.broker_instances.pop(DHAN_NAME, None)
+    logger.info("dhan credentials deleted", user=user.username)
     return {"deleted": True}

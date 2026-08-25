@@ -999,6 +999,25 @@ Kite Connect's ₹500/mo is no longer required to see the app trade for
 real** (still needed eventually for the Zerodha-specific path, but not to
 validate the system today).
 
+**Follow-up, 2026-08-25: Dhan credentials moved off `.env`, onto the same
+encrypted-DB path Zerodha already used.** The user asked directly: with
+multiple broker providers, isn't `.env` the wrong place to store
+credentials — shouldn't they live in the DB so they're easy to update or
+add a new provider? Correct instinct, and the architecture already half
+agreed — `xillion/auth/credstore.py`'s `BrokerCredential` table
+(Fernet-encrypted payload) plus a full `GET`/`PUT`/`DELETE
+/settings/zerodha` API and Settings UI form already existed, but were only
+ever wired up for Zerodha; Dhan's loader (`_load_dhan_credentials`) checked
+the DB first but nothing ever wrote to it, so it silently always fell back
+to `.env`. Added the mirror: `GET`/`PUT`/`DELETE /settings/dhan`
+(`xillion/api/settings.py`) and a matching Dhan card in
+`frontend/src/pages/Settings.tsx` → Brokers tab. Credentials now go in
+through the app itself, encrypted at rest, no `.env` editing, and this
+pattern generalizes cleanly to any future broker (MT5 for Gold Lane B1,
+etc.) — same shape, new router functions. New `test_dhan_settings.py` (2
+tests) proves the round-trip and that saving/deleting one broker's
+credentials never touches another's row. 397/397 tests passing.
+
 ---
 
 ## TRACK B — Asset pipelines
@@ -1070,7 +1089,7 @@ Infrastructure each asset needs before its pipeline can start:
 
 | # | Item | Blocks | Status |
 |---|---|---|---|
-| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward (Zerodha-specific path only — deferred, see #10) | Open |
+| 1 | Kite Connect plan + Telegram bot (~1 hr) | CP4 onward (Zerodha-specific path only) | Open — **low priority, deferred by Rakesh 2026-08-25**, do #10 first |
 | ~~2~~ | ~~Real strategy rules from trading-course videos~~ | ~~Options S1~~ | ✅ **Resolved 2026-08-25** — `docs/strategies/knowledge-base/` |
 | 3 | CA opinion on Funding Pips prop-firm income | Gold Lane B1 S4 | Open |
 | 4 | Funding Pips account + challenge | Gold Lane B1 S3 onward | Open |
@@ -1079,7 +1098,7 @@ Infrastructure each asset needs before its pipeline can start:
 | ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
 | 8 | Confirm free-tier Redis provider choice (Upstash vs Redis Cloud) once/if it becomes load-bearing — see decisions Q12 | CP13 (only if in-memory state turns out insufficient) | Open, low priority |
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking |
-| 10 | Dhan API access token + client ID (dhan.co → generate via web/app UI) | CP15 live verification, **and now the fastest free path to seeing paper mode run end-to-end (no Zerodha needed)** | Open — see `manual-tasks.md`, code is done and waiting, do this one first |
+| 10 | **Dhan API access token + client ID** (dhan.co → generate via web/app UI, enter via Settings → Brokers → Dhan) | CP15 live verification, **and now the fastest free path to seeing paper mode run end-to-end (no Zerodha needed)** | Open — **top priority**, see `manual-tasks.md`, code + DB-backed Settings UI both done and waiting |
 
 ---
 
