@@ -46,6 +46,20 @@ waiting on you). **Note:** CP8's code lives mostly in the separate
 `prosper-engine` repo and
 is uncommitted there — xillion's commit standing-authorization doesn't
 extend to it.
+
+**Found while checking for other gaps, 2026-08-25:** Settings → Risk and →
+Danger zone tabs have called `/settings/risk-limits`, `/settings/reset-data`,
+`/settings/wipe` since they were built, but none of those routes existed on
+the backend — both tabs 404'd, unrelated to anything else this session.
+Added `reset-data` (clears trade/log/run data, preserves credentials +
+config) and `wipe` (clears everything, `/auth/setup-status` naturally
+takes over) in full. **`risk-limits` persists but is deliberately NOT
+wired into live enforcement** — its field shape doesn't map cleanly onto
+how risk actually works today (account-wide `default_*` config +
+per-instance `risk_limits_json`), and guessing at that mapping risks
+getting real risk enforcement wrong, not just a cosmetic bug. Left as an
+open design gap rather than faked. 404/404 tests passing.
+
 **Active branch:** `feat/options-alert-engine`
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
