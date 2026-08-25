@@ -35,12 +35,21 @@ class Settings(BaseSettings):
 
     # Compliance
     app_bind_ip: str = ""
-    ops_limit_per_second: int = 9
+    # CP13: automation-platform-spec/10-RISK-ENGINE.md §10.3 -- SEBI's algo
+    # threshold is <10 orders/sec. Cap normal throttling at 7 (soft, orders
+    # rejected past this); hitting the 9/sec hard ceiling is treated as a
+    # runaway-loop signal (kill switch + P0), not just throttled -- "a loop
+    # that generates 9 orders/second will generate 9,000."
+    ops_limit_per_second: int = 7
+    ops_burst_ceiling: int = 9
 
     # Risk defaults
     default_account_daily_loss_pct: float = 3.0
     default_per_strategy_daily_loss_pct: float = 2.0
     default_max_open_positions: int = 10
+    default_max_orders_per_day: int = 50
+    default_max_qty_per_order: int = 10_000
+    default_max_notional_per_order: float = 2_000_000.0
 
     # Plugin paths
     strategies_dir: str = "./strategies"

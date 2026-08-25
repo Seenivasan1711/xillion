@@ -11,7 +11,7 @@ import structlog
 
 from xillion.core.broker_base import Broker
 from xillion.core.events import Order, OrderRequest, OrderStatus, Position
-from xillion.core.risk import RiskDecision, RiskManager, RiskRejected, StrategyRiskConfig
+from xillion.core.risk import MarketContext, RiskDecision, RiskManager, RiskRejected, StrategyRiskConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -54,10 +54,37 @@ class ExecutionRouter:
     def set_risk_config(self, risk_config: StrategyRiskConfig) -> None:
         self.risk_config = risk_config
 
-    async def submit(self, request: OrderRequest, current_positions: Optional[int] = None) -> Order:
+    async def submit(
+        self,
+        request: OrderRequest,
+        current_positions: Optional[int] = None,
+        market_context: Optional[MarketContext] = None,
+    ) -> Order:
+        # CP13's not_self_trade check needs this instance's own open orders;
+        # build it here rather than requiring every caller to pass it, same
+        # as current_positions is already computed by the caller today.
+        ctx = market_context or MarketContext()
+        if not ctx.open_orders:
+            ctx.open_orders = self.get_open_orders(request.strategy_instance_id)
+
         decision: RiskDecision = self._risk.check(
-            request, strategy_config=self.risk_config, current_positions=current_positions
+            request, strategy_config=self.risk_config, current_positions=current_positions,
+            market_context=ctx,
         )
+        # CP13: every decision (approved or rejected) is recorded to the
+        # append-only audit log -- xillion/core/audit.py's AuditLog/
+        # AuditLogRecord existed since early on but nothing ever called
+        # .record(), so risk decisions were previously only ever visible in
+        # structlog output, not in the durable, hash-chained audit trail
+        # the automation spec needs. AWAITED, not fire-and-forget, unlike
+        # _persist_order/_persist_trade_close below -- the spec's K04 job
+        # is explicit that order-event/risk-decision audit writes are
+        # synchronous on the critical path ("an unlogged order must not
+        # reach the broker"), unlike the non-critical bookkeeping those
+        # other writes represent.
+        if self._db_factory is not None:
+            await self._audit_risk_decision(request, decision)
+
         if isinstance(decision, RiskRejected):
             logger.warning(
                 "order rejected by risk manager",
@@ -99,6 +126,30 @@ class ExecutionRouter:
             asyncio.create_task(self._persist_order(order))
 
         return order
+
+    async def _audit_risk_decision(self, request: OrderRequest, decision: RiskDecision) -> None:
+        from xillion.core.audit import AuditLog
+
+        approved = isinstance(decision, RiskRejected) is False
+        payload = {
+            "client_order_id": request.client_order_id,
+            "symbol": request.symbol,
+            "side": request.side.value,
+            "quantity": request.quantity,
+            "approved": approved,
+        }
+        if isinstance(decision, RiskRejected):
+            payload["failed_checks"] = decision.failed_checks
+            payload["reason"] = decision.reason
+        try:
+            await AuditLog(self._db_factory()).record(
+                event_type="risk_decision",
+                payload=payload,
+                actor_type="strategy",
+                actor_id=request.strategy_instance_id,
+            )
+        except Exception as exc:
+            logger.error("audit_risk_decision failed", error=str(exc))
 
     async def cancel(self, client_order_id: str) -> bool:
         order = self._orders.get(client_order_id)

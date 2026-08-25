@@ -45,7 +45,7 @@ async def test_submit_enforces_per_strategy_daily_loss_when_config_is_wired():
 
     order = await router.submit(_order())
     assert order.status.value == "REJECTED"
-    assert "strategy daily loss" in order.rejection_reason
+    assert "within_strategy_daily_loss" in order.rejection_reason
 
 
 @pytest.mark.asyncio

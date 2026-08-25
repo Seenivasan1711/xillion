@@ -766,20 +766,70 @@ stop). 312/312 tests passing, no regressions.
 
 ---
 
-### ⬜ CP13 — Expanded risk engine → *Goal #7 extension, capital-protecting*
-- [ ] Bring `RiskManager.check()` from 5 checks to the ~20 in
-      `automation-platform-spec/10-RISK-ENGINE.md` §10.2 — see
-      `architecture/risk-and-compliance.md` Part C.1 for the prioritised list
-      (price collar + OPS-cap tightening to 7/sec first, since they're pure
-      validation logic; idempotency-key dedup second; prop-firm DD gates wait
-      for Lane B)
-- [ ] 100% branch coverage on the risk engine (non-negotiable per the spec's
-      own Gate 1 criterion — this is the one component with zero tolerance
-      for an untested path)
+### ✅ CP13 — Expanded risk engine `DONE 2026-08-25`
+- [x] Brought `RiskManager.check()` from 6 checks to **18** —
+      [xillion/core/risk.py](../../xillion/core/risk.py), table-driven
+      (`checks: list[tuple[name, ok]]`, matching the spec's own
+      `validate_order()` shape) rather than nested early-returns, both for
+      readability and because it made 100% branch coverage tractable.
+      Priority order followed exactly as `risk-and-compliance.md` Part C.1
+      specified:
+      1. **Price collar** (`price_collar` — order price within 0.5x-1.5x
+         LTP) + **OPS cap tightened to 7/sec** with a genuine 9/sec hard
+         ceiling — hitting the hard ceiling now fires the kill switch
+         (runaway-loop signal per spec §10.3: "a loop that generates 9
+         orders/second will generate 9,000"), tracked on a SEPARATE
+         attempt-window from the soft-throttle accepted-window, since the
+         runaway signature is attempt rate, not accepted-order rate
+      2. **Idempotency-key dedup** (`not_duplicate` — a client_order_id
+         re-submitted within 5 minutes is rejected)
+      3. Prop-firm DD gates — still deferred to Lane B, unchanged
+      Also added, all from the spec's same check groups: `qty_lot_multiple`,
+      `qty_within_freeze`, `qty_sane`, `price_tick_multiple`,
+      `price_within_circuit`, `notional_sane`, `trading_enabled` (a softer,
+      manually-reversible pause distinct from the kill switch), `order_count_sane`
+      (per-strategy daily order cap), `not_self_trade` (opposite-side open
+      order on the same symbol — `ExecutionRouter.submit()` now supplies
+      this from its own `get_open_orders()` automatically). Every new
+      market-data-dependent check (`price_collar`, `price_tick_multiple`,
+      `price_within_circuit`, `notional_sane`, `qty_lot_multiple`,
+      `qty_within_freeze`) is **skipped, not failed,** when the caller's
+      `MarketContext` doesn't supply that field — honestly documented as
+      not yet wired to a live broker quote (no code path constructs one
+      pre-trade today), not silently treated as passed.
+      **Deliberately NOT implemented, and why:** `margin_sufficient` (would
+      need a synchronous pre-trade broker RPC — a real latency tradeoff not
+      decided yet), `market_open`/`symbol_tradeable` (risk of regressing
+      paper/alert-mode testing outside market hours without deciding what
+      "mode-aware" means for this check first), `modify_rate_ok`
+      (`modify_order` itself isn't implemented anywhere in the codebase yet
+      — nothing to rate-limit).
+- [x] **100% branch coverage on `xillion/core/risk.py`** — verified with
+      `pytest --cov=xillion.core.risk --cov-branch`, not just "tests pass."
+- [x] **Audit log wiring** — `xillion/core/audit.py`'s `AuditLog`/
+      `AuditLogRecord` (hash-chained, append-only) existed in the schema
+      and as working code since early in the project, but nothing ever
+      called `.record()` — risk decisions were only ever visible in
+      structlog output. `ExecutionRouter.submit()` now writes every
+      decision (approved or rejected, with the specific failed check
+      names) here, **awaited, not fire-and-forget** — matching the spec's
+      own K04 requirement that order-event audit writes are synchronous on
+      the critical path.
+      **A real bug this caught, not a hypothetical:** the first version of
+      this used `asyncio.create_task()` (fire-and-forget, matching this
+      file's OWN precedent for `_persist_order`/`_persist_trade_close`) and
+      it reliably **hung the entire integration test suite** partway
+      through — orphaned audit-write tasks from earlier tests, still
+      holding the shared SQLite connection when their test's event loop
+      tore down, blocked a later test's DB access indefinitely. Switching
+      to awaited (which the spec asked for anyway) fixed it outright.
 
-**Verify:** a deliberately fat-fingered order (10x price, wrong lot multiple)
-is rejected before it reaches the broker adapter, with the specific failed
-check named in the audit log.
+**Verify:** a deliberately fat-fingered order (10x the LTP) is rejected
+before it reaches the broker adapter (`test_risk_audit_log.py`'s
+`test_fat_fingered_price_is_rejected_before_reaching_the_broker` — asserts
+`broker.placed_orders == []`), with the specific failed check
+(`price_collar`) named in a real `audit_log` row, not just a log line.
+343/343 tests passing (53 in `test_risk_manager.py` alone), no regressions.
 
 ---
 

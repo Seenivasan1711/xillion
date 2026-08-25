@@ -118,6 +118,8 @@ services:
 
       # SEBI / risk defaults — review before going live
       - key: OPS_LIMIT_PER_SECOND
+        value: "7"
+      - key: OPS_BURST_CEILING
         value: "9"
       - key: DEFAULT_ACCOUNT_DAILY_LOSS_PCT
         value: "1"               # Conservative for first week
