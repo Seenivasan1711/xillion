@@ -4,13 +4,15 @@ brokers/dhan.py, CP15). Real header + rows below are copied verbatim from a
 live fetch of https://images.dhan.co/api-data/api-scrip-master-detailed.csv
 (2026-08-25), not guessed.
 """
-import io
+
 from pathlib import Path
 
 import pytest
 
 from xillion.core.dhan_instruments import (
-    EXCHANGE_SEGMENT_TO_FEED_CODE, exchange_segment, resolve_security,
+    EXCHANGE_SEGMENT_TO_FEED_CODE,
+    exchange_segment,
+    resolve_security,
 )
 
 _REAL_HEADER = (
@@ -84,5 +86,14 @@ def test_resolve_security_returns_none_when_not_found(tmp_path):
 def test_feed_code_mapping_covers_all_exchange_segments():
     # Every string exchangeSegment exchange_segment() can produce must have
     # a numeric feed code -- otherwise subscribe_ticks silently drops it.
-    produced = {"IDX_I", "NSE_EQ", "NSE_FNO", "NSE_CURRENCY", "BSE_EQ", "BSE_FNO", "BSE_CURRENCY", "MCX_COMM"}
+    produced = {
+        "IDX_I",
+        "NSE_EQ",
+        "NSE_FNO",
+        "NSE_CURRENCY",
+        "BSE_EQ",
+        "BSE_FNO",
+        "BSE_CURRENCY",
+        "MCX_COMM",
+    }
     assert produced.issubset(EXCHANGE_SEGMENT_TO_FEED_CODE.keys())

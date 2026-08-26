@@ -14,10 +14,11 @@ task gives up after max_restarts within window_seconds rather than
 spinning forever) and Telegram-alerts on every restart and on giving up,
 so a self-healed blip is still visible, not just silently absorbed.
 """
+
 import asyncio
 import time
 import traceback
-from typing import Callable, Coroutine, Optional
+from collections.abc import Callable, Coroutine
 
 import structlog
 
@@ -51,7 +52,7 @@ class SupervisedTask:
         self._backoff_seconds = backoff_seconds
         self._restart_times: list[float] = []
         self._stopped = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._start()
 
     def _start(self) -> None:
@@ -68,12 +69,20 @@ class SupervisedTask:
         # `while True` or an unbounded `async for`), and some of them (e.g.
         # _tick_broadcaster) already swallow their own exceptions and just
         # return -- exception-only detection would miss that case entirely.
-        detail = str(exc) if exc is not None else "it exited without raising -- this loop is meant to run forever"
+        detail = (
+            str(exc)
+            if exc is not None
+            else "it exited without raising -- this loop is meant to run forever"
+        )
         # str(exc) alone (e.g. "cannot reuse already awaited coroutine")
         # gives no file/line to act on -- capture the full traceback so a
         # crash is diagnosable from the Dev/Logs page alone, without needing
         # to reproduce it.
-        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc is not None else None
+        tb = (
+            "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            if exc is not None
+            else None
+        )
         logger.error("background task stopped", task=self._name, error=detail, traceback=tb)
 
         now = time.monotonic()
@@ -128,4 +137,6 @@ def supervise(
     coroutine each call (e.g. `lambda: _daily_token_refresh(app)`), not a
     bare coroutine -- a coroutine object can only be awaited once, so
     restarting requires being able to build a new one."""
-    return SupervisedTask(name, coro_factory, notifier, max_restarts, window_seconds, backoff_seconds)
+    return SupervisedTask(
+        name, coro_factory, notifier, max_restarts, window_seconds, backoff_seconds
+    )

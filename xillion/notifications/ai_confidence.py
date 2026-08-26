@@ -11,7 +11,6 @@ it did before this existed. When configured, any failure (timeout, bad
 response, backend down) also returns None rather than raising -- a review
 service being unavailable must never block or break a real alert.
 """
-from typing import Optional
 
 import httpx
 import structlog
@@ -24,11 +23,11 @@ logger = structlog.get_logger(__name__)
 async def get_confidence(
     symbol: str,
     side: str,
-    price: Optional[float],
-    target_price: Optional[float],
-    stop_loss_price: Optional[float],
-    tag: Optional[str],
-) -> Optional[float]:
+    price: float | None,
+    target_price: float | None,
+    stop_loss_price: float | None,
+    tag: str | None,
+) -> float | None:
     if not settings.ai_confidence_url:
         return None
     try:
@@ -36,8 +35,11 @@ async def get_confidence(
             resp = await client.post(
                 settings.ai_confidence_url,
                 json={
-                    "symbol": symbol, "side": side, "price": price,
-                    "target_price": target_price, "stop_loss_price": stop_loss_price,
+                    "symbol": symbol,
+                    "side": side,
+                    "price": price,
+                    "target_price": target_price,
+                    "stop_loss_price": stop_loss_price,
                     "tag": tag,
                 },
             )
@@ -48,5 +50,7 @@ async def get_confidence(
                 return None
             return max(0.0, min(100.0, float(confidence)))
     except Exception as exc:
-        logger.warning("ai confidence lookup failed, continuing without it", error=str(exc), symbol=symbol)
+        logger.warning(
+            "ai confidence lookup failed, continuing without it", error=str(exc), symbol=symbol
+        )
         return None

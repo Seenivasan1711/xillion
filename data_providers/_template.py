@@ -21,6 +21,7 @@ Contract rules:
   (e.g. daily-only, like the free NSE bhavcopy provider), raise ValueError
   for anything else rather than silently ignoring the request.
 """
+
 from datetime import date
 
 from xillion.core.data_provider_base import DataProviderCapabilities, HistoricalDataProvider
@@ -28,7 +29,7 @@ from xillion.core.events import Bar
 
 
 class MyDataProvider(HistoricalDataProvider):
-    name = "My Provider"                 # Must be unique across all loaded providers
+    name = "My Provider"  # Must be unique across all loaded providers
     version = "0.1.0"
     description = "A brief description of what this data source is and its real limits."
 
@@ -37,9 +38,9 @@ class MyDataProvider(HistoricalDataProvider):
         supports_futures=False,
         supports_options=False,
         supports_forex=False,
-        requires_credentials=True,       # True → Settings shows an API-key form for this provider
-        requires_broker=False,           # True → this provider piggybacks on a connected Broker instead (like Kite)
-        max_lookback_days=None,          # Set a real number if the vendor has a hard limit
+        requires_credentials=True,  # True → Settings shows an API-key form for this provider
+        requires_broker=False,  # True → this provider piggybacks on a connected Broker instead (like Kite)
+        max_lookback_days=None,  # Set a real number if the vendor has a hard limit
     )
 
     async def fetch_bars(
@@ -55,7 +56,9 @@ class MyDataProvider(HistoricalDataProvider):
         broker=None,
     ) -> list[Bar]:
         if self.capabilities.requires_credentials and not credentials:
-            raise ValueError(f"{self.name} needs credentials — configure it under Settings → Data Providers")
+            raise ValueError(
+                f"{self.name} needs credentials — configure it under Settings → Data Providers"
+            )
 
         # ── Your fetch + parse logic goes here ──────────────────────────────
         # api_key = credentials["api_key"]

@@ -11,7 +11,8 @@ connected -- a broker whose connect() actually validates its credentials
 that empty-dict second call. Never caught before because live mode has
 always been blocked on real Kite Connect credentials in this environment.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -22,13 +23,14 @@ from xillion.db.session import get_session_factory, init_db
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class _FakeConnectedBroker:
     """A broker double whose connect() raises if called a second time on an
     already-connected instance -- mirrors ZerodhaBroker.connect({}) raising
     KeyError on credentials["api_key"]."""
+
     def __init__(self):
         self.connect_calls = 0
 
@@ -49,23 +51,42 @@ async def _seed_instance(instance_id: str, connection_name: str, mode: str = "li
     factory = get_session_factory()
     async with factory() as db:
         bc = BrokerClass(
-            name=f"BrokerClass for {instance_id}", module_path="x", class_name="X", version="1.0.0",
-            capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
+            name=f"BrokerClass for {instance_id}",
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            capabilities_json="{}",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(bc)
         await db.flush()
         conn = BrokerConnection(
-            broker_class_id=bc.id, name=connection_name, credentials_ref="ENV",
-            is_active=True, created_at=_now(), updated_at=_now(),
+            broker_class_id=bc.id,
+            name=connection_name,
+            credentials_ref="ENV",
+            is_active=True,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(conn)
         await db.flush()
         inst = StrategyInstance(
-            id=instance_id, strategy_class_id=1, strategy_class_version="1.0.0",
-            name=f"Instance {instance_id}", mode=mode, status="idle",
-            broker_connection_id=conn.id, instruments_json="[]", timeframe="5m",
-            params_json="{}", capital_allocation=100000, risk_limits_json="{}",
-            auto_start=False, created_at=_now(), updated_at=_now(),
+            id=instance_id,
+            strategy_class_id=1,
+            strategy_class_version="1.0.0",
+            name=f"Instance {instance_id}",
+            mode=mode,
+            status="idle",
+            broker_connection_id=conn.id,
+            instruments_json="[]",
+            timeframe="5m",
+            params_json="{}",
+            capital_allocation=100000,
+            risk_limits_json="{}",
+            auto_start=False,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(inst)
         await db.commit()
@@ -76,10 +97,12 @@ async def _seed_instance(instance_id: str, connection_name: str, mode: str = "li
 async def test_selects_dhan_when_instance_is_configured_for_it():
     dhan = _FakeConnectedBroker()
     zerodha = _FakeConnectedBroker()
-    app = await _make_app_with_brokers({
-        "Zerodha Primary": {"instance": zerodha, "status": "connected"},
-        "Dhan Primary": {"instance": dhan, "status": "connected"},
-    })
+    app = await _make_app_with_brokers(
+        {
+            "Zerodha Primary": {"instance": zerodha, "status": "connected"},
+            "Dhan Primary": {"instance": dhan, "status": "connected"},
+        }
+    )
     factory = get_session_factory()
     async with factory() as db:
         _, inst = await _seed_instance("resolve-broker-1", "Dhan Primary")
@@ -93,10 +116,12 @@ async def test_selects_dhan_when_instance_is_configured_for_it():
 async def test_selects_zerodha_when_instance_is_configured_for_it():
     dhan = _FakeConnectedBroker()
     zerodha = _FakeConnectedBroker()
-    app = await _make_app_with_brokers({
-        "Zerodha Primary": {"instance": zerodha, "status": "connected"},
-        "Dhan Primary": {"instance": dhan, "status": "connected"},
-    })
+    app = await _make_app_with_brokers(
+        {
+            "Zerodha Primary": {"instance": zerodha, "status": "connected"},
+            "Dhan Primary": {"instance": dhan, "status": "connected"},
+        }
+    )
     factory = get_session_factory()
     async with factory() as db:
         _, inst = await _seed_instance("resolve-broker-2", "Zerodha Primary")
@@ -144,4 +169,5 @@ async def test_paper_mode_always_gets_a_fresh_broker_that_still_needs_connecting
 
     assert already_connected is False
     from brokers.paper import PaperBroker
+
     assert isinstance(broker, PaperBroker)

@@ -5,15 +5,16 @@ Revises:
 Create Date: 2025-01-01 00:00:00.000000
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -59,12 +60,19 @@ def upgrade() -> None:
     op.create_table(
         "strategy_instance",
         sa.Column("id", sa.Text, primary_key=True),
-        sa.Column("strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False),
+        sa.Column(
+            "strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False
+        ),
         sa.Column("strategy_class_version", sa.Text, nullable=False),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("mode", sa.Text, nullable=False),
         sa.Column("status", sa.Text, nullable=False),
-        sa.Column("broker_connection_id", sa.Integer, sa.ForeignKey("broker_connection.id"), nullable=False),
+        sa.Column(
+            "broker_connection_id",
+            sa.Integer,
+            sa.ForeignKey("broker_connection.id"),
+            nullable=False,
+        ),
         sa.Column("instruments_json", sa.Text, nullable=False),
         sa.Column("timeframe", sa.Text, nullable=False),
         sa.Column("params_json", sa.Text, nullable=False),
@@ -84,7 +92,12 @@ def upgrade() -> None:
         "order_record",
         sa.Column("id", sa.Text, primary_key=True),
         sa.Column("broker_order_id", sa.Text),
-        sa.Column("broker_connection_id", sa.Integer, sa.ForeignKey("broker_connection.id"), nullable=False),
+        sa.Column(
+            "broker_connection_id",
+            sa.Integer,
+            sa.ForeignKey("broker_connection.id"),
+            nullable=False,
+        ),
         sa.Column("strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id")),
         sa.Column("symbol", sa.Text, nullable=False),
         sa.Column("exchange", sa.Text, nullable=False),
@@ -121,7 +134,9 @@ def upgrade() -> None:
 
     op.create_table(
         "position",
-        sa.Column("strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), primary_key=True),
+        sa.Column(
+            "strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), primary_key=True
+        ),
         sa.Column("symbol", sa.Text, primary_key=True),
         sa.Column("quantity", sa.Integer, nullable=False),
         sa.Column("avg_price", sa.Numeric, nullable=False),
@@ -158,7 +173,9 @@ def upgrade() -> None:
     op.create_table(
         "daily_strategy_pnl",
         sa.Column("trading_date", sa.Text, primary_key=True),
-        sa.Column("strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), primary_key=True),
+        sa.Column(
+            "strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), primary_key=True
+        ),
         sa.Column("realised_pnl", sa.Numeric, nullable=False, server_default="0"),
         sa.Column("unrealised_pnl", sa.Numeric, nullable=False, server_default="0"),
         sa.Column("trade_count", sa.Integer, nullable=False, server_default="0"),
@@ -181,7 +198,9 @@ def upgrade() -> None:
     op.create_table(
         "backtest_run",
         sa.Column("id", sa.Text, primary_key=True),
-        sa.Column("strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False),
+        sa.Column(
+            "strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False
+        ),
         sa.Column("strategy_class_version", sa.Text, nullable=False),
         sa.Column("params_json", sa.Text, nullable=False),
         sa.Column("instruments_json", sa.Text, nullable=False),
@@ -246,7 +265,9 @@ def upgrade() -> None:
     op.create_table(
         "notification_rule",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("channel_id", sa.Integer, sa.ForeignKey("notification_channel.id"), nullable=False),
+        sa.Column(
+            "channel_id", sa.Integer, sa.ForeignKey("notification_channel.id"), nullable=False
+        ),
         sa.Column("event_type", sa.Text, nullable=False),
         sa.Column("min_severity", sa.Text, nullable=False),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
@@ -255,12 +276,22 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for table in [
-        "notification_rule", "notification_channel",
-        "session", "app_user",
-        "backtest_trade", "backtest_run",
-        "bar", "daily_strategy_pnl", "daily_risk_state",
-        "audit_log", "position", "fill", "order_record",
-        "strategy_instance", "broker_connection",
-        "broker_class", "strategy_class",
+        "notification_rule",
+        "notification_channel",
+        "session",
+        "app_user",
+        "backtest_trade",
+        "backtest_run",
+        "bar",
+        "daily_strategy_pnl",
+        "daily_risk_state",
+        "audit_log",
+        "position",
+        "fill",
+        "order_record",
+        "strategy_instance",
+        "broker_connection",
+        "broker_class",
+        "strategy_class",
     ]:
         op.drop_table(table)

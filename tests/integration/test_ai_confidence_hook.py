@@ -5,8 +5,9 @@ down) confidence backend must never delay the alert. Measured against a
 real local model (qwen3:8b via Ollama): 30-60s+ per call is realistic, far
 too slow to sit in the critical path of a live alert.
 """
+
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -39,12 +40,18 @@ class _EntryStrategy(Strategy):
     async def on_tick(self, tick: Tick, ctx: StrategyContext) -> None:
         if not ctx.state.get("entered"):
             ctx.state["entered"] = True
-            await ctx.alert_entry(tick.symbol, Side.BUY, price=tick.ltp,
-                                   target=tick.ltp + 100, stop_loss=tick.ltp - 50, tag="hook_test")
+            await ctx.alert_entry(
+                tick.symbol,
+                Side.BUY,
+                price=tick.ltp,
+                target=tick.ltp + 100,
+                stop_loss=tick.ltp - 50,
+                tag="hook_test",
+            )
 
 
 def _tick(symbol: str, ltp: float) -> Tick:
-    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(timezone.utc))
+    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(UTC))
 
 
 @pytest.mark.asyncio
@@ -74,9 +81,15 @@ async def test_alert_fires_and_persists_before_confidence_resolves(monkeypatch):
     notifier = _FakeNotifier()
     instance_id = "test-ai-confidence-hook"
     await engine.spawn(
-        instance_id=instance_id, strategy_name=_EntryStrategy.name,
-        broker=DummyBroker(), instruments=["NIFTY 50"], timeframe="1m",
-        capital=Decimal("100000"), params={}, mode="alert", notifier=notifier,
+        instance_id=instance_id,
+        strategy_name=_EntryStrategy.name,
+        broker=DummyBroker(),
+        instruments=["NIFTY 50"],
+        timeframe="1m",
+        capital=Decimal("100000"),
+        params={},
+        mode="alert",
+        notifier=notifier,
     )
 
     await bus.publish_tick(_tick("NIFTY 50", 25000.0))
@@ -87,18 +100,22 @@ async def test_alert_fires_and_persists_before_confidence_resolves(monkeypatch):
     assert len(notifier.messages) == 1
 
     async with get_session_factory()() as session:
-        row = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
-        )).scalar_one()
+        row = (
+            await session.execute(
+                select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
+            )
+        ).scalar_one()
     assert row.ai_confidence is None  # not yet -- the background task hasn't finished
 
     await asyncio.wait_for(resolved.wait(), timeout=2)
     await asyncio.sleep(0.05)  # let the background task's DB write land
 
     async with get_session_factory()() as session:
-        row = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
-        )).scalar_one()
+        row = (
+            await session.execute(
+                select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
+            )
+        ).scalar_one()
     assert row.ai_confidence == 77.0  # filled in after the fact
 
 
@@ -135,9 +152,14 @@ async def test_exit_signals_never_trigger_a_confidence_lookup(monkeypatch):
     engine.set_registry(registry)
 
     await engine.spawn(
-        instance_id="test-ai-confidence-exit", strategy_name=_EntryThenExit.name,
-        broker=DummyBroker(), instruments=["NIFTY 50"], timeframe="1m",
-        capital=Decimal("100000"), params={}, mode="alert",
+        instance_id="test-ai-confidence-exit",
+        strategy_name=_EntryThenExit.name,
+        broker=DummyBroker(),
+        instruments=["NIFTY 50"],
+        timeframe="1m",
+        capital=Decimal("100000"),
+        params={},
+        mode="alert",
     )
 
     await bus.publish_tick(_tick("NIFTY 50", 25000.0))  # ENTER -> 1 lookup

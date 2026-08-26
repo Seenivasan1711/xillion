@@ -11,7 +11,8 @@ The real-BacktestEngine version of this same strategy (options resolution
 against an actual OptionChainWarehouse, not a fake) lives in
 tests/integration/test_credit_spread_backtest.py.
 """
-from datetime import date, datetime, timedelta, timezone
+
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ import pytest
 
 import strategies.credit_spread_weekly as csw
 from strategies.credit_spread_weekly import CreditSpreadWeeklyStrategy
-from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, OrderType, Side, Tick
+from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, Side, Tick
 from xillion.core.instruments import ResolvedInstrument
 from xillion.core.market_calendar import IST
 from xillion.core.multileg_execution import ExecutionOutcome, ExecutionResult, MultiLegExecutor
@@ -66,13 +67,19 @@ class FakeContext:
     # ── order placement (mirrors a synchronous paper/backtest fill) ────────
     async def place_order(self, request: OrderRequest) -> Order:
         self.placed.append(request)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         status = self._order_status_override.get(request.symbol, OrderStatus.FILLED)
         price = self.OPTION_PRICE.get(request.symbol, Decimal("10"))
         return Order(
-            client_order_id=request.client_order_id, symbol=request.symbol, side=request.side,
-            quantity=request.quantity, order_type=request.order_type, status=status,
-            submitted_at=now, updated_at=now, broker_order_id=f"B-{uuid4().hex[:6]}",
+            client_order_id=request.client_order_id,
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.order_type,
+            status=status,
+            submitted_at=now,
+            updated_at=now,
+            broker_order_id=f"B-{uuid4().hex[:6]}",
             filled_quantity=request.quantity if status == OrderStatus.FILLED else 0,
             avg_fill_price=price if status == OrderStatus.FILLED else None,
         )
@@ -87,11 +94,18 @@ class FakeContext:
     async def history(self, symbol: str, timeframe: str, lookback: int) -> list[Bar]:
         # Steady uptrend: close rises 1pt/bar, well above VWAP, 20EMA>50EMA.
         base = float(self._spot) - 60
-        start = datetime.now(timezone.utc) - timedelta(minutes=15 * 60)
+        start = datetime.now(UTC) - timedelta(minutes=15 * 60)
         return [
-            Bar(symbol=symbol, timeframe=timeframe, ts=start + timedelta(minutes=15 * i),
-                open=Decimal(str(base + i)), high=Decimal(str(base + i + 1)),
-                low=Decimal(str(base + i - 1)), close=Decimal(str(base + i)), volume=1000)
+            Bar(
+                symbol=symbol,
+                timeframe=timeframe,
+                ts=start + timedelta(minutes=15 * i),
+                open=Decimal(str(base + i)),
+                high=Decimal(str(base + i + 1)),
+                low=Decimal(str(base + i - 1)),
+                close=Decimal(str(base + i)),
+                volume=1000,
+            )
             for i in range(59)
         ]
 
@@ -104,8 +118,14 @@ class FakeContext:
         role = "SHORT" if magnitude == self.params["short_offset_strikes"] else "LONG"
         symbol = f"{underlying}_{role}_{opt_type}"
         return ResolvedInstrument(
-            tradingsymbol=symbol, instrument_token=1, exchange="NFO", underlying=underlying,
-            expiry=self._expiry, strike=strike, option_type=opt_type, lot_size=self.LOT_SIZE,
+            tradingsymbol=symbol,
+            instrument_token=1,
+            exchange="NFO",
+            underlying=underlying,
+            expiry=self._expiry,
+            strike=strike,
+            option_type=opt_type,
+            lot_size=self.LOT_SIZE,
         )
 
     async def get_option_price(self, symbol: str, exchange: str) -> Decimal:
@@ -114,13 +134,22 @@ class FakeContext:
     async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
         self.subscribed.append((symbol, exchange))
 
-    async def place_protective_gtt(self, symbol, exchange, side, quantity, stop_price, target_price, last_price):
+    async def place_protective_gtt(
+        self, symbol, exchange, side, quantity, stop_price, target_price, last_price
+    ):
         if not self.gtt_enabled:
             return None  # no broker connected -- same as paper/backtest mode
-        self.gtt_calls.append(dict(
-            symbol=symbol, exchange=exchange, side=side, quantity=quantity,
-            stop_price=stop_price, target_price=target_price, last_price=last_price,
-        ))
+        self.gtt_calls.append(
+            dict(
+                symbol=symbol,
+                exchange=exchange,
+                side=side,
+                quantity=quantity,
+                stop_price=stop_price,
+                target_price=target_price,
+                last_price=last_price,
+            )
+        )
         gtt_id = str(self._next_gtt_id)
         self._next_gtt_id += 1
         return gtt_id
@@ -136,8 +165,17 @@ class FakeContext:
 
 
 def _entry_bar(spot: Decimal) -> Bar:
-    now = datetime.now(timezone.utc)
-    return Bar(symbol="NIFTY 50", timeframe="15m", ts=now, open=spot, high=spot, low=spot, close=spot, volume=1000)
+    now = datetime.now(UTC)
+    return Bar(
+        symbol="NIFTY 50",
+        timeframe="15m",
+        ts=now,
+        open=spot,
+        high=spot,
+        low=spot,
+        close=spot,
+        volume=1000,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -208,7 +246,7 @@ async def test_stop_loss_closes_position_shorts_first():
     ctx.OPTION_PRICE[spec_state["short_symbol"]] = Decimal("55")
     ctx.OPTION_PRICE[spec_state["long_symbol"]] = Decimal("10")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("55"), ltt=now), ctx)
     await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("10"), ltt=now), ctx)
 
@@ -228,7 +266,7 @@ async def test_profit_target_closes_position():
     ctx.placed.clear()
 
     # Spread value decays to <= 50% of credit (20 -> 10) -> TARGET.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("14"), ltt=now), ctx)
     await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("4"), ltt=now), ctx)
 
@@ -272,7 +310,7 @@ async def test_stop_loss_cancels_the_protective_gtt_on_genuine_exit():
     spec_state = ctx.state["open_position"]["spec"]
     ctx.OPTION_PRICE[spec_state["short_symbol"]] = Decimal("55")
     ctx.OPTION_PRICE[spec_state["long_symbol"]] = Decimal("10")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("55"), ltt=now), ctx)
     await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("10"), ltt=now), ctx)
 
@@ -294,14 +332,16 @@ async def test_halted_for_human_preserves_the_protective_gtt(monkeypatch):
     assert gtt_id is not None
 
     async def _halted_exit(self, spec, tag=None):
-        return ExecutionResult(outcome=ExecutionOutcome.HALTED_FOR_HUMAN, message="simulated unclear partial")
+        return ExecutionResult(
+            outcome=ExecutionOutcome.HALTED_FOR_HUMAN, message="simulated unclear partial"
+        )
 
     monkeypatch.setattr(MultiLegExecutor, "execute_exit", _halted_exit)
 
     spec_state = ctx.state["open_position"]["spec"]
     ctx.OPTION_PRICE[spec_state["short_symbol"]] = Decimal("55")
     ctx.OPTION_PRICE[spec_state["long_symbol"]] = Decimal("10")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await strategy.on_tick(Tick(symbol=spec_state["short_symbol"], ltp=Decimal("55"), ltt=now), ctx)
     await strategy.on_tick(Tick(symbol=spec_state["long_symbol"], ltp=Decimal("10"), ltt=now), ctx)
 
@@ -322,11 +362,17 @@ async def test_leg_failure_during_entry_does_not_leave_a_naked_short(monkeypatch
 
     async def flaky_place(request: OrderRequest):
         if "SHORT" in request.symbol and request.side == Side.SELL:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             return Order(
-                client_order_id=request.client_order_id, symbol=request.symbol, side=request.side,
-                quantity=request.quantity, order_type=request.order_type, status=OrderStatus.REJECTED,
-                submitted_at=now, updated_at=now, rejection_reason="simulated broker rejection",
+                client_order_id=request.client_order_id,
+                symbol=request.symbol,
+                side=request.side,
+                quantity=request.quantity,
+                order_type=request.order_type,
+                status=OrderStatus.REJECTED,
+                submitted_at=now,
+                updated_at=now,
+                rejection_reason="simulated broker rejection",
             )
         return await original_place(request)
 

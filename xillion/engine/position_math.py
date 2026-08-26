@@ -15,10 +15,10 @@ Conventions:
     = 100_000, cash equity = 1). P&L is always scaled by it; getting this
     wrong misprices every derivative trade by the lot size.
 """
-from dataclasses import dataclass, field
+
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from xillion.core.events import Side
 from xillion.engine.metrics import ClosedTrade
@@ -27,10 +27,11 @@ from xillion.engine.metrics import ClosedTrade
 @dataclass
 class PositionState:
     """Net position in one symbol. qty is signed; qty == 0 means flat."""
+
     qty: int = 0
     avg_price: Decimal = Decimal("0")
     realised_pnl: Decimal = Decimal("0")
-    opened_ts: Optional[datetime] = None
+    opened_ts: datetime | None = None
 
     @property
     def is_flat(self) -> bool:
@@ -50,13 +51,14 @@ class PositionState:
 class FillOutcome:
     """Result of applying one fill: the new state, plus a ClosedTrade if this
     fill closed (fully or partially) an existing position."""
+
     state: PositionState
-    closed_trade: Optional[ClosedTrade] = None
+    closed_trade: ClosedTrade | None = None
     realised_pnl: Decimal = Decimal("0")
 
 
 def apply_fill(
-    state: Optional[PositionState],
+    state: PositionState | None,
     symbol: str,
     side: Side,
     quantity: int,
@@ -90,9 +92,9 @@ def apply_fill(
     # ── Add to the same direction — average in ─────────────────────────────
     if state.qty * qty_delta > 0:
         total_qty = state.qty + qty_delta
-        state.avg_price = (
-            state.avg_price * abs(state.qty) + price * abs(qty_delta)
-        ) / abs(total_qty)
+        state.avg_price = (state.avg_price * abs(state.qty) + price * abs(qty_delta)) / abs(
+            total_qty
+        )
         state.qty = total_qty
         return FillOutcome(state=state)
 

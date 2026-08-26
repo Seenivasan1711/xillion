@@ -12,8 +12,9 @@ NSE's holiday calendar, so polling means this scheduler doesn't need any
 holiday awareness of its own -- it just asks "is the market open right now"
 and reacts when the answer changes.
 """
+
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -28,14 +29,16 @@ logger = structlog.get_logger(__name__)
 DEFAULT_POLL_INTERVAL_SECONDS = 30
 
 
-async def run_market_hours_scheduler(app: FastAPI, poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS) -> None:
+async def run_market_hours_scheduler(
+    app: FastAPI, poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS
+) -> None:
     """Runs forever as a background task (see xillion/main.py's lifespan).
     Cancelled on shutdown like the other daily-refresh tasks there."""
     was_open: bool | None = None  # None = baseline not yet established
     while True:
         await asyncio.sleep(poll_interval_seconds)
         try:
-            now_open = is_market_open(datetime.now(timezone.utc))
+            now_open = is_market_open(datetime.now(UTC))
             if was_open is None:
                 # First observation after process start: just record where
                 # we are, don't fire a start/stop based on an assumed prior

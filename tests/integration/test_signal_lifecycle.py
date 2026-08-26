@@ -3,7 +3,8 @@ Integration test: alert mode's entry -> target/stop-loss -> exit lifecycle
 (CP4). Before this, signal_log had no ENTER/EXIT distinction or way to link
 an exit back to the entry it closes -- every alert was a one-shot fire.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -29,12 +30,13 @@ class _FakeNotifier:
 
 
 def _tick(symbol: str, ltp: float) -> Tick:
-    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(timezone.utc))
+    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(UTC))
 
 
 class _EntryThenExitStrategy(Strategy):
     """Enters once on the first tick, exits on the second -- same tag both
     times, so the framework should auto-link the exit to the entry."""
+
     name = "Entry Then Exit Test Strategy"
     timeframe = "1m"
     instruments = ["NIFTY 50"]
@@ -43,8 +45,12 @@ class _EntryThenExitStrategy(Strategy):
         if not ctx.state.get("entered"):
             ctx.state["entered"] = True
             await ctx.alert_entry(
-                tick.symbol, Side.BUY, price=tick.ltp,
-                target=tick.ltp + 100, stop_loss=tick.ltp - 50, tag="setup_1",
+                tick.symbol,
+                Side.BUY,
+                price=tick.ltp,
+                target=tick.ltp + 100,
+                stop_loss=tick.ltp - 50,
+                tag="setup_1",
             )
         elif not ctx.state.get("exited"):
             ctx.state["exited"] = True
@@ -55,6 +61,7 @@ class _TwoFullCyclesStrategy(Strategy):
     """Enter/exit twice in a row, same tag both times, on one instance --
     the second exit must link to the second (still-open) entry, not the
     first one (already closed by the first exit)."""
+
     name = "Two Full Cycles Test Strategy"
     timeframe = "1m"
     instruments = ["NIFTY 50"]
@@ -74,6 +81,7 @@ class _TwoFullCyclesStrategy(Strategy):
 
 class _ExitWithNoEntryStrategy(Strategy):
     """Fires a bare EXIT with a tag that was never entered."""
+
     name = "Exit With No Entry Test Strategy"
     timeframe = "1m"
     instruments = ["NIFTY 50"]
@@ -118,9 +126,17 @@ async def test_exit_auto_links_to_its_entry_via_tag(monkeypatch):
     await bus.publish_tick(_tick("NIFTY 50", 25080.0))  # -> EXIT
 
     async with get_session_factory()() as session:
-        rows = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id).order_by(SignalLog.id)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(SignalLog)
+                    .where(SignalLog.strategy_instance_id == instance_id)
+                    .order_by(SignalLog.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert len(rows) == 2
     entry, exit_ = rows
@@ -149,9 +165,17 @@ async def test_repeated_tag_links_exit_to_the_still_open_entry_not_an_older_clos
     await bus.publish_tick(_tick("NIFTY 50", 26080.0))  # EXIT #2 (must close #2, not #1)
 
     async with get_session_factory()() as session:
-        rows = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id).order_by(SignalLog.id)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(SignalLog)
+                    .where(SignalLog.strategy_instance_id == instance_id)
+                    .order_by(SignalLog.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert len(rows) == 4
     entry1, exit1, entry2, exit2 = rows
@@ -168,13 +192,21 @@ async def test_exit_with_no_matching_entry_is_persisted_unlinked_not_dropped(mon
     await bus.publish_tick(_tick("NIFTY 50", 25000.0))
 
     async with get_session_factory()() as session:
-        rows = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert len(rows) == 1
     assert rows[0].signal_type == "EXIT"
-    assert rows[0].parent_signal_id is None  # no matching open entry -- stored, not linked or dropped
+    assert (
+        rows[0].parent_signal_id is None
+    )  # no matching open entry -- stored, not linked or dropped
 
 
 @pytest.mark.asyncio

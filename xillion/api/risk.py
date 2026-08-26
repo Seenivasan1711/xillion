@@ -1,12 +1,10 @@
 """
 Risk management API: kill switch (with TOTP gate), risk status.
 """
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.api.deps import db_dep, get_current_user
@@ -18,7 +16,7 @@ router = APIRouter(prefix="/risk", tags=["risk"])
 
 
 class KillSwitchRequest(BaseModel):
-    totp_code: Optional[str] = None
+    totp_code: str | None = None
     exit_positions: bool = False
 
 
@@ -73,9 +71,18 @@ async def activate_kill_switch(
             try:
                 orders = await broker.get_orders_today()
                 from xillion.core.events import OrderStatus
-                open_orders = [o for o in orders if o.status in (
-                    OrderStatus.PENDING, OrderStatus.SUBMITTED, OrderStatus.ACCEPTED, OrderStatus.PARTIAL
-                )]
+
+                open_orders = [
+                    o
+                    for o in orders
+                    if o.status
+                    in (
+                        OrderStatus.PENDING,
+                        OrderStatus.SUBMITTED,
+                        OrderStatus.ACCEPTED,
+                        OrderStatus.PARTIAL,
+                    )
+                ]
                 for order in open_orders:
                     if order.broker_order_id:
                         await broker.cancel_order(order.broker_order_id)
@@ -87,6 +94,7 @@ async def activate_kill_switch(
 
     # Broadcast kill switch event to all WS clients
     from xillion.api.ws import broadcast
+
     await broadcast({"type": "kill_switch", "active": True})
 
     # Notify via Telegram
@@ -126,6 +134,7 @@ async def reset_kill_switch(
 
     risk.reset_kill_switch()
     from xillion.api.ws import broadcast
+
     await broadcast({"type": "kill_switch", "active": False})
     logger.info("kill switch reset via API", user=user.username)
     return {"reset": True}

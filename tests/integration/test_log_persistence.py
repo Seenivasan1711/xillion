@@ -3,6 +3,7 @@ End-to-end: a captured log entry actually lands in system_log and is
 broadcast, and GET /api/logs (xillion/api/logs.py) returns what's persisted
 in the shape the frontend expects (oldest first, optional level filter).
 """
+
 import asyncio
 
 import pytest
@@ -37,7 +38,9 @@ async def _drain_one():
 async def test_a_captured_entry_is_persisted_to_system_log():
     await init_db()
     log_capture.capture_processor(
-        None, "error", {"event": "broker disconnected", "module": "brokers.zerodha", "reason": "timeout"}
+        None,
+        "error",
+        {"event": "broker disconnected", "module": "brokers.zerodha", "reason": "timeout"},
     )
 
     await _drain_one()
@@ -45,7 +48,10 @@ async def test_a_captured_entry_is_persisted_to_system_log():
     factory = get_session_factory()
     async with factory() as db:
         from sqlalchemy import select
-        result = await db.execute(select(SystemLog).where(SystemLog.message == "broker disconnected"))
+
+        result = await db.execute(
+            select(SystemLog).where(SystemLog.message == "broker disconnected")
+        )
         row = result.scalars().first()
 
     assert row is not None
@@ -61,10 +67,15 @@ async def test_list_logs_returns_oldest_first_and_respects_limit():
     factory = get_session_factory()
     async with factory() as db:
         for i in range(5):
-            db.add(SystemLog(
-                ts=f"2026-01-01T00:00:0{i}+00:00", level="info", source="test",
-                message=f"entry {i}", fields_json="{}",
-            ))
+            db.add(
+                SystemLog(
+                    ts=f"2026-01-01T00:00:0{i}+00:00",
+                    level="info",
+                    source="test",
+                    message=f"entry {i}",
+                    fields_json="{}",
+                )
+            )
         await db.commit()
 
         result = await list_logs(limit=3, level=None, db=db, user=None)
@@ -79,9 +90,33 @@ async def test_list_logs_filters_by_level_group():
     await init_db()
     factory = get_session_factory()
     async with factory() as db:
-        db.add(SystemLog(ts="2026-01-01T00:00:00+00:00", level="info", source="t", message="info one", fields_json="{}"))
-        db.add(SystemLog(ts="2026-01-01T00:00:01+00:00", level="error", source="t", message="error one", fields_json="{}"))
-        db.add(SystemLog(ts="2026-01-01T00:00:02+00:00", level="critical", source="t", message="critical one", fields_json="{}"))
+        db.add(
+            SystemLog(
+                ts="2026-01-01T00:00:00+00:00",
+                level="info",
+                source="t",
+                message="info one",
+                fields_json="{}",
+            )
+        )
+        db.add(
+            SystemLog(
+                ts="2026-01-01T00:00:01+00:00",
+                level="error",
+                source="t",
+                message="error one",
+                fields_json="{}",
+            )
+        )
+        db.add(
+            SystemLog(
+                ts="2026-01-01T00:00:02+00:00",
+                level="critical",
+                source="t",
+                message="critical one",
+                fields_json="{}",
+            )
+        )
         await db.commit()
 
         result = await list_logs(limit=100, level="err", db=db, user=None)

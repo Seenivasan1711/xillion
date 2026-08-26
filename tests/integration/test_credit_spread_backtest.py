@@ -12,15 +12,19 @@ CURRENTLY-SIMULATED bar's own date via _BacktestContext.now(), the same way
 a real multi-year backtest would need it to, rather than freezing a single
 fixed date the whole run coincidentally matches.
 """
-from datetime import date, datetime, timedelta, timezone
+
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from strategies.credit_spread_weekly import CreditSpreadWeeklyStrategy
 from xillion.core.events import Bar
-from xillion.core.market_calendar import IST
-from xillion.data.option_chain import HistoricalOptionRow, OptionChainRepository, OptionChainWarehouse
+from xillion.data.option_chain import (
+    HistoricalOptionRow,
+    OptionChainRepository,
+    OptionChainWarehouse,
+)
 from xillion.db.session import get_session_factory, init_db
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 
@@ -57,11 +61,19 @@ class _CannedOptionChainProvider:
             for opt_type, base_price in (("PE", Decimal("60")), ("CE", Decimal("60"))):
                 distance = abs(strike - spot)
                 price = max(Decimal("1"), (base_price - distance * Decimal("0.25")) * decay)
-                rows.append(HistoricalOptionRow(
-                    tradingsymbol=f"NIFTY_{int(strike)}_{opt_type}",
-                    exchange="NFO", underlying="NIFTY", expiry=EXPIRY, strike=strike,
-                    option_type=opt_type, lot_size=65, close=price, underlying_price=spot,
-                ))
+                rows.append(
+                    HistoricalOptionRow(
+                        tradingsymbol=f"NIFTY_{int(strike)}_{opt_type}",
+                        exchange="NFO",
+                        underlying="NIFTY",
+                        expiry=EXPIRY,
+                        strike=strike,
+                        option_type=opt_type,
+                        lot_size=65,
+                        close=price,
+                        underlying_price=spot,
+                    )
+                )
         return rows
 
 
@@ -69,14 +81,22 @@ def _underlying_bars(end_day: date) -> list[Bar]:
     """15m NIFTY 50 bars, steady uptrend, from 3 days before ENTRY_DAY
     (enough prior history for the 50EMA) through end_day."""
     bars = []
-    start = datetime.combine(ENTRY_DAY - timedelta(days=3), datetime.min.time(), tzinfo=timezone.utc)
+    start = datetime.combine(ENTRY_DAY - timedelta(days=3), datetime.min.time(), tzinfo=UTC)
     price = Decimal("23940")
     ts = start
     while ts.date() <= end_day:
-        bars.append(Bar(
-            symbol="NIFTY 50", timeframe="15m", ts=ts,
-            open=price, high=price + 1, low=price - 1, close=price, volume=1000,
-        ))
+        bars.append(
+            Bar(
+                symbol="NIFTY 50",
+                timeframe="15m",
+                ts=ts,
+                open=price,
+                high=price + 1,
+                low=price - 1,
+                close=price,
+                volume=1000,
+            )
+        )
         price += Decimal("0.2")  # gentle drift, doesn't dominate the trend/VWAP check
         ts += timedelta(minutes=15)
     return bars
@@ -85,7 +105,9 @@ def _underlying_bars(end_day: date) -> list[Bar]:
 async def _run(end_day: date, decay_start: date, slippage_bps: int = 0) -> tuple:
     await init_db()
     factory = get_session_factory()
-    chain_warehouse = OptionChainWarehouse(_CannedOptionChainProvider(decay_start), OptionChainRepository(factory))
+    chain_warehouse = OptionChainWarehouse(
+        _CannedOptionChainProvider(decay_start), OptionChainRepository(factory)
+    )
 
     bars = _underlying_bars(end_day)
     strategy = CreditSpreadWeeklyStrategy()
@@ -99,7 +121,8 @@ async def _run(end_day: date, decay_start: date, slippage_bps: int = 0) -> tuple
         initial_capital=1_000_000.0,
         params={
             **{p.name: p.default for p in CreditSpreadWeeklyStrategy.params_schema},
-            "short_offset_strikes": 2, "width_strikes": 2,
+            "short_offset_strikes": 2,
+            "width_strikes": 2,
         },
         slippage_bps=slippage_bps,
         fee_config=FeeConfig.zero(),
@@ -136,7 +159,9 @@ async def test_credit_spread_strategy_hits_profit_target_and_records_a_real_clos
     result, _ = await _run(end_day=end_day, decay_start=ENTRY_DAY)
 
     assert result.status == "done", result.error
-    assert len(result.trades) >= 1, "position opened but never closed -- exit monitoring didn't fire"
+    assert (
+        len(result.trades) >= 1
+    ), "position opened but never closed -- exit monitoring didn't fire"
     trade = result.trades[0]
     # Both legs are the same underlying/side (credit spread), closing at a
     # real, non-zero, non-fabricated price -- proves get_option_price's

@@ -6,6 +6,7 @@ lets a caller (scripts/backfill.py's --underlying-filter) keep only the
 underlyings a strategy actually trades (e.g. NIFTY, BANKNIFTY) while still
 downloading the same whole-day file (NSE doesn't offer a narrower one).
 """
+
 import io
 import zipfile
 from datetime import date
@@ -49,7 +50,10 @@ async def test_underlying_filter_keeps_only_matching_contracts(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
 
     bars = await provider.fetch_all_bars_for_day(
-        "NFO", "1d", date(2026, 8, 24), underlying_filter={"NIFTY", "BANKNIFTY"},
+        "NFO",
+        "1d",
+        date(2026, 8, 24),
+        underlying_filter={"NIFTY", "BANKNIFTY"},
     )
 
     symbols = {b.symbol for b in bars}

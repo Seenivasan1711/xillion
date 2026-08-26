@@ -6,8 +6,9 @@ by BarWarehouse). Backfill drives the warehouse to fill a requested range in
 the background so a multi-year request returns a job id immediately instead
 of blocking the HTTP request for however long the fetch takes.
 """
+
 import asyncio
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import structlog
@@ -62,7 +63,9 @@ class BackfillRequest(BaseModel):
     to_date: date
 
 
-async def _run_backfill_job(app_state, job_id: str, body: BackfillRequest, credentials, broker) -> None:
+async def _run_backfill_job(
+    app_state, job_id: str, body: BackfillRequest, credentials, broker
+) -> None:
     job = app_state.backfill_jobs[job_id]
     job["status"] = "running"
     session_factory = get_session_factory()
@@ -71,8 +74,14 @@ async def _run_backfill_job(app_state, job_id: str, body: BackfillRequest, crede
     try:
         bars = await warehouse.get_bars(
             provider_cls(),
-            body.symbol, body.exchange, body.timeframe, body.from_date, body.to_date,
-            instrument_type=body.instrument_type, credentials=credentials, broker=broker,
+            body.symbol,
+            body.exchange,
+            body.timeframe,
+            body.from_date,
+            body.to_date,
+            instrument_type=body.instrument_type,
+            credentials=credentials,
+            broker=broker,
         )
         job["status"] = "done"
         job["bars_fetched"] = len(bars)
@@ -81,7 +90,7 @@ async def _run_backfill_job(app_state, job_id: str, body: BackfillRequest, crede
         logger.error("backfill job failed", job_id=job_id, error=str(exc))
         job["status"] = "failed"
         job["error"] = str(exc)
-    job["finished_at"] = datetime.now(timezone.utc).isoformat()
+    job["finished_at"] = datetime.now(UTC).isoformat()
 
 
 @router.post("/backfill")
@@ -112,7 +121,11 @@ async def start_backfill(
     if caps.requires_broker:
         broker_instances = getattr(request.app.state, "broker_instances", {})
         connected = next(
-            (info["instance"] for info in broker_instances.values() if info.get("status") == "connected"),
+            (
+                info["instance"]
+                for info in broker_instances.values()
+                if info.get("status") == "connected"
+            ),
             None,
         )
         if connected is None:
@@ -134,11 +147,13 @@ async def start_backfill(
         "status": "queued",
         "bars_fetched": None,
         "error": None,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "finished_at": None,
     }
     asyncio.create_task(_run_backfill_job(request.app.state, job_id, body, credentials, broker))
-    logger.info("backfill job queued", job_id=job_id, provider=body.provider_name, symbol=body.symbol)
+    logger.info(
+        "backfill job queued", job_id=job_id, provider=body.provider_name, symbol=body.symbol
+    )
     return {"job_id": job_id, "status": "queued"}
 
 

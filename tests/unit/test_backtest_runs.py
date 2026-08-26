@@ -4,11 +4,11 @@ initial migrations but nothing ever wrote to them, so no backtest history
 was queryable. This proves the round trip and the "unregistered strategy"
 skip path.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
 
 from xillion.data.backtest_runs import get_backtest_run, list_backtest_runs, persist_backtest_run
 from xillion.db.models import StrategyClass
@@ -23,8 +23,8 @@ def _result(run_id: str, strategy_name: str, trades: list[dict]) -> BacktestResu
         params={"fast": 10, "slow": 20},
         instruments=["NIFTY_TEST"],
         timeframe="1d",
-        from_ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        to_ts=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        from_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        to_ts=datetime(2026, 6, 1, tzinfo=UTC),
         initial_capital=100000.0,
         slippage_bps=5,
         metrics={"total_return_pct": 12.5, "sharpe_ratio": 1.2},
@@ -37,10 +37,18 @@ def _result(run_id: str, strategy_name: str, trades: list[dict]) -> BacktestResu
 async def _seed_strategy_class(name: str) -> None:
     factory = get_session_factory()
     async with factory() as session:
-        session.add(StrategyClass(
-            name=name, module_path="strategies/x.py", class_name="X", version="1.0.0",
-            params_schema_json="[]", code_hash="abc", discovered_at="now", last_seen_at="now",
-        ))
+        session.add(
+            StrategyClass(
+                name=name,
+                module_path="strategies/x.py",
+                class_name="X",
+                version="1.0.0",
+                params_schema_json="[]",
+                code_hash="abc",
+                discovered_at="now",
+                last_seen_at="now",
+            )
+        )
         await session.commit()
 
 
@@ -51,10 +59,15 @@ async def test_persist_and_list_and_get_round_trip():
 
     trades = [
         {
-            "symbol": "NIFTY_TEST", "side": "BUY", "quantity": 65,
-            "entry_ts": "2026-01-05T00:00:00", "entry_price": Decimal("100"),
-            "exit_ts": "2026-01-10T00:00:00", "exit_price": Decimal("110"),
-            "pnl": Decimal("650"), "tag": "sma_cross",
+            "symbol": "NIFTY_TEST",
+            "side": "BUY",
+            "quantity": 65,
+            "entry_ts": "2026-01-05T00:00:00",
+            "entry_price": Decimal("100"),
+            "exit_ts": "2026-01-10T00:00:00",
+            "exit_price": Decimal("110"),
+            "pnl": Decimal("650"),
+            "tag": "sma_cross",
         },
     ]
     result = _result("run-persist-1", "Backtest Run Test Strategy", trades)

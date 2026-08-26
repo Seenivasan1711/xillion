@@ -21,9 +21,9 @@ a scheduler granular enough to run sub-steps a few minutes apart; the
 non-negotiable safety property (nothing open past close) is what's built
 here.
 """
+
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from decimal import Decimal
-from typing import Awaitable, Callable, Optional
 
 import structlog
 
@@ -39,10 +39,14 @@ SQUARE_OFF_TAG = "X02_SQUARE_OFF"
 class SquareOffReport:
     status: str  # CLEAN | FLATTENED | FAILED
     positions_found: list[Position] = field(default_factory=list)
-    flattened: list[str] = field(default_factory=list)      # symbols successfully closed
-    failed_to_close: list[str] = field(default_factory=list)  # symbols an order couldn't be placed for
-    still_open_after_verify: list[str] = field(default_factory=list)  # symbols STILL open on re-query
-    error: Optional[str] = None
+    flattened: list[str] = field(default_factory=list)  # symbols successfully closed
+    failed_to_close: list[str] = field(
+        default_factory=list
+    )  # symbols an order couldn't be placed for
+    still_open_after_verify: list[str] = field(
+        default_factory=list
+    )  # symbols STILL open on re-query
+    error: str | None = None
 
 
 def _closing_side(quantity: int) -> Side:
@@ -51,7 +55,7 @@ def _closing_side(quantity: int) -> Side:
 
 async def run_square_off(
     broker: Broker,
-    notify: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
+    notify: Callable[[str, str, str], Awaitable[None]] | None = None,
 ) -> SquareOffReport:
     """Query the broker directly, flatten anything open at MARKET, verify.
     `notify` matches TelegramNotifier.alert's shape: async fn(title, body,
@@ -62,7 +66,12 @@ async def run_square_off(
         positions = await broker.get_positions()
     except Exception as exc:
         logger.critical("X02: broker position fetch failed -- cannot verify flat", error=str(exc))
-        await _alert(notify, "X02 SQUARE-OFF FAILED", f"Could not reach broker to check positions: {exc}", "critical")
+        await _alert(
+            notify,
+            "X02 SQUARE-OFF FAILED",
+            f"Could not reach broker to check positions: {exc}",
+            "critical",
+        )
         return SquareOffReport(status="FAILED", error=str(exc))
 
     open_positions = [p for p in positions if p.quantity != 0]
@@ -76,10 +85,15 @@ async def run_square_off(
 
     for pos in open_positions:
         try:
-            await broker.place_order(OrderRequest(
-                symbol=pos.symbol, side=_closing_side(pos.quantity), quantity=abs(pos.quantity),
-                order_type=OrderType.MARKET, tag=SQUARE_OFF_TAG,
-            ))
+            await broker.place_order(
+                OrderRequest(
+                    symbol=pos.symbol,
+                    side=_closing_side(pos.quantity),
+                    quantity=abs(pos.quantity),
+                    order_type=OrderType.MARKET,
+                    tag=SQUARE_OFF_TAG,
+                )
+            )
             flattened.append(pos.symbol)
         except Exception as exc:
             logger.error("X02: failed to place square-off order", symbol=pos.symbol, error=str(exc))
@@ -93,29 +107,39 @@ async def run_square_off(
     except Exception as exc:
         logger.critical("X02: post-flatten verification fetch failed", error=str(exc))
         await _alert(
-            notify, "X02 VERIFICATION FAILED",
+            notify,
+            "X02 VERIFICATION FAILED",
             f"Square-off orders were placed but the broker could not be re-queried to confirm: {exc}",
             "critical",
         )
         return SquareOffReport(
-            status="FAILED", positions_found=open_positions, flattened=flattened,
-            failed_to_close=failed_to_close, error=f"verify fetch failed: {exc}",
+            status="FAILED",
+            positions_found=open_positions,
+            flattened=flattened,
+            failed_to_close=failed_to_close,
+            error=f"verify fetch failed: {exc}",
         )
 
     if still_open or failed_to_close:
         await _alert(
-            notify, "X02 SQUARE-OFF INCOMPLETE",
+            notify,
+            "X02 SQUARE-OFF INCOMPLETE",
             f"Still open after square-off: {still_open or 'none'}. "
             f"Orders that failed to place: {failed_to_close or 'none'}. Manual intervention required.",
             "critical",
         )
         return SquareOffReport(
-            status="FAILED", positions_found=open_positions, flattened=flattened,
-            failed_to_close=failed_to_close, still_open_after_verify=still_open,
+            status="FAILED",
+            positions_found=open_positions,
+            flattened=flattened,
+            failed_to_close=failed_to_close,
+            still_open_after_verify=still_open,
         )
 
     logger.info("X02: square-off complete, verified flat", flattened=flattened)
-    await _alert(notify, "X02 square-off complete", f"Flattened at close: {', '.join(flattened)}", "warning")
+    await _alert(
+        notify, "X02 square-off complete", f"Flattened at close: {', '.join(flattened)}", "warning"
+    )
     return SquareOffReport(status="FLATTENED", positions_found=open_positions, flattened=flattened)
 
 

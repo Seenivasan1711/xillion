@@ -2,12 +2,13 @@
 Strategy Engine: manages running strategy instances, spawns asyncio tasks per
 instance, isolates crashes, and exposes state to the API layer.
 """
+
 import asyncio
 import pickle
-from datetime import date, datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Optional
-from uuid import uuid4
+from typing import Any
 
 import structlog
 
@@ -27,7 +28,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _now_iso() -> str:
@@ -46,12 +47,12 @@ class _StrategyContextImpl(StrategyContext):
         params: dict,
         execution_router: ExecutionRouter,
         history_manager: HistoryManager,
-        risk_manager: Optional[RiskManager] = None,
+        risk_manager: RiskManager | None = None,
         db_factory=None,
-        on_trade_close: Optional[Callable] = None,
-        notifier: Optional[TelegramNotifier] = None,
-        broker: Optional[Broker] = None,
-        restored_state: Optional[dict] = None,
+        on_trade_close: Callable | None = None,
+        notifier: TelegramNotifier | None = None,
+        broker: Broker | None = None,
+        restored_state: dict | None = None,
     ) -> None:
         self.instance_id = instance_id
         self._instance_name = instance_name
@@ -74,7 +75,7 @@ class _StrategyContextImpl(StrategyContext):
         self._on_trade_close = on_trade_close
         self._notifier = notifier
         self._broker = broker
-        self._runner: Optional["StrategyRunner"] = None  # bound by StrategyEngine.spawn
+        self._runner: StrategyRunner | None = None  # bound by StrategyEngine.spawn
 
         self._positions: dict[str, Position] = {}
         self._position_open_ts: dict[str, str] = {}  # symbol → ISO ts when position opened
@@ -109,7 +110,8 @@ class _StrategyContextImpl(StrategyContext):
         except Exception as exc:
             logger.error(
                 "position reconciliation: broker fetch failed",
-                instance_id=self.instance_id, error=str(exc),
+                instance_id=self.instance_id,
+                error=str(exc),
             )
             return
 
@@ -122,15 +124,21 @@ class _StrategyContextImpl(StrategyContext):
             if pos.symbol not in known_symbols or pos.quantity == 0:
                 continue
             self._positions[pos.symbol] = Position(
-                symbol=pos.symbol, quantity=pos.quantity, avg_price=pos.avg_price,
-                realised_pnl=pos.realised_pnl, unrealised_pnl=pos.unrealised_pnl,
-                last_price=pos.last_price, strategy_instance_id=self.instance_id,
+                symbol=pos.symbol,
+                quantity=pos.quantity,
+                avg_price=pos.avg_price,
+                realised_pnl=pos.realised_pnl,
+                unrealised_pnl=pos.unrealised_pnl,
+                last_price=pos.last_price,
+                strategy_instance_id=self.instance_id,
             )
             reconciled += 1
             logger.warning(
                 "position reconciled from broker on startup",
-                instance_id=self.instance_id, symbol=pos.symbol,
-                quantity=pos.quantity, avg_price=str(pos.avg_price),
+                instance_id=self.instance_id,
+                symbol=pos.symbol,
+                quantity=pos.quantity,
+                avg_price=str(pos.avg_price),
             )
         if reconciled:
             self.log("warning", "positions reconciled from broker", count=reconciled)
@@ -153,24 +161,28 @@ class _StrategyContextImpl(StrategyContext):
         if closed is not None:
             # Feed realised loss back into the risk manager's daily gate
             if self._risk_mgr:
-                self._risk_mgr.record_loss(
-                    self.instance_id, Decimal(str(closed["pnl"]))
-                )
+                self._risk_mgr.record_loss(self.instance_id, Decimal(str(closed["pnl"])))
             # Broadcast matched trade to all connected WebSocket clients
             if self._on_trade_close:
-                asyncio.create_task(
-                    self._on_trade_close({"type": "trade_closed", **closed})
-                )
+                asyncio.create_task(self._on_trade_close({"type": "trade_closed", **closed}))
             # Persist position + daily PnL tables to DB
             if self._db_factory:
                 asyncio.create_task(self._persist_trade_close(closed, order))
         return order
 
     async def _notify_order_update(self, order: Order) -> None:
+        if self._runner is None:
+            # Order update arrived before spawn() finished binding the
+            # runner (ctx._runner is set right before start(), see
+            # StrategyEngine.spawn) -- matches the same guard used
+            # everywhere else in this file that touches self._runner.
+            return
         try:
             await self._runner._strategy.on_order_update(order, self)
         except Exception as exc:
-            logger.error("strategy on_order_update raised", instance_id=self.instance_id, error=str(exc))
+            logger.error(
+                "strategy on_order_update raised", instance_id=self.instance_id, error=str(exc)
+            )
 
     # ── Alert mode ──────────────────────────────────────────────────────────────
     # Alert mode's entire order-execution surface. Never calls
@@ -223,14 +235,18 @@ class _StrategyContextImpl(StrategyContext):
                         parent_signal_id = result.scalar_one_or_none()
                         if parent_signal_id is None:
                             self.log(
-                                "warning", "EXIT signal has no matching open ENTER",
-                                symbol=request.symbol, tag=request.tag,
+                                "warning",
+                                "EXIT signal has no matching open ENTER",
+                                symbol=request.symbol,
+                                tag=request.tag,
                             )
 
                     if parent_signal_id is not None:
                         message += f"\nclosing entry #{parent_signal_id}"
             except Exception as exc:
-                logger.error("signal_log parent lookup failed", instance_id=self.instance_id, error=str(exc))
+                logger.error(
+                    "signal_log parent lookup failed", instance_id=self.instance_id, error=str(exc)
+                )
 
         notified = False
         if self._notifier is not None:
@@ -254,8 +270,16 @@ class _StrategyContextImpl(StrategyContext):
                         signal_type=signal_type,
                         tag=request.tag,
                         parent_signal_id=parent_signal_id,
-                        target_price=float(request.target_price) if request.target_price is not None else None,
-                        stop_loss_price=float(request.stop_loss_price) if request.stop_loss_price is not None else None,
+                        target_price=(
+                            float(request.target_price)
+                            if request.target_price is not None
+                            else None
+                        ),
+                        stop_loss_price=(
+                            float(request.stop_loss_price)
+                            if request.stop_loss_price is not None
+                            else None
+                        ),
                         ai_confidence=None,  # filled in asynchronously below, if configured
                         side=request.side.value,
                         price=float(request.price) if request.price is not None else None,
@@ -269,7 +293,9 @@ class _StrategyContextImpl(StrategyContext):
                     await session.commit()
                     new_signal_id = row.id
             except Exception as exc:
-                logger.error("persist signal_log failed", instance_id=self.instance_id, error=str(exc))
+                logger.error(
+                    "persist signal_log failed", instance_id=self.instance_id, error=str(exc)
+                )
 
         # Pre-trade AI confidence hook (CP8) -- ENTER signals only (an EXIT
         # is reporting what already happened, nothing to review beforehand).
@@ -282,9 +308,14 @@ class _StrategyContextImpl(StrategyContext):
             asyncio.create_task(self._fetch_and_store_confidence(new_signal_id, request))
 
         self.log(
-            "info", "alert signal emitted",
-            symbol=request.symbol, side=request.side.value, tag=request.tag,
-            signal_type=signal_type, parent_signal_id=parent_signal_id, notified=notified,
+            "info",
+            "alert signal emitted",
+            symbol=request.symbol,
+            side=request.side.value,
+            tag=request.tag,
+            signal_type=signal_type,
+            parent_signal_id=parent_signal_id,
+            notified=notified,
         )
 
         return Order(
@@ -314,8 +345,12 @@ class _StrategyContextImpl(StrategyContext):
                 symbol=request.symbol,
                 side=request.side.value,
                 price=float(request.price) if request.price is not None else None,
-                target_price=float(request.target_price) if request.target_price is not None else None,
-                stop_loss_price=float(request.stop_loss_price) if request.stop_loss_price is not None else None,
+                target_price=(
+                    float(request.target_price) if request.target_price is not None else None
+                ),
+                stop_loss_price=(
+                    float(request.stop_loss_price) if request.stop_loss_price is not None else None
+                ),
                 tag=request.tag,
             )
             if confidence is None or self._db_factory is None:
@@ -329,7 +364,9 @@ class _StrategyContextImpl(StrategyContext):
                     await session.commit()
             self.log("info", "AI confidence stored", signal_id=signal_id, ai_confidence=confidence)
         except Exception as exc:
-            logger.error("AI confidence background task failed", instance_id=self.instance_id, error=str(exc))
+            logger.error(
+                "AI confidence background task failed", instance_id=self.instance_id, error=str(exc)
+            )
 
     async def cancel_order(self, client_order_id: str) -> bool:
         return await self._router.cancel(client_order_id)
@@ -337,13 +374,13 @@ class _StrategyContextImpl(StrategyContext):
     async def modify_order(self, client_order_id: str, **changes) -> Order:
         raise NotImplementedError("modify_order not yet implemented")
 
-    async def get_order(self, client_order_id: str) -> Optional[Order]:
+    async def get_order(self, client_order_id: str) -> Order | None:
         return self._router.get_order(client_order_id)
 
     async def now(self):
         return _now()
 
-    def position(self, symbol: str) -> Optional[Position]:
+    def position(self, symbol: str) -> Position | None:
         return self._positions.get(symbol)
 
     def positions(self) -> list[Position]:
@@ -376,10 +413,14 @@ class _StrategyContextImpl(StrategyContext):
             return
         try:
             await self._notifier.alert(
-                title=f"{self._instance_name}: {title}", body=body, severity="critical",
+                title=f"{self._instance_name}: {title}",
+                body=body,
+                severity="critical",
             )
         except Exception as exc:
-            logger.error("notify_critical: alert failed", instance_id=self.instance_id, error=str(exc))
+            logger.error(
+                "notify_critical: alert failed", instance_id=self.instance_id, error=str(exc)
+            )
 
     # ── Instrument resolution (options) ──────────────────────────────────────────
 
@@ -400,7 +441,11 @@ class _StrategyContextImpl(StrategyContext):
         return tick.ltp
 
     async def resolve_strike(
-        self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str,
+        self,
+        underlying: str,
+        expiry_selector: str,
+        strike_offset: int,
+        opt_type: str,
     ):
         from xillion.core.instrument_cache import load_instrument_rows
         from xillion.core.instruments import resolve_option
@@ -431,15 +476,26 @@ class _StrategyContextImpl(StrategyContext):
             self._runner.add_dynamic_symbol(symbol)
 
     async def place_protective_gtt(
-        self, symbol: str, exchange: str, side, quantity: int,
-        stop_price, target_price, last_price,
+        self,
+        symbol: str,
+        exchange: str,
+        side,
+        quantity: int,
+        stop_price,
+        target_price,
+        last_price,
     ):
         if self._broker is None or not self._broker.capabilities.supports_gtt_orders:
             return None
         try:
             return await self._broker.place_protective_gtt(
-                symbol=symbol, exchange=exchange, side=side, quantity=quantity,
-                stop_price=stop_price, target_price=target_price, last_price=last_price,
+                symbol=symbol,
+                exchange=exchange,
+                side=side,
+                quantity=quantity,
+                stop_price=stop_price,
+                target_price=target_price,
+                last_price=last_price,
             )
         except Exception as exc:
             # Best-effort: the software stop (already running regardless)
@@ -447,7 +503,8 @@ class _StrategyContextImpl(StrategyContext):
             # placement must not block or crash strategy entry.
             logger.warning(
                 "protective GTT placement failed (software stop still active)",
-                symbol=symbol, error=str(exc),
+                symbol=symbol,
+                error=str(exc),
             )
             return None
 
@@ -457,11 +514,13 @@ class _StrategyContextImpl(StrategyContext):
         try:
             await self._broker.cancel_gtt(gtt_id)
         except Exception as exc:
-            logger.warning("GTT cancel failed (may already be stale/triggered)", gtt_id=gtt_id, error=str(exc))
+            logger.warning(
+                "GTT cancel failed (may already be stale/triggered)", gtt_id=gtt_id, error=str(exc)
+            )
 
     # ── Position tracking ──────────────────────────────────────────────────────
 
-    def _update_position_from_order(self, order: Order) -> Optional[dict[str, Any]]:
+    def _update_position_from_order(self, order: Order) -> dict[str, Any] | None:
         """
         Update in-memory position from a filled order.
         Returns a closed-trade dict when a position fully closes, otherwise None.
@@ -567,14 +626,16 @@ class _StrategyContextImpl(StrategyContext):
                 else:
                     existing_pos.quantity = pos.quantity if pos else 0
                     existing_pos.avg_price = float(pos.avg_price) if pos else 0.0
-                    existing_pos.realised_pnl = float(pos.realised_pnl) if pos else existing_pos.realised_pnl + closed["pnl"]
+                    existing_pos.realised_pnl = (
+                        float(pos.realised_pnl)
+                        if pos
+                        else existing_pos.realised_pnl + closed["pnl"]
+                    )
                     existing_pos.last_price = closed["exit_price"]
                     existing_pos.updated_at = now
 
                 # Upsert DailyStrategyPnl
-                existing_dpnl = await session.get(
-                    DailyStrategyPnl, (today, self.instance_id)
-                )
+                existing_dpnl = await session.get(DailyStrategyPnl, (today, self.instance_id))
                 if existing_dpnl is None:
                     dpnl = DailyStrategyPnl(
                         trading_date=today,
@@ -600,7 +661,9 @@ class _StrategyContextImpl(StrategyContext):
                     )
                     session.add(risk_row)
                 else:
-                    risk_row.account_realised_pnl = float(risk_row.account_realised_pnl) + closed["pnl"]
+                    risk_row.account_realised_pnl = (
+                        float(risk_row.account_realised_pnl) + closed["pnl"]
+                    )
 
                 await session.commit()
 
@@ -656,9 +719,9 @@ class StrategyRunner:
         self._instruments = instruments
         self._timeframe = timeframe
         self._dynamic_instruments: list[str] = []
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self.status: str = "idle"
-        self.last_error: Optional[str] = None
+        self.last_error: str | None = None
 
     @property
     def trade_count(self) -> int:
@@ -785,7 +848,7 @@ class StrategyEngine:
         self._bus = bus
         self._risk = risk_manager
         self._runners: dict[str, StrategyRunner] = {}
-        self._registry: Optional[PluginRegistry] = None
+        self._registry: PluginRegistry | None = None
 
     def set_registry(self, registry: PluginRegistry) -> None:
         self._registry = registry
@@ -800,12 +863,12 @@ class StrategyEngine:
         capital: Decimal,
         params: dict,
         mode: str = "paper",
-        broker_connection_id: Optional[int] = None,
-        instance_name: Optional[str] = None,
-        on_trade_close: Optional[Callable] = None,
-        notifier: Optional[TelegramNotifier] = None,
-        risk_limits: Optional[dict] = None,
-        restored_state: Optional[dict] = None,
+        broker_connection_id: int | None = None,
+        instance_name: str | None = None,
+        on_trade_close: Callable | None = None,
+        notifier: TelegramNotifier | None = None,
+        risk_limits: dict | None = None,
+        restored_state: dict | None = None,
     ) -> StrategyRunner:
         if self._registry is None:
             raise RuntimeError("PluginRegistry not set on StrategyEngine")
@@ -814,6 +877,7 @@ class StrategyEngine:
             raise ValueError(f"Strategy '{strategy_name}' not found in registry")
 
         from xillion.db.session import get_session_factory
+
         db_factory = get_session_factory
 
         risk_limits = risk_limits or {}
@@ -865,7 +929,7 @@ class StrategyEngine:
             await runner.stop(reason)
             del self._runners[instance_id]
 
-    def get_runner(self, instance_id: str) -> Optional[StrategyRunner]:
+    def get_runner(self, instance_id: str) -> StrategyRunner | None:
         return self._runners.get(instance_id)
 
     def update_risk_config(self, instance_id: str, risk_limits: dict) -> bool:

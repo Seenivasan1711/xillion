@@ -3,11 +3,10 @@ Backtest metrics: Sharpe, Sortino, max drawdown, win rate, profit factor, etc.
 Input: list of closed trades with entry/exit prices and PnL.
 Output: a flat dict suitable for JSON storage.
 """
+
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -20,9 +19,9 @@ class ClosedTrade:
     # tests keep working, but the BacktestTrade table needs them non-null,
     # so anything persisting a run must supply them.
     symbol: str = ""
-    side: str = ""              # "LONG" | "SHORT"
-    entry_ts: Optional[datetime] = None
-    exit_ts: Optional[datetime] = None
+    side: str = ""  # "LONG" | "SHORT"
+    entry_ts: datetime | None = None
+    exit_ts: datetime | None = None
     tag: str = ""
 
 
@@ -57,9 +56,7 @@ def compute_metrics(
     avg_loss = sum(abs(t.pnl) for t in losers) / len(losers) if losers else 0.0
     gross_loss = sum(abs(t.pnl) for t in losers)
     # None (not inf) when there are no losses — inf is not valid JSON.
-    profit_factor = (
-        sum(t.pnl for t in winners) / gross_loss if gross_loss > 0 else None
-    )
+    profit_factor = sum(t.pnl for t in winners) / gross_loss if gross_loss > 0 else None
     expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
 
     # Returns from equity curve
@@ -95,12 +92,28 @@ def compute_metrics(
 
 
 def _empty_metrics() -> dict:
-    return {k: 0 for k in [
-        "total_return_pct", "total_pnl", "realised_pnl", "final_capital", "cagr_pct",
-        "sharpe_ratio", "sortino_ratio", "max_drawdown", "max_drawdown_pct",
-        "trade_count", "win_count", "loss_count", "win_rate_pct",
-        "avg_win", "avg_loss", "profit_factor", "expectancy",
-    ]}
+    return {
+        k: 0
+        for k in [
+            "total_return_pct",
+            "total_pnl",
+            "realised_pnl",
+            "final_capital",
+            "cagr_pct",
+            "sharpe_ratio",
+            "sortino_ratio",
+            "max_drawdown",
+            "max_drawdown_pct",
+            "trade_count",
+            "win_count",
+            "loss_count",
+            "win_rate_pct",
+            "avg_win",
+            "avg_loss",
+            "profit_factor",
+            "expectancy",
+        ]
+    }
 
 
 def _mean(values: list[float]) -> float:
@@ -123,7 +136,7 @@ def _sharpe(returns: list[float], risk_free: float = 0.0) -> float:
     return _mean(excess) / std * math.sqrt(252)  # annualised daily
 
 
-def _sortino(returns: list[float], risk_free: float = 0.0) -> float:
+def _sortino(returns: list[float], risk_free: float = 0.0) -> float | None:
     """Returns None when there is no downside deviation — a Sortino of
     "infinity" is not representable in JSON and used to break the API
     response, so callers must render the no-downside case as "—"."""
@@ -131,7 +144,7 @@ def _sortino(returns: list[float], risk_free: float = 0.0) -> float:
     downside = [r for r in excess if r < 0]
     if not downside:
         return None
-    downside_std = math.sqrt(sum(r ** 2 for r in downside) / len(downside))
+    downside_std = math.sqrt(sum(r**2 for r in downside) / len(downside))
     if downside_std == 0:
         return None
     return _mean(excess) / downside_std * math.sqrt(252)

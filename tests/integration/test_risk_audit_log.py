@@ -7,8 +7,9 @@ visible in structlog output. ExecutionRouter.submit() now writes every
 decision here, synchronously (spec's K04: order-event audit writes are on
 the critical path, not fire-and-forget).
 """
+
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -27,11 +28,17 @@ class _RestingOrderBroker(DummyBroker):
     via ExecutionRouter.get_open_orders() for the self-trade guard to see."""
 
     async def place_order(self, request: OrderRequest) -> Order:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         order = Order(
-            client_order_id=request.client_order_id, symbol=request.symbol, side=request.side,
-            quantity=request.quantity, order_type=request.order_type, status=OrderStatus.ACCEPTED,
-            submitted_at=now, updated_at=now, price=request.price,
+            client_order_id=request.client_order_id,
+            symbol=request.symbol,
+            side=request.side,
+            quantity=request.quantity,
+            order_type=request.order_type,
+            status=OrderStatus.ACCEPTED,
+            submitted_at=now,
+            updated_at=now,
+            price=request.price,
             strategy_instance_id=request.strategy_instance_id,
         )
         self.placed_orders.append(order)
@@ -40,7 +47,9 @@ class _RestingOrderBroker(DummyBroker):
 
 def _order(price=None, qty: int = 1) -> OrderRequest:
     return OrderRequest(
-        symbol="NIFTY", side=Side.BUY, quantity=qty,
+        symbol="NIFTY",
+        side=Side.BUY,
+        quantity=qty,
         order_type=OrderType.LIMIT if price else OrderType.MARKET,
         price=Decimal(str(price)) if price else None,
         strategy_instance_id="audit-test-instance",
@@ -51,7 +60,8 @@ async def _risk_decision_events() -> list[dict]:
     factory = get_session_factory()
     async with factory() as session:
         result = await session.execute(
-            select(AuditLogRecord).where(AuditLogRecord.event_type == "risk_decision")
+            select(AuditLogRecord)
+            .where(AuditLogRecord.event_type == "risk_decision")
             .order_by(AuditLogRecord.id.desc())
         )
         rows = result.scalars().all()
@@ -63,7 +73,9 @@ async def test_fat_fingered_price_is_rejected_before_reaching_the_broker():
     await init_db()
     broker = DummyBroker()
     router = ExecutionRouter(
-        broker, RiskManager(), db_factory=get_session_factory,
+        broker,
+        RiskManager(),
+        db_factory=get_session_factory,
         risk_config=StrategyRiskConfig(capital_allocation=Decimal("100000")),
     )
     ctx = MarketContext(ltp=Decimal("100"))  # a real 10x fat-finger vs this LTP
@@ -79,7 +91,9 @@ async def test_rejection_names_the_specific_failed_check_in_the_audit_log():
     await init_db()
     broker = DummyBroker()
     router = ExecutionRouter(
-        broker, RiskManager(), db_factory=get_session_factory,
+        broker,
+        RiskManager(),
+        db_factory=get_session_factory,
         risk_config=StrategyRiskConfig(capital_allocation=Decimal("100000")),
     )
     ctx = MarketContext(ltp=Decimal("100"))
@@ -100,7 +114,9 @@ async def test_approved_decisions_are_also_audited():
     await init_db()
     broker = DummyBroker()
     router = ExecutionRouter(
-        broker, RiskManager(), db_factory=get_session_factory,
+        broker,
+        RiskManager(),
+        db_factory=get_session_factory,
         risk_config=StrategyRiskConfig(capital_allocation=Decimal("100000")),
     )
     order = await router.submit(_order())
@@ -119,12 +135,18 @@ async def test_self_trade_guard_blocked_before_broker_via_full_router():
     await init_db()
     broker = _RestingOrderBroker()
     router = ExecutionRouter(
-        broker, RiskManager(), db_factory=get_session_factory,
+        broker,
+        RiskManager(),
+        db_factory=get_session_factory,
         risk_config=StrategyRiskConfig(capital_allocation=Decimal("100000")),
     )
     sell_req = OrderRequest(
-        symbol="NIFTY", side=Side.SELL, quantity=1, order_type=OrderType.LIMIT,
-        price=Decimal("100"), strategy_instance_id="audit-test-instance",
+        symbol="NIFTY",
+        side=Side.SELL,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        price=Decimal("100"),
+        strategy_instance_id="audit-test-instance",
     )
     first = await router.submit(sell_req)
     assert first.status.value == "ACCEPTED"

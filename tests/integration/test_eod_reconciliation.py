@@ -8,6 +8,7 @@ all -- a real open position sitting at the broker with no xillion process
 even aware of it (the actual "died mid-position, restarted cold" scenario)
 -- then runs X02 and M01 exactly as the scheduler would, in sequence.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -21,8 +22,12 @@ from xillion.engine.square_off import run_square_off
 
 def _pos(symbol: str, qty: int) -> Position:
     return Position(
-        symbol=symbol, quantity=qty, avg_price=Decimal("100"),
-        realised_pnl=Decimal("0"), unrealised_pnl=Decimal("0"), last_price=Decimal("100"),
+        symbol=symbol,
+        quantity=qty,
+        avg_price=Decimal("100"),
+        realised_pnl=Decimal("0"),
+        unrealised_pnl=Decimal("0"),
+        last_price=Decimal("100"),
     )
 
 
@@ -40,6 +45,7 @@ async def test_x02_flattens_then_m01_confirms_clean():
         # Found open on X02's first check and its verify pass finds it
         # gone; M01 (running after) also finds it gone.
         return [_pos("EOD_TEST_SYM_1", 65)] if call_count["n"] == 1 else []
+
     broker.get_positions = get_positions
 
     x02_report = await run_square_off(broker)
@@ -61,13 +67,16 @@ async def test_x02_fails_to_flatten_and_m01_catches_it_loudly():
 
     async def get_positions():
         return [_pos("EOD_TEST_SYM_2", 65)]  # never actually closes
+
     broker.get_positions = get_positions
 
     async def failing_place_order(request):
         raise RuntimeError("leg illiquid -- broker rejected")
+
     broker.place_order = failing_place_order
 
     x02_alerts = []
+
     async def x02_notify(title, body, severity):
         x02_alerts.append((title, severity))
 
@@ -77,10 +86,13 @@ async def test_x02_fails_to_flatten_and_m01_catches_it_loudly():
     assert any(severity == "critical" for _, severity in x02_alerts)
 
     m01_alerts = []
+
     async def m01_notify(title, body, severity):
         m01_alerts.append((title, severity))
 
-    m01_result = await run_reconciliation(broker, "Test Broker", get_session_factory, notify=m01_notify)
+    m01_result = await run_reconciliation(
+        broker, "Test Broker", get_session_factory, notify=m01_notify
+    )
     assert m01_result.status == "DISCREPANCY"
     assert "EOD_TEST_SYM_2" in m01_result.eod_open_positions
     assert any(severity == "critical" for _, severity in m01_alerts)

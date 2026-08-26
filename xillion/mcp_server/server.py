@@ -10,8 +10,8 @@ auth and risk gates, reached through httpx like any other client, never
 around. See docs/status/task-tracker.md CP7 for the "no freeform order
 construction by an LLM" rule this enforces structurally, not just by policy.
 """
+
 from datetime import date
-from typing import Optional
 
 from mcp.server import MCPServer
 
@@ -32,7 +32,7 @@ mcp = MCPServer(
     ),
 )
 
-_client: Optional[XillionClient] = None
+_client: XillionClient | None = None
 
 
 def _get_client() -> XillionClient:
@@ -43,6 +43,7 @@ def _get_client() -> XillionClient:
 
 
 # ── Read-only tools ──────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 async def list_strategies() -> dict:
@@ -73,9 +74,10 @@ async def get_portfolio() -> dict:
 
 
 @mcp.tool()
-async def get_journal(strategy_name: Optional[str] = None, limit: int = 50) -> dict:
+async def get_journal(strategy_name: str | None = None, limit: int = 50) -> dict:
     """Strategy journal: every signal/trade linked to its outcome, with failure modes tagged
-    only where the recorded data actually supports the claim (see docs/status/task-tracker.md CP6)."""
+    only where the recorded data actually supports the claim (see docs/status/task-tracker.md CP6).
+    """
     params: dict = {"limit": limit}
     if strategy_name:
         params["strategy_name"] = strategy_name
@@ -93,16 +95,22 @@ async def run_backtest(
     exchange: str = "NFO",
     instrument_type: str = "option",
     initial_capital: float = 100000.0,
-    params: Optional[dict] = None,
+    params: dict | None = None,
 ) -> dict:
     """Run a backtest against real historical data from a configured data provider
     (e.g. "NSE Bhavcopy (Free)"). Computes and returns metrics/trades -- places no orders,
     live or otherwise. from_date/to_date are ISO dates (YYYY-MM-DD)."""
     body = {
-        "strategy_name": strategy_name, "provider_name": provider_name, "symbol": symbol,
-        "from_date": from_date, "to_date": to_date, "timeframe": timeframe,
-        "exchange": exchange, "instrument_type": instrument_type,
-        "initial_capital": initial_capital, "params": params or {},
+        "strategy_name": strategy_name,
+        "provider_name": provider_name,
+        "symbol": symbol,
+        "from_date": from_date,
+        "to_date": to_date,
+        "timeframe": timeframe,
+        "exchange": exchange,
+        "instrument_type": instrument_type,
+        "initial_capital": initial_capital,
+        "params": params or {},
     }
     return await _get_client().post("/backtest/run-provider", json_body=body)
 
@@ -112,6 +120,7 @@ async def run_backtest(
 # only toggles whether an ALREADY-CONFIGURED strategy (built through the web
 # UI's Strategy Builder or a strategy file) is running; the kill switch only
 # stops things and cancels open orders. Nothing here can originate a trade.
+
 
 @mcp.tool()
 async def start_instance(instance_id: str) -> dict:
@@ -126,7 +135,7 @@ async def stop_instance(instance_id: str) -> dict:
 
 
 @mcp.tool()
-async def kill_switch(totp_code: Optional[str] = None, exit_positions: bool = False) -> dict:
+async def kill_switch(totp_code: str | None = None, exit_positions: bool = False) -> dict:
     """EMERGENCY STOP: halts every running strategy instance and cancels all open broker orders.
     Requires a fresh TOTP code if the account has 2FA enabled -- the exact same gate the web UI's
     kill switch button has, never bypassed here. Use only when explicitly asked to halt trading."""

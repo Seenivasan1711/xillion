@@ -9,15 +9,16 @@ historical-data-provider system (see xillion/core/data_provider_base.py).
 Brand-new tables (unlike 003_broker_credential.py, which retrofitted a table
 that already existed out-of-band) -- portable op.create_table, not raw SQL.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "004"
-down_revision: Union[str, None] = "003"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "003"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

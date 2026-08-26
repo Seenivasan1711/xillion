@@ -8,7 +8,8 @@ never actually subscribed to the bus (the wiring _resolve_broker sketched
 was dead code), and DhanBroker's tick_stream() was never drained by a
 broadcaster the way ZerodhaBroker's is.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -38,7 +39,7 @@ class _FakeDataBroker:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 async def _make_app(connection_name: str, data_broker) -> FastAPI:
@@ -67,29 +68,56 @@ async def _seed_instance(app: FastAPI, instance_id: str, connection_name: str) -
     factory = get_session_factory()
     async with factory() as db:
         bc = BrokerClass(
-            name=f"BrokerClass {instance_id}", module_path="x", class_name="X", version="1.0.0",
-            capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
+            name=f"BrokerClass {instance_id}",
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            capabilities_json="{}",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(bc)
         await db.flush()
         conn = BrokerConnection(
-            broker_class_id=bc.id, name=connection_name, credentials_ref="ENV",
-            is_active=True, created_at=_now(), updated_at=_now(),
+            broker_class_id=bc.id,
+            name=connection_name,
+            credentials_ref="ENV",
+            is_active=True,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(conn)
         sc = StrategyClass(
-            name=strategy_name, module_path="x", class_name="X", version="1.0.0",
-            params_schema_json="{}", code_hash="abc", discovered_at=_now(), last_seen_at=_now(),
+            name=strategy_name,
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            params_schema_json="{}",
+            code_hash="abc",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(sc)
         await db.flush()
-        db.add(StrategyInstance(
-            id=instance_id, strategy_class_id=sc.id, strategy_class_version="1.0.0",
-            name=f"Instance {instance_id}", mode="paper", status="idle",
-            broker_connection_id=conn.id, instruments_json='["NIFTY"]', timeframe="5m",
-            params_json="{}", capital_allocation=100000, risk_limits_json="{}",
-            auto_start=False, created_at=_now(), updated_at=_now(),
-        ))
+        db.add(
+            StrategyInstance(
+                id=instance_id,
+                strategy_class_id=sc.id,
+                strategy_class_version="1.0.0",
+                name=f"Instance {instance_id}",
+                mode="paper",
+                status="idle",
+                broker_connection_id=conn.id,
+                instruments_json='["NIFTY"]',
+                timeframe="5m",
+                params_json="{}",
+                capital_allocation=100000,
+                risk_limits_json="{}",
+                auto_start=False,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
         await db.commit()
 
 
@@ -102,6 +130,7 @@ async def test_paper_mode_subscribes_ticks_from_dhan_not_a_hardcoded_zerodha():
     factory = get_session_factory()
     async with factory() as db:
         from xillion.api.instances import start_instance_core
+
         result = await start_instance_core(app, db, "paper-tick-1")
 
     assert dhan.subscribed == ["NIFTY"]
@@ -121,12 +150,15 @@ async def test_paper_brokers_last_price_actually_updates_from_bus_ticks():
     factory = get_session_factory()
     async with factory() as db:
         from xillion.api.instances import start_instance_core
+
         await start_instance_core(app, db, "paper-tick-2")
 
     runner = app.state.strategy_engine.get_runner("paper-tick-2")
     paper_broker = runner._ctx._broker
 
-    await app.state.bus.publish_tick(Tick(symbol="NIFTY", ltp=Decimal("24500"), ltt=datetime.now(timezone.utc)))
+    await app.state.bus.publish_tick(
+        Tick(symbol="NIFTY", ltp=Decimal("24500"), ltt=datetime.now(UTC))
+    )
 
     assert paper_broker._last_prices["NIFTY"] == Decimal("24500")
 
@@ -142,6 +174,7 @@ async def test_stopping_a_paper_instance_unsubscribes_its_bus_handler():
     factory = get_session_factory()
     async with factory() as db:
         from xillion.api.instances import start_instance_core, stop_instance_core
+
         await start_instance_core(app, db, "paper-tick-3")
         assert len(app.state.bus._tick_subscribers["NIFTY"]) == 2  # strategy runner + paper broker
 
@@ -163,6 +196,7 @@ async def test_no_connected_broker_leaves_the_instance_idle_with_a_named_warning
     factory = get_session_factory()
     async with factory() as db:
         from xillion.api.instances import start_instance_core
+
         result = await start_instance_core(app, db, "paper-tick-4")
 
     assert result["tick_source"] == "none"

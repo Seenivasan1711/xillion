@@ -4,17 +4,16 @@ Encrypted storage for broker credentials.
 Uses a Fernet key from the ENCRYPTION_KEY env var. If unset, auto-generates
 one and persists to data/.encryption_key on first use (dev convenience).
 """
+
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.db.models import BrokerCredential
-
 
 _KEY_FILE = Path("data/.encryption_key")
 
@@ -45,11 +44,9 @@ def decrypt_payload(blob: str) -> dict:
     return json.loads(_fernet().decrypt(blob.encode()).decode())
 
 
-async def save_credentials(
-    db: AsyncSession, name: str, broker_name: str, payload: dict
-) -> None:
+async def save_credentials(db: AsyncSession, name: str, broker_name: str, payload: dict) -> None:
     encrypted = encrypt_payload(payload)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     existing = await db.get(BrokerCredential, name)
     if existing:
         existing.encrypted_payload = encrypted
@@ -67,7 +64,7 @@ async def save_credentials(
     await db.commit()
 
 
-async def load_credentials(db: AsyncSession, name: str) -> Optional[dict]:
+async def load_credentials(db: AsyncSession, name: str) -> dict | None:
     row = await db.get(BrokerCredential, name)
     if not row:
         return None

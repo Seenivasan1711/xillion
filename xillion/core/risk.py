@@ -23,13 +23,13 @@ which is None-safe: a field the caller doesn't have simply skips that one
 check rather than failing closed on missing data (skipped checks are
 logged, never silently reported as "passed").
 """
+
 import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 import structlog
 
@@ -77,12 +77,13 @@ class MarketContext:
     every check built on one is skipped (not failed) when it's absent --
     see the module docstring for why this codebase doesn't yet have all of
     these wired end-to-end (LTP/circuit/margin need a broker quote call)."""
-    ltp: Optional[Decimal] = None
-    lot_size: Optional[int] = None
-    tick_size: Optional[Decimal] = None
-    freeze_qty: Optional[int] = None
-    lower_circuit: Optional[Decimal] = None
-    upper_circuit: Optional[Decimal] = None
+
+    ltp: Decimal | None = None
+    lot_size: int | None = None
+    tick_size: Decimal | None = None
+    freeze_qty: int | None = None
+    lower_circuit: Decimal | None = None
+    upper_circuit: Decimal | None = None
     open_orders: list[Order] = field(default_factory=list)
 
 
@@ -93,7 +94,7 @@ class RiskManager:
 
     def __init__(self) -> None:
         self._kill_switch_active: bool = False
-        self._kill_switch_at: Optional[datetime] = None
+        self._kill_switch_at: datetime | None = None
         self._trading_enabled: bool = True
         self._account_daily_loss: Decimal = Decimal("0")
         self._strategy_daily_loss: dict[str, Decimal] = {}  # instance_id → loss today
@@ -119,7 +120,7 @@ class RiskManager:
 
     def activate_kill_switch(self) -> None:
         self._kill_switch_active = True
-        self._kill_switch_at = datetime.now(timezone.utc)
+        self._kill_switch_at = datetime.now(UTC)
         logger.critical("KILL SWITCH ACTIVATED")
         if self._notify_callback:
             asyncio.create_task(
@@ -163,7 +164,7 @@ class RiskManager:
 
     # ── P&L tracking ──────────────────────────────────────────────────────────
 
-    def record_loss(self, instance_id: Optional[str], amount: Decimal) -> None:
+    def record_loss(self, instance_id: str | None, amount: Decimal) -> None:
         """Record realised loss (negative = loss). Called by ExecutionRouter on fill."""
         if amount >= 0:
             return
@@ -225,9 +226,9 @@ class RiskManager:
     def check(
         self,
         request: OrderRequest,
-        strategy_config: Optional[StrategyRiskConfig] = None,
-        current_positions: Optional[int] = None,
-        market_context: Optional[MarketContext] = None,
+        strategy_config: StrategyRiskConfig | None = None,
+        current_positions: int | None = None,
+        market_context: MarketContext | None = None,
     ) -> RiskDecision:
         s = get_settings()
         ctx = market_context or MarketContext()
@@ -243,9 +244,12 @@ class RiskManager:
             self.activate_kill_switch()
             logger.critical(
                 "OPS CEILING BREACHED — runaway loop suspected, kill switch fired",
-                symbol=request.symbol, burst_ceiling=s.ops_burst_ceiling,
+                symbol=request.symbol,
+                burst_ceiling=s.ops_burst_ceiling,
             )
-            return self._reject(["ops_ceiling_breach"], "OPS burst ceiling hit -- kill switch activated")
+            return self._reject(
+                ["ops_ceiling_breach"], "OPS burst ceiling hit -- kill switch activated"
+            )
 
         checks: list[tuple[str, bool]] = []
 
@@ -264,8 +268,15 @@ class RiskManager:
             # is a Decimal modulo, exact for the tick sizes NSE actually uses.
             add("price_tick_multiple", (request.price % ctx.tick_size) == 0)
         if request.price is not None and ctx.ltp:
-            add("price_collar", Decimal("0.5") * ctx.ltp <= request.price <= Decimal("1.5") * ctx.ltp)
-        if request.price is not None and ctx.lower_circuit is not None and ctx.upper_circuit is not None:
+            add(
+                "price_collar",
+                Decimal("0.5") * ctx.ltp <= request.price <= Decimal("1.5") * ctx.ltp,
+            )
+        if (
+            request.price is not None
+            and ctx.lower_circuit is not None
+            and ctx.upper_circuit is not None
+        ):
             add("price_within_circuit", ctx.lower_circuit <= request.price <= ctx.upper_circuit)
         if ctx.ltp:
             notional = ctx.ltp * request.quantity
@@ -282,7 +293,9 @@ class RiskManager:
 
         if strategy_config and request.strategy_instance_id:
             strat_loss = self._strategy_daily_loss.get(request.strategy_instance_id, Decimal("0"))
-            strat_limit = strategy_config.capital_allocation * Decimal(str(strategy_config.daily_loss_pct / 100))
+            strat_limit = strategy_config.capital_allocation * Decimal(
+                str(strategy_config.daily_loss_pct / 100)
+            )
             add("within_strategy_daily_loss", abs(strat_loss) <= strat_limit)
 
             orders_so_far = self._orders_today.get(request.strategy_instance_id, 0)
@@ -296,8 +309,7 @@ class RiskManager:
         add("ops_budget_ok", soft_ops_ok)
         if ctx.open_orders:
             crossing = any(
-                o.symbol == request.symbol and o.side != request.side
-                for o in ctx.open_orders
+                o.symbol == request.symbol and o.side != request.side for o in ctx.open_orders
             )
             add("not_self_trade", not crossing)
 
@@ -305,7 +317,9 @@ class RiskManager:
 
         if failed:
             for name in failed:
-                logger.warning("risk: check failed", check=name, symbol=request.symbol, side=request.side)
+                logger.warning(
+                    "risk: check failed", check=name, symbol=request.symbol, side=request.side
+                )
             return self._reject(failed, f"failed: {', '.join(failed)}")
 
         # All clear -- consume the resources this decision claimed.

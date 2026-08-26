@@ -18,9 +18,9 @@ from their instrument master (e.g. "NIFTY-Aug2026-FUT"), not Kite/NSE-style
 "NIFTY26AUGFUT" used elsewhere in xillion. This is the same
 provider-specific-symbol-format tradeoff as nse_bhavcopy.py.
 """
-from datetime import date, datetime, timedelta, timezone
+
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Optional
 
 import httpx
 import structlog
@@ -46,8 +46,8 @@ class DhanHQProvider(HistoricalDataProvider):
         "→ Dhan — no need to enter it twice, this only needs its own "
         "entry below if you want DhanHQ for data without connecting Dhan "
         "as a trading broker. Symbol must match Dhan's own naming "
-        "convention (e.g. \"NIFTY-Aug2026-FUT\", not Kite/NSE-style "
-        "\"NIFTY26AUGFUT\") — resolved via Dhan's own instrument master, "
+        'convention (e.g. "NIFTY-Aug2026-FUT", not Kite/NSE-style '
+        '"NIFTY26AUGFUT") — resolved via Dhan\'s own instrument master, '
         "cached locally for 24h. Intraday: last 90 days per request "
         "(auto-chunked here). Daily: since listing."
     )
@@ -74,7 +74,7 @@ class DhanHQProvider(HistoricalDataProvider):
         to_date: date,
         *,
         instrument_type: str = "equity",
-        credentials: Optional[dict] = None,
+        credentials: dict | None = None,
         broker=None,
     ) -> list[Bar]:
         if not credentials or not credentials.get("api_key") or not credentials.get("api_secret"):
@@ -110,12 +110,21 @@ class DhanHQProvider(HistoricalDataProvider):
                 )
 
             if timeframe == "1d":
-                return await self._fetch_daily(client, headers, resolved, symbol, from_date, to_date)
-            return await self._fetch_intraday(client, headers, resolved, symbol, timeframe, from_date, to_date)
+                return await self._fetch_daily(
+                    client, headers, resolved, symbol, from_date, to_date
+                )
+            return await self._fetch_intraday(
+                client, headers, resolved, symbol, timeframe, from_date, to_date
+            )
 
     async def _fetch_daily(
-        self, client: httpx.AsyncClient, headers: dict, resolved: ResolvedSecurity,
-        symbol: str, from_date: date, to_date: date,
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        resolved: ResolvedSecurity,
+        symbol: str,
+        from_date: date,
+        to_date: date,
     ) -> list[Bar]:
         payload = {
             "securityId": resolved.security_id,
@@ -131,8 +140,14 @@ class DhanHQProvider(HistoricalDataProvider):
         return self._parse_response(resp.json(), symbol, "1d")
 
     async def _fetch_intraday(
-        self, client: httpx.AsyncClient, headers: dict, resolved: ResolvedSecurity,
-        symbol: str, timeframe: str, from_date: date, to_date: date,
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        resolved: ResolvedSecurity,
+        symbol: str,
+        timeframe: str,
+        from_date: date,
+        to_date: date,
     ) -> list[Bar]:
         bars: list[Bar] = []
         chunk_start = from_date
@@ -167,7 +182,7 @@ class DhanHQProvider(HistoricalDataProvider):
                 Bar(
                     symbol=symbol,
                     timeframe=timeframe,
-                    ts=datetime.fromtimestamp(timestamps[i], tz=timezone.utc).replace(tzinfo=None),
+                    ts=datetime.fromtimestamp(timestamps[i], tz=UTC).replace(tzinfo=None),
                     open=Decimal(str(opens[i])),
                     high=Decimal(str(highs[i])),
                     low=Decimal(str(lows[i])),

@@ -11,31 +11,38 @@ Deliberately broker-agnostic: it drives `place_order_fn`/`cancel_order_fn`/
 cancel_order/get_order -- so every leg still passes through the normal risk
 gate, position tracking, and DB persistence, one leg at a time.
 """
+
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
-from typing import Awaitable, Callable, Optional
+from enum import StrEnum
 
 import structlog
 
 from xillion.core.events import Order, OrderRequest, OrderStatus, OrderType, Side
-from xillion.core.multileg import Leg, LegRole, MultiLegSpec, order_entry_sequence, order_exit_sequence
+from xillion.core.multileg import (
+    Leg,
+    LegRole,
+    MultiLegSpec,
+    order_entry_sequence,
+    order_exit_sequence,
+)
 
 logger = structlog.get_logger(__name__)
 
 PlaceOrderFn = Callable[[OrderRequest], Awaitable[Order]]
 CancelOrderFn = Callable[[str], Awaitable[bool]]
-GetOrderFn = Callable[[str], Awaitable[Optional[Order]]]
+GetOrderFn = Callable[[str], Awaitable[Order | None]]
 
 _TERMINAL = {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED}
 _OPEN = {OrderStatus.PENDING, OrderStatus.SUBMITTED, OrderStatus.ACCEPTED}
 
 
-class ExecutionOutcome(str, Enum):
+class ExecutionOutcome(StrEnum):
     SUCCESS = "SUCCESS"
-    FORCE_UNWOUND = "FORCE_UNWOUND"     # naked short detected -> unwound at market immediately
-    UNWOUND = "UNWOUND"                 # defined-risk partial, retry failed -> unwound cleanly
+    FORCE_UNWOUND = "FORCE_UNWOUND"  # naked short detected -> unwound at market immediately
+    UNWOUND = "UNWOUND"  # defined-risk partial, retry failed -> unwound cleanly
     HALTED_FOR_HUMAN = "HALTED_FOR_HUMAN"  # unclassifiable partial -- do not touch it automatically
 
 
@@ -68,12 +75,12 @@ class MultiLegExecutor:
         self,
         place_order_fn: PlaceOrderFn,
         cancel_order_fn: CancelOrderFn,
-        get_order_fn: Optional[GetOrderFn] = None,
+        get_order_fn: GetOrderFn | None = None,
         *,
         fill_timeout_sec: float = 5.0,
         poll_interval_sec: float = 0.2,
         min_partial_ratio: Decimal = Decimal("0.5"),
-        alert_fn: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        alert_fn: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> None:
         self._place_order = place_order_fn
         self._cancel_order = cancel_order_fn
@@ -109,33 +116,48 @@ class MultiLegExecutor:
                     return current
         return current  # timed out, still open -- caller treats as a failure
 
-    async def execute_entry(self, spec: MultiLegSpec, tag: Optional[str] = None) -> ExecutionResult:
+    async def execute_entry(self, spec: MultiLegSpec, tag: str | None = None) -> ExecutionResult:
         return await self._execute(spec, order_entry_sequence(spec), tag)
 
-    async def execute_exit(self, spec: MultiLegSpec, tag: Optional[str] = None) -> ExecutionResult:
+    async def execute_exit(self, spec: MultiLegSpec, tag: str | None = None) -> ExecutionResult:
         """Same protocol, reversed sides (BUY<->SELL) and shorts-first
         ordering -- closing the short first removes the unbounded-risk side
         before touching the long leg that was protecting it."""
         exit_legs = []
         for leg in order_exit_sequence(spec):
-            exit_legs.append(Leg(
-                symbol=leg.symbol, exchange=leg.exchange, role=leg.role,
-                side=_reverse_side(leg.side), quantity=leg.quantity,
-                order_type=leg.order_type, price=leg.price,
-                index=leg.index, protects_leg_index=leg.protects_leg_index,
-            ))
+            exit_legs.append(
+                Leg(
+                    symbol=leg.symbol,
+                    exchange=leg.exchange,
+                    role=leg.role,
+                    side=_reverse_side(leg.side),
+                    quantity=leg.quantity,
+                    order_type=leg.order_type,
+                    price=leg.price,
+                    index=leg.index,
+                    protects_leg_index=leg.protects_leg_index,
+                )
+            )
         return await self._execute(spec, exit_legs, tag, is_exit=True)
 
     async def _execute(
-        self, spec: MultiLegSpec, ordered_legs: list[Leg], tag: Optional[str], is_exit: bool = False,
+        self,
+        spec: MultiLegSpec,
+        ordered_legs: list[Leg],
+        tag: str | None,
+        is_exit: bool = False,
     ) -> ExecutionResult:
         filled: list[LegFill] = []
         failed: list[Leg] = []
 
         for leg in ordered_legs:
             request = OrderRequest(
-                symbol=leg.symbol, side=leg.side, quantity=leg.quantity,
-                order_type=leg.order_type, price=leg.price, tag=tag,
+                symbol=leg.symbol,
+                side=leg.side,
+                quantity=leg.quantity,
+                order_type=leg.order_type,
+                price=leg.price,
+                tag=tag,
             )
             order = await self._place_order(request)
             order = await self._wait_for_fill(order)
@@ -183,7 +205,11 @@ class MultiLegExecutor:
         return False
 
     async def _rollback(
-        self, spec: MultiLegSpec, filled: list[LegFill], failed: list[Leg], is_exit: bool,
+        self,
+        spec: MultiLegSpec,
+        filled: list[LegFill],
+        failed: list[Leg],
+        is_exit: bool,
     ) -> ExecutionResult:
         action = "exit" if is_exit else "entry"
 
@@ -192,17 +218,21 @@ class MultiLegExecutor:
                 "NAKED SHORT FROM PARTIAL FILL",
                 f"{spec.underlying} {spec.structure_type.value} {action}: forcing unwind of "
                 f"{len(filled)} filled leg(s) at market -- failed leg(s): "
-                f"{[l.symbol for l in failed]}",
+                f"{[leg.symbol for leg in failed]}",
             )
             for lf in filled:
                 reverse_request = OrderRequest(
-                    symbol=lf.leg.symbol, side=_reverse_side(lf.order.side),
-                    quantity=lf.order.filled_quantity, order_type=OrderType.MARKET,
+                    symbol=lf.leg.symbol,
+                    side=_reverse_side(lf.order.side),
+                    quantity=lf.order.filled_quantity,
+                    order_type=OrderType.MARKET,
                     tag=f"{lf.order.tag}|FORCE_UNWIND" if lf.order.tag else "FORCE_UNWIND",
                 )
                 await self._place_order(reverse_request)
             return ExecutionResult(
-                outcome=ExecutionOutcome.FORCE_UNWOUND, fills=filled, failed_legs=failed,
+                outcome=ExecutionOutcome.FORCE_UNWOUND,
+                fills=filled,
+                failed_legs=failed,
                 message="naked short from partial fill -- force-unwound at market",
             )
 
@@ -217,14 +247,18 @@ class MultiLegExecutor:
                 f"{len(failed)} failed simultaneously -- halting, no automatic action taken",
             )
             return ExecutionResult(
-                outcome=ExecutionOutcome.HALTED_FOR_HUMAN, fills=filled, failed_legs=failed,
+                outcome=ExecutionOutcome.HALTED_FOR_HUMAN,
+                fills=filled,
+                failed_legs=failed,
                 message="multiple simultaneous leg failures -- halted for manual review",
             )
 
         if not filled:
             # Nothing filled at all -- flat, nothing to unwind or classify.
             return ExecutionResult(
-                outcome=ExecutionOutcome.UNWOUND, fills=[], failed_legs=failed,
+                outcome=ExecutionOutcome.UNWOUND,
+                fills=[],
+                failed_legs=failed,
                 message="no legs filled -- position never opened",
             )
 
@@ -233,8 +267,11 @@ class MultiLegExecutor:
         if len(failed) == 1 and filled:
             retry_leg = failed[0]
             retry_request = OrderRequest(
-                symbol=retry_leg.symbol, side=retry_leg.side, quantity=retry_leg.quantity,
-                order_type=retry_leg.order_type, price=retry_leg.price,
+                symbol=retry_leg.symbol,
+                side=retry_leg.side,
+                quantity=retry_leg.quantity,
+                order_type=retry_leg.order_type,
+                price=retry_leg.price,
                 tag="RETRY",
             )
             retry_order = await self._place_order(retry_request)
@@ -251,14 +288,18 @@ class MultiLegExecutor:
             )
             for lf in filled:
                 reverse_request = OrderRequest(
-                    symbol=lf.leg.symbol, side=_reverse_side(lf.order.side),
-                    quantity=lf.order.filled_quantity, order_type=lf.leg.order_type,
+                    symbol=lf.leg.symbol,
+                    side=_reverse_side(lf.order.side),
+                    quantity=lf.order.filled_quantity,
+                    order_type=lf.leg.order_type,
                     price=lf.leg.price,
                     tag=f"{lf.order.tag}|UNWIND" if lf.order.tag else "UNWIND",
                 )
                 await self._place_order(reverse_request)
             return ExecutionResult(
-                outcome=ExecutionOutcome.UNWOUND, fills=filled, failed_legs=failed,
+                outcome=ExecutionOutcome.UNWOUND,
+                fills=filled,
+                failed_legs=failed,
                 message=f"leg {retry_leg.symbol} unavailable after retry -- unwound cleanly",
             )
 
@@ -270,6 +311,8 @@ class MultiLegExecutor:
             f"{len(failed)} failed -- halting, no automatic action taken",
         )
         return ExecutionResult(
-            outcome=ExecutionOutcome.HALTED_FOR_HUMAN, fills=filled, failed_legs=failed,
+            outcome=ExecutionOutcome.HALTED_FOR_HUMAN,
+            fills=filled,
+            failed_legs=failed,
             message="unclassified partial structure -- halted for manual review",
         )

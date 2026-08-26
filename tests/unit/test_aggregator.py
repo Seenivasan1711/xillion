@@ -1,5 +1,6 @@
 """Tests for the tick-to-bar aggregator."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -13,19 +14,19 @@ def _tick(symbol: str, price: float, ts: datetime) -> Tick:
 
 
 def _ts(minute: int, second: int = 0) -> datetime:
-    return datetime(2024, 1, 15, 9, minute, second, tzinfo=timezone.utc)
+    return datetime(2024, 1, 15, 9, minute, second, tzinfo=UTC)
 
 
 def test_bar_open_time_1m():
-    ts = datetime(2024, 1, 15, 9, 15, 42, tzinfo=timezone.utc)
+    ts = datetime(2024, 1, 15, 9, 15, 42, tzinfo=UTC)
     result = _bar_open_time(ts, 60)
-    assert result == datetime(2024, 1, 15, 9, 15, 0, tzinfo=timezone.utc)
+    assert result == datetime(2024, 1, 15, 9, 15, 0, tzinfo=UTC)
 
 
 def test_bar_open_time_5m():
-    ts = datetime(2024, 1, 15, 9, 17, 30, tzinfo=timezone.utc)
+    ts = datetime(2024, 1, 15, 9, 17, 30, tzinfo=UTC)
     result = _bar_open_time(ts, 300)
-    assert result == datetime(2024, 1, 15, 9, 15, 0, tzinfo=timezone.utc)
+    assert result == datetime(2024, 1, 15, 9, 15, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio

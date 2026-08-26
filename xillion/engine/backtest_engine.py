@@ -2,11 +2,10 @@
 Backtest engine: loads historical bars, drives strategy on_bar hooks in
 chronological order, collects trades and equity curve, computes metrics.
 """
-import json
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 from uuid import uuid4
 
 import structlog
@@ -34,9 +33,10 @@ class FeeConfig:
     how the Indian equity/F&O regime actually works -- charging it both ways
     roughly doubles the modelled cost and makes marginal strategies look worse
     than they are."""
-    brokerage_pct: float = 0.03    # 0.03% of turnover, both sides
-    stt_pct: float = 0.01          # sell side only
-    other_pct: float = 0.005       # exchange + regulatory, both sides
+
+    brokerage_pct: float = 0.03  # 0.03% of turnover, both sides
+    stt_pct: float = 0.01  # sell side only
+    other_pct: float = 0.005  # exchange + regulatory, both sides
 
     @classmethod
     def zero(cls) -> "FeeConfig":
@@ -59,7 +59,7 @@ class BacktestResult:
     equity_curve: list[float]
     trades: list[dict]
     status: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class _BacktestContext(StrategyContext):
@@ -73,8 +73,8 @@ class _BacktestContext(StrategyContext):
         slippage_bps: int,
         fee_config: FeeConfig,
         bars_by_sym_tf: dict[tuple[str, str], list[Bar]],
-        contracts: Optional[dict[str, ContractSpec]] = None,
-        option_chain_warehouse: Optional[OptionChainWarehouse] = None,
+        contracts: dict[str, ContractSpec] | None = None,
+        option_chain_warehouse: OptionChainWarehouse | None = None,
     ) -> None:
         self.instance_id = instance_id
         self.mode = "backtest"
@@ -85,7 +85,7 @@ class _BacktestContext(StrategyContext):
         self._fees = fee_config
         self._bars = bars_by_sym_tf
         self._contracts = contracts or {}
-        self._current_ts: Optional[datetime] = None
+        self._current_ts: datetime | None = None
         self._cash: Decimal = capital
         # Signed net position per symbol (see engine/position_math.py)
         self._positions: dict[str, PositionState] = {}
@@ -135,14 +135,16 @@ class _BacktestContext(StrategyContext):
         return self._cash + unrealised
 
     async def place_order(self, request: OrderRequest) -> Order:
-        now = self._current_ts or datetime.now(timezone.utc)
+        now = self._current_ts or datetime.now(UTC)
         slippage = Decimal(str(self._slippage))
         sym = request.symbol
 
         if request.order_type.value == "MARKET":
             # Simulate fill at this symbol's latest close +/- slippage
             base = request.price or self._last_price.get(sym) or Decimal("0")
-            fill_price = base * (1 + slippage) if request.side == Side.BUY else base * (1 - slippage)
+            fill_price = (
+                base * (1 + slippage) if request.side == Side.BUY else base * (1 - slippage)
+            )
         else:
             fill_price = request.price or Decimal("0")
 
@@ -210,7 +212,7 @@ class _BacktestContext(StrategyContext):
                 setattr(order, key, value)
         return order
 
-    def position(self, symbol: str) -> Optional[Position]:
+    def position(self, symbol: str) -> Position | None:
         pos = self._positions.get(symbol)
         if not pos or pos.qty == 0:
             return None
@@ -293,7 +295,9 @@ class _BacktestContext(StrategyContext):
             )
         return price
 
-    async def resolve_strike(self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str):
+    async def resolve_strike(
+        self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str
+    ):
         if self._chain is None:
             raise RuntimeError(
                 "resolve_strike requires an option_chain_warehouse -- this backtest run "
@@ -303,7 +307,15 @@ class _BacktestContext(StrategyContext):
         day = self._current_date()
         chain_rows = await self._chain.get_chain(underlying, exchange, day)
         instrument_rows = [r.as_instrument_row() for r in chain_rows]
-        return resolve_option(instrument_rows, underlying, expiry_selector, strike_offset, opt_type, await self.get_spot(underlying), as_of=day)
+        return resolve_option(
+            instrument_rows,
+            underlying,
+            expiry_selector,
+            strike_offset,
+            opt_type,
+            await self.get_spot(underlying),
+            as_of=day,
+        )
 
     async def get_option_price(self, symbol: str, exchange: str) -> Decimal:
         if self._chain is None:
@@ -331,7 +343,9 @@ class _BacktestContext(StrategyContext):
                 # just fetched this price, fills correctly instead of at 0.
                 self._last_price[symbol] = price
                 return price
-        raise RuntimeError(f"no close price found for {symbol!r} on {exchange} for {self._current_date()}")
+        raise RuntimeError(
+            f"no close price found for {symbol!r} on {exchange} for {self._current_date()}"
+        )
 
     async def subscribe_instrument(self, symbol: str, exchange: str) -> None:
         """Live mode subscribes real ticks; backtest instead remembers to
@@ -341,8 +355,14 @@ class _BacktestContext(StrategyContext):
         self._dynamic_tick_symbols[symbol] = exchange
 
     async def place_protective_gtt(
-        self, symbol: str, exchange: str, side, quantity: int,
-        stop_price, target_price, last_price,
+        self,
+        symbol: str,
+        exchange: str,
+        side,
+        quantity: int,
+        stop_price,
+        target_price,
+        last_price,
     ):
         """No real broker in backtest mode -- the software stop (evaluated
         every synthesized tick, same as live) is the only protection here,
@@ -356,6 +376,10 @@ class _BacktestContext(StrategyContext):
         if self._chain is None or not self._dynamic_tick_symbols:
             return []
         day = self._current_date()
+        # _current_date() above already raises if _current_ts is None, so
+        # it's guaranteed set here -- this just makes that guarantee visible
+        # to mypy too (it can't infer it across the separate method call).
+        assert self._current_ts is not None
         ticks: list[Tick] = []
         for symbol, exchange in self._dynamic_tick_symbols.items():
             for underlying in _BACKTEST_OPTION_EXCHANGE:
@@ -379,9 +403,9 @@ class BacktestEngine:
         initial_capital: float,
         params: dict,
         slippage_bps: int = 5,
-        fee_config: Optional[FeeConfig] = None,
-        contracts: Optional[dict[str, ContractSpec]] = None,
-        option_chain_warehouse: Optional[OptionChainWarehouse] = None,
+        fee_config: FeeConfig | None = None,
+        contracts: dict[str, ContractSpec] | None = None,
+        option_chain_warehouse: OptionChainWarehouse | None = None,
     ) -> BacktestResult:
         if fee_config is None:
             fee_config = FeeConfig()
@@ -397,8 +421,8 @@ class BacktestEngine:
                 params=params,
                 instruments=instruments,
                 timeframe=timeframe,
-                from_ts=datetime.now(timezone.utc),
-                to_ts=datetime.now(timezone.utc),
+                from_ts=datetime.now(UTC),
+                to_ts=datetime.now(UTC),
                 initial_capital=initial_capital,
                 slippage_bps=slippage_bps,
                 metrics={},

@@ -3,11 +3,12 @@ Strategy plugin contract. Every strategy file must export exactly one class
 that inherits from Strategy. The framework instantiates it and drives the
 lifecycle hooks; strategy authors implement only what they need.
 """
+
 from abc import ABC
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from xillion.core.events import Bar, Order, OrderRequest, OrderType, Position, Side, Tick
 from xillion.core.instruments import ResolvedInstrument
@@ -16,13 +17,14 @@ from xillion.core.instruments import ResolvedInstrument
 @dataclass
 class ParamSpec:
     """Schema entry for one configurable parameter. Drives the UI form."""
+
     name: str
-    type: str                       # "int" | "float" | "str" | "bool" | "choice"
+    type: str  # "int" | "float" | "str" | "bool" | "choice"
     default: Any
     description: str = ""
-    min: Optional[float] = None     # for numeric types
-    max: Optional[float] = None
-    choices: Optional[list] = None  # for "choice"
+    min: float | None = None  # for numeric types
+    max: float | None = None
+    choices: list | None = None  # for "choice"
 
 
 class StrategyContext(ABC):
@@ -32,11 +34,12 @@ class StrategyContext(ABC):
 
     Strategies use ONLY this context — never import brokers directly.
     """
+
     instance_id: str
-    mode: str          # "backtest" | "paper" | "live"
+    mode: str  # "backtest" | "paper" | "live"
     capital_allocated: Decimal
     params: dict
-    state: dict        # persisted to DB on on_stop, restored on on_start
+    state: dict  # persisted to DB on on_stop, restored on on_start
 
     # ── Order management ──────────────────────────────────────────────────────
 
@@ -50,7 +53,7 @@ class StrategyContext(ABC):
         raise NotImplementedError
 
     async def now(self) -> datetime:
-        """"What time is it right now" -- environment-aware, not a bare
+        """ "What time is it right now" -- environment-aware, not a bare
         datetime.now() call. Live/paper mode returns real wall-clock time;
         backtest mode returns the timestamp of the bar currently being
         processed. A strategy that needs a time-of-day or days-to-expiry
@@ -62,7 +65,7 @@ class StrategyContext(ABC):
         the exchange's local zone at the call site."""
         raise NotImplementedError
 
-    async def get_order(self, client_order_id: str) -> Optional[Order]:
+    async def get_order(self, client_order_id: str) -> Order | None:
         """Look up the current state of a previously-placed order by its
         client_order_id. Used by the multi-leg executor (CP11) to poll a
         leg that came back non-terminal (SUBMITTED/ACCEPTED) from a real
@@ -77,8 +80,8 @@ class StrategyContext(ABC):
         symbol: str,
         qty: int,
         *,
-        price: Optional[Decimal] = None,
-        tag: Optional[str] = None,
+        price: Decimal | None = None,
+        tag: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -96,8 +99,8 @@ class StrategyContext(ABC):
         symbol: str,
         qty: int,
         *,
-        price: Optional[Decimal] = None,
-        tag: Optional[str] = None,
+        price: Decimal | None = None,
+        tag: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -124,10 +127,10 @@ class StrategyContext(ABC):
         symbol: str,
         side: Side,
         *,
-        price: Optional[Decimal] = None,
-        target: Optional[Decimal] = None,
-        stop_loss: Optional[Decimal] = None,
-        tag: Optional[str] = None,
+        price: Decimal | None = None,
+        target: Decimal | None = None,
+        stop_loss: Decimal | None = None,
+        tag: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -148,8 +151,8 @@ class StrategyContext(ABC):
         symbol: str,
         side: Side,
         *,
-        price: Optional[Decimal] = None,
-        tag: Optional[str] = None,
+        price: Decimal | None = None,
+        tag: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -165,7 +168,7 @@ class StrategyContext(ABC):
 
     # ── State queries ──────────────────────────────────────────────────────────
 
-    def position(self, symbol: str) -> Optional[Position]:
+    def position(self, symbol: str) -> Position | None:
         raise NotImplementedError
 
     def positions(self) -> list[Position]:
@@ -197,7 +200,11 @@ class StrategyContext(ABC):
         raise NotImplementedError
 
     async def resolve_strike(
-        self, underlying: str, expiry_selector: str, strike_offset: int, opt_type: str,
+        self,
+        underlying: str,
+        expiry_selector: str,
+        strike_offset: int,
+        opt_type: str,
     ) -> ResolvedInstrument:
         """Resolve an ATM/OTM/ITM strike request into a concrete, currently
         listed instrument. expiry_selector: "this_week" | "next_week" |
@@ -218,9 +225,15 @@ class StrategyContext(ABC):
     # ── Protective GTT / Forever Orders (CP11 follow-up) ────────────────────
 
     async def place_protective_gtt(
-        self, symbol: str, exchange: str, side: Side, quantity: int,
-        stop_price: Decimal, target_price: Optional[Decimal], last_price: Decimal,
-    ) -> Optional[str]:
+        self,
+        symbol: str,
+        exchange: str,
+        side: Side,
+        quantity: int,
+        stop_price: Decimal,
+        target_price: Decimal | None,
+        last_price: Decimal,
+    ) -> str | None:
         """Best-effort broker-native protective trigger, alongside (not
         instead of) the software stop this codebase already runs -- see
         xillion/core/protective_orders.py's module docstring for why both

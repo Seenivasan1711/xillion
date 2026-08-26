@@ -2,16 +2,18 @@
 Tracks which date range is already fetched for a (symbol, exchange,
 timeframe, provider) combination -- the cache-coverage half of BarWarehouse.
 """
+
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from xillion.db.models import BarCoverage
 
-WILDCARD_SYMBOL = "*"  # coverage key for whole-file-bulk providers (per exchange/day, not per symbol)
+WILDCARD_SYMBOL = (
+    "*"  # coverage key for whole-file-bulk providers (per exchange/day, not per symbol)
+)
 
 
 @dataclass(frozen=True)
@@ -20,7 +22,9 @@ class CoverageRange:
     to_date: date
 
 
-def compute_gaps(existing: CoverageRange | None, requested_from: date, requested_to: date) -> list[tuple[date, date]]:
+def compute_gaps(
+    existing: CoverageRange | None, requested_from: date, requested_to: date
+) -> list[tuple[date, date]]:
     """Return the sub-ranges of [requested_from, requested_to] not already
     covered by `existing`. At most two gaps (before and after), since
     coverage is tracked as a single contiguous range."""
@@ -39,7 +43,9 @@ class BarCoverageRepository:
     def __init__(self, session_factory) -> None:
         self._factory = session_factory
 
-    async def get(self, symbol: str, exchange: str, timeframe: str, provider_name: str) -> CoverageRange | None:
+    async def get(
+        self, symbol: str, exchange: str, timeframe: str, provider_name: str
+    ) -> CoverageRange | None:
         async with self._factory() as session:
             row = await session.get(BarCoverage, (symbol, exchange, timeframe, provider_name))
             if row is None:

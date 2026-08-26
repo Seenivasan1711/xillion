@@ -3,7 +3,8 @@ Integration test: alert-mode strategy dispatch is gated on market hours.
 Uses a monkeypatched clock so the test is deterministic regardless of when
 it actually runs.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -26,7 +27,7 @@ class _FakeNotifier:
 
 
 def _tick(symbol: str, ltp: float) -> Tick:
-    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(timezone.utc))
+    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(UTC))
 
 
 @pytest.mark.asyncio

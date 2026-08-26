@@ -9,10 +9,11 @@ genuinely-connected Dhan paper instance got "No live tick source" because
 start_instance_core looks up BrokerConnection.name and matches it against
 app.state.broker_instances, and "Default Paper" is never a key there.
 """
-from fastapi import FastAPI
+
+from datetime import UTC
 
 import pytest
-
+from fastapi import FastAPI
 from sqlalchemy import select
 
 from xillion.api.instances import _ensure_broker_connection
@@ -21,8 +22,9 @@ from xillion.db.session import get_session_factory, init_db
 
 
 def _now() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+
+    return datetime.now(UTC).isoformat()
 
 
 async def _seed_broker_class(session, name: str) -> BrokerClass:
@@ -31,12 +33,19 @@ async def _seed_broker_class(session, name: str) -> BrokerClass:
     # across every test function, not just within this file -- broker_class
     # .name has a real unique constraint, so this must reuse an existing
     # row rather than blindly inserting a duplicate on a later test.
-    existing = (await session.execute(select(BrokerClass).where(BrokerClass.name == name))).scalar_one_or_none()
+    existing = (
+        await session.execute(select(BrokerClass).where(BrokerClass.name == name))
+    ).scalar_one_or_none()
     if existing is not None:
         return existing
     bc = BrokerClass(
-        name=name, module_path=f"brokers/{name.lower()}.py", class_name=f"{name}Broker",
-        version="1.0.0", capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
+        name=name,
+        module_path=f"brokers/{name.lower()}.py",
+        class_name=f"{name}Broker",
+        version="1.0.0",
+        capabilities_json="{}",
+        discovered_at=_now(),
+        last_seen_at=_now(),
     )
     session.add(bc)
     await session.flush()
@@ -57,9 +66,15 @@ async def test_creates_a_dhan_primary_row_when_dhan_is_connected_and_nothing_els
         await _seed_broker_class(session, "Dhan")
         await session.commit()
 
-        request = _request_with({
-            "Dhan Primary": {"name": "Dhan Primary", "broker_name": "Dhan", "status": "connected"},
-        })
+        request = _request_with(
+            {
+                "Dhan Primary": {
+                    "name": "Dhan Primary",
+                    "broker_name": "Dhan",
+                    "status": "connected",
+                },
+            }
+        )
         conn_id = await _ensure_broker_connection(session, "paper", request)
 
         conn = await session.get(BrokerConnection, conn_id)
@@ -74,9 +89,15 @@ async def test_reuses_the_existing_dhan_primary_row_on_a_second_call():
         await _seed_broker_class(session, "Dhan")
         await session.commit()
 
-        request = _request_with({
-            "Dhan Primary": {"name": "Dhan Primary", "broker_name": "Dhan", "status": "connected"},
-        })
+        request = _request_with(
+            {
+                "Dhan Primary": {
+                    "name": "Dhan Primary",
+                    "broker_name": "Dhan",
+                    "status": "connected",
+                },
+            }
+        )
         first_id = await _ensure_broker_connection(session, "paper", request)
         second_id = await _ensure_broker_connection(session, "paper", request)
 
@@ -92,10 +113,20 @@ async def test_prefers_zerodha_when_both_connected():
         await _seed_broker_class(session, "Dhan")
         await session.commit()
 
-        request = _request_with({
-            "Zerodha Primary": {"name": "Zerodha Primary", "broker_name": "Zerodha", "status": "connected"},
-            "Dhan Primary": {"name": "Dhan Primary", "broker_name": "Dhan", "status": "connected"},
-        })
+        request = _request_with(
+            {
+                "Zerodha Primary": {
+                    "name": "Zerodha Primary",
+                    "broker_name": "Zerodha",
+                    "status": "connected",
+                },
+                "Dhan Primary": {
+                    "name": "Dhan Primary",
+                    "broker_name": "Dhan",
+                    "status": "connected",
+                },
+            }
+        )
         conn_id = await _ensure_broker_connection(session, "paper", request)
 
         conn = await session.get(BrokerConnection, conn_id)
@@ -125,10 +156,14 @@ async def test_ignores_a_broker_instances_entry_that_failed_to_connect():
         await _seed_broker_class(session, "Paper")
         await session.commit()
 
-        request = _request_with({
-            "Dhan Primary": {"name": "Dhan Primary", "broker_name": "Dhan", "status": "error"},
-        })
+        request = _request_with(
+            {
+                "Dhan Primary": {"name": "Dhan Primary", "broker_name": "Dhan", "status": "error"},
+            }
+        )
         conn_id = await _ensure_broker_connection(session, "paper", request)
 
         conn = await session.get(BrokerConnection, conn_id)
-        assert conn.name == "Default Paper", "a failed connection attempt must not be treated as usable"
+        assert (
+            conn.name == "Default Paper"
+        ), "a failed connection attempt must not be treated as usable"

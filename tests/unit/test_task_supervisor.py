@@ -10,6 +10,7 @@ why: _tick_broadcaster's own try/except already swallows its own errors
 and just returns, so exception-only detection would miss the most likely
 real failure).
 """
+
 import asyncio
 
 import pytest
@@ -113,6 +114,7 @@ async def test_supervision_works_with_no_notifier_configured():
     """Telegram not configured (common in dev, or before the user sets it
     up) must not crash the supervisor itself -- it should still log and
     still restart."""
+
     async def _boom():
         raise RuntimeError("boom")
 
@@ -135,8 +137,12 @@ async def test_a_crash_looping_task_gives_up_after_the_restart_budget():
         raise RuntimeError(f"boom {calls}")
 
     supervise(
-        "looping_task", _always_boom, notifier=notifier,
-        max_restarts=2, window_seconds=600, backoff_seconds=0.01,
+        "looping_task",
+        _always_boom,
+        notifier=notifier,
+        max_restarts=2,
+        window_seconds=600,
+        backoff_seconds=0.01,
     )
 
     # Drain enough restart cycles to exceed the budget (max_restarts=2).
@@ -165,8 +171,12 @@ async def test_giving_up_alert_explains_it_will_not_retry():
         raise RuntimeError("boom")
 
     supervise(
-        "looping_task_2", _always_boom, notifier=notifier,
-        max_restarts=1, window_seconds=600, backoff_seconds=0.01,
+        "looping_task_2",
+        _always_boom,
+        notifier=notifier,
+        max_restarts=1,
+        window_seconds=600,
+        backoff_seconds=0.01,
     )
 
     for _ in range(6):

@@ -12,15 +12,16 @@ log of every (version, code_hash) a strategy class has had -- strategy_class
 itself is upserted in place on every plugin sync, which would otherwise
 silently lose this the moment a strategy file changes.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "007"
-down_revision: Union[str, None] = "006"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "006"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -36,12 +37,16 @@ def upgrade() -> None:
     op.create_table(
         "strategy_version_history",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False),
+        sa.Column(
+            "strategy_class_id", sa.Integer, sa.ForeignKey("strategy_class.id"), nullable=False
+        ),
         sa.Column("version", sa.Text, nullable=False),
         sa.Column("code_hash", sa.Text, nullable=False),
         sa.Column("recorded_at", sa.Text, nullable=False),
     )
-    op.create_index("idx_strategy_version_history_class", "strategy_version_history", ["strategy_class_id"])
+    op.create_index(
+        "idx_strategy_version_history_class", "strategy_version_history", ["strategy_class_id"]
+    )
 
 
 def downgrade() -> None:

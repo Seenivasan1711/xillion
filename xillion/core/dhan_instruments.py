@@ -13,11 +13,11 @@ instruments by a numeric securityId, not a tradingsymbol -- `symbol` here
 must match Dhan's own naming convention from their instrument master (e.g.
 "NIFTY-Aug2026-FUT"), not Kite/NSE-style "NIFTY26AUGFUT" used elsewhere.
 """
+
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import httpx
 import structlog
@@ -34,8 +34,14 @@ SCRIP_MASTER_TTL = timedelta(hours=24)
 # against the official SDK's marketfeed.py (get_exchange_segment) and
 # dhanhq.py class constants.
 EXCHANGE_SEGMENT_TO_FEED_CODE = {
-    "IDX_I": 0, "NSE_EQ": 1, "NSE_FNO": 2, "NSE_CURRENCY": 3,
-    "BSE_EQ": 4, "MCX_COMM": 5, "BSE_CURRENCY": 7, "BSE_FNO": 8,
+    "IDX_I": 0,
+    "NSE_EQ": 1,
+    "NSE_FNO": 2,
+    "NSE_CURRENCY": 3,
+    "BSE_EQ": 4,
+    "MCX_COMM": 5,
+    "BSE_CURRENCY": 7,
+    "BSE_FNO": 8,
 }
 
 
@@ -75,9 +81,7 @@ class ResolvedSecurity:
 
 async def ensure_scrip_master(client: httpx.AsyncClient) -> Path:
     if SCRIP_MASTER_CACHE.exists():
-        age = datetime.now(timezone.utc) - datetime.fromtimestamp(
-            SCRIP_MASTER_CACHE.stat().st_mtime, tz=timezone.utc
-        )
+        age = datetime.now(UTC) - datetime.fromtimestamp(SCRIP_MASTER_CACHE.stat().st_mtime, tz=UTC)
         if age < SCRIP_MASTER_TTL:
             return SCRIP_MASTER_CACHE
 
@@ -89,7 +93,7 @@ async def ensure_scrip_master(client: httpx.AsyncClient) -> Path:
     return SCRIP_MASTER_CACHE
 
 
-def resolve_security(master_path: Path, symbol: str) -> Optional[ResolvedSecurity]:
+def resolve_security(master_path: Path, symbol: str) -> ResolvedSecurity | None:
     with master_path.open(encoding="utf-8", errors="replace") as f:
         reader = csv.DictReader(f)
         for row in reader:

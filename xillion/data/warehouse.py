@@ -11,8 +11,8 @@ instrument traded that exchange/day -- so a later request for a *different*
 symbol on an already-fetched day is also free. That's the "own our historical
 data instead of paying a vendor per symbol" lever.
 """
+
 from datetime import date, datetime, timedelta
-from typing import Optional
 
 import structlog
 
@@ -39,9 +39,9 @@ class BarWarehouse:
         to_date: date,
         *,
         instrument_type: str = "option",
-        credentials: Optional[dict] = None,
+        credentials: dict | None = None,
         broker=None,
-        underlying_filter: Optional[set[str]] = None,
+        underlying_filter: set[str] | None = None,
     ) -> list[Bar]:
         bulk = provider.capabilities.supports_whole_file_bulk
         if bulk and underlying_filter:
@@ -60,24 +60,42 @@ class BarWarehouse:
         for gap_from, gap_to in gaps:
             if bulk:
                 fetched = await self._fetch_bulk_range(
-                    provider, exchange, timeframe, gap_from, gap_to,
-                    credentials=credentials, broker=broker, underlying_filter=underlying_filter,
+                    provider,
+                    exchange,
+                    timeframe,
+                    gap_from,
+                    gap_to,
+                    credentials=credentials,
+                    broker=broker,
+                    underlying_filter=underlying_filter,
                 )
             else:
                 fetched = await provider.fetch_bars(
-                    symbol, exchange, timeframe, gap_from, gap_to,
-                    instrument_type=instrument_type, credentials=credentials, broker=broker,
+                    symbol,
+                    exchange,
+                    timeframe,
+                    gap_from,
+                    gap_to,
+                    instrument_type=instrument_type,
+                    credentials=credentials,
+                    broker=broker,
                 )
             if fetched:
                 await self._bars.upsert_bars(fetched, exchange=exchange)
             # Mark the gap covered even if the provider returned nothing for
             # it (e.g. a holiday-only range) -- otherwise it's re-fetched
             # forever. See BarCoverage docstring.
-            await self._coverage.extend(coverage_symbol, exchange, timeframe, provider.name, gap_from, gap_to)
+            await self._coverage.extend(
+                coverage_symbol, exchange, timeframe, provider.name, gap_from, gap_to
+            )
             logger.info(
                 "warehouse gap fetched",
-                provider=provider.name, symbol=coverage_symbol, exchange=exchange,
-                timeframe=timeframe, gap_from=str(gap_from), gap_to=str(gap_to),
+                provider=provider.name,
+                symbol=coverage_symbol,
+                exchange=exchange,
+                timeframe=timeframe,
+                gap_from=str(gap_from),
+                gap_to=str(gap_to),
                 bars_fetched=len(fetched),
             )
 
@@ -93,16 +111,20 @@ class BarWarehouse:
         gap_from: date,
         gap_to: date,
         *,
-        credentials: Optional[dict],
+        credentials: dict | None,
         broker,
-        underlying_filter: Optional[set[str]] = None,
+        underlying_filter: set[str] | None = None,
     ) -> list[Bar]:
         all_bars: list[Bar] = []
         day = gap_from
         while day <= gap_to:
             if day.weekday() < 5:
                 day_bars = await provider.fetch_all_bars_for_day(
-                    exchange, timeframe, day, credentials=credentials, broker=broker,
+                    exchange,
+                    timeframe,
+                    day,
+                    credentials=credentials,
+                    broker=broker,
                     underlying_filter=underlying_filter,
                 )
                 all_bars.extend(day_bars)

@@ -5,6 +5,7 @@ GET /api/positions" bullet because the MCP server's get_positions tool
 needs it now; CP9's DB-persistence half of that bullet is unrelated and
 still pending.
 """
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -24,24 +25,28 @@ def collect_open_positions(runners: list) -> list[dict]:
             for pos in runner._ctx.positions():
                 if pos.quantity == 0:
                     continue
-                positions.append({
-                    "instance_id": runner._instance_id,
-                    "instance_name": runner._ctx._instance_name,
-                    "mode": runner._ctx.mode,
-                    "symbol": pos.symbol,
-                    "quantity": pos.quantity,
-                    "avg_price": float(pos.avg_price),
-                    "last_price": float(pos.last_price),
-                    "realised_pnl": float(pos.realised_pnl),
-                    "unrealised_pnl": float(pos.unrealised_pnl),
-                })
+                positions.append(
+                    {
+                        "instance_id": runner._instance_id,
+                        "instance_name": runner._ctx._instance_name,
+                        "mode": runner._ctx.mode,
+                        "symbol": pos.symbol,
+                        "quantity": pos.quantity,
+                        "avg_price": float(pos.avg_price),
+                        "last_price": float(pos.last_price),
+                        "realised_pnl": float(pos.realised_pnl),
+                        "unrealised_pnl": float(pos.unrealised_pnl),
+                    }
+                )
         except Exception:
             continue  # a runner mid-crash shouldn't take the whole endpoint down
     return positions
 
 
 @router.get("")
-async def get_positions(request: Request, user: AppUser = Depends(get_current_user)) -> dict[str, Any]:
+async def get_positions(
+    request: Request, user: AppUser = Depends(get_current_user)
+) -> dict[str, Any]:
     engine = getattr(request.app.state, "strategy_engine", None)
     if engine is None:
         return {"positions": []}

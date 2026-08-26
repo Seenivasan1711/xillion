@@ -7,6 +7,7 @@ it, so a Dhan-only paper/live instance could start and run but could never
 actually resolve an option strike to trade. Found 2026-08-26 while a real
 Dhan-only paper instance sat at 0 trades with no error surfaced anywhere.
 """
+
 from fastapi import FastAPI
 
 from xillion.main import _select_instrument_cache_broker
@@ -21,10 +22,12 @@ def _app_with(instances: dict) -> FastAPI:
 def test_prefers_zerodha_when_both_connected():
     zerodha = object()
     dhan = object()
-    app = _app_with({
-        "Zerodha Primary": {"instance": zerodha},
-        "Dhan Primary": {"instance": dhan},
-    })
+    app = _app_with(
+        {
+            "Zerodha Primary": {"instance": zerodha},
+            "Dhan Primary": {"instance": dhan},
+        }
+    )
 
     broker, source = _select_instrument_cache_broker(app)
 
@@ -56,10 +59,12 @@ def test_ignores_a_present_but_disconnected_entry():
     # failed but the entry was still recorded) -- must not treat that as
     # "connected" just because the key exists.
     dhan = object()
-    app = _app_with({
-        "Zerodha Primary": {"instance": None, "status": "error"},
-        "Dhan Primary": {"instance": dhan},
-    })
+    app = _app_with(
+        {
+            "Zerodha Primary": {"instance": None, "status": "error"},
+            "Dhan Primary": {"instance": dhan},
+        }
+    )
 
     broker, source = _select_instrument_cache_broker(app)
 

@@ -8,12 +8,19 @@ clears everything, including app_user, so GET /auth/setup-status naturally
 reports "needs setup" afterward -- the existing first-run flow, not a
 separate mode.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
 
-from xillion.api.settings import RiskLimits, get_risk_limits, put_risk_limits, reset_data, wipe_everything
+from xillion.api.settings import (
+    RiskLimits,
+    get_risk_limits,
+    put_risk_limits,
+    reset_data,
+    wipe_everything,
+)
 from xillion.db.models import (
     AppUser,
     BrokerClass,
@@ -27,7 +34,7 @@ from xillion.db.session import get_session_factory, init_db
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _user(suffix: str = "default") -> AppUser:
@@ -39,41 +46,84 @@ async def _seed_everything(instance_id: str) -> None:
     factory = get_session_factory()
     async with factory() as db:
         bc = BrokerClass(
-            name=f"BC {instance_id}", module_path="x", class_name="X", version="1.0.0",
-            capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
+            name=f"BC {instance_id}",
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            capabilities_json="{}",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(bc)
         await db.flush()
         conn = BrokerConnection(
-            broker_class_id=bc.id, name=f"conn-{instance_id}", credentials_ref="ENV",
-            is_active=True, created_at=_now(), updated_at=_now(),
+            broker_class_id=bc.id,
+            name=f"conn-{instance_id}",
+            credentials_ref="ENV",
+            is_active=True,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(conn)
         sc = StrategyClass(
-            name=f"SC {instance_id}", module_path="x", class_name="X", version="1.0.0",
-            params_schema_json="{}", code_hash="abc", discovered_at=_now(), last_seen_at=_now(),
+            name=f"SC {instance_id}",
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            params_schema_json="{}",
+            code_hash="abc",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(sc)
         await db.flush()
         inst = StrategyInstance(
-            id=instance_id, strategy_class_id=sc.id, strategy_class_version="1.0.0",
-            name=f"Instance {instance_id}", mode="paper", status="idle",
-            broker_connection_id=conn.id, instruments_json="[]", timeframe="5m",
-            params_json="{}", capital_allocation=100000, risk_limits_json="{}",
-            auto_start=False, created_at=_now(), updated_at=_now(),
+            id=instance_id,
+            strategy_class_id=sc.id,
+            strategy_class_version="1.0.0",
+            name=f"Instance {instance_id}",
+            mode="paper",
+            status="idle",
+            broker_connection_id=conn.id,
+            instruments_json="[]",
+            timeframe="5m",
+            params_json="{}",
+            capital_allocation=100000,
+            risk_limits_json="{}",
+            auto_start=False,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(inst)
-        db.add(OrderRecord(
-            id=f"order-{instance_id}",
-            broker_connection_id=conn.id, strategy_instance_id=instance_id,
-            symbol="NIFTY", exchange="NFO", side="BUY", quantity=1, order_type="MARKET",
-            status="FILLED", submitted_at=_now(), updated_at=_now(),
-        ))
-        db.add(SignalLog(
-            strategy_instance_id=instance_id, ts=_now(), underlying_symbol="NIFTY",
-            signal_type="ENTER", tag="t", side="BUY", price=100.0,
-            message="BUY ENTER", mode="paper", notified=False,
-        ))
+        db.add(
+            OrderRecord(
+                id=f"order-{instance_id}",
+                broker_connection_id=conn.id,
+                strategy_instance_id=instance_id,
+                symbol="NIFTY",
+                exchange="NFO",
+                side="BUY",
+                quantity=1,
+                order_type="MARKET",
+                status="FILLED",
+                submitted_at=_now(),
+                updated_at=_now(),
+            )
+        )
+        db.add(
+            SignalLog(
+                strategy_instance_id=instance_id,
+                ts=_now(),
+                underlying_symbol="NIFTY",
+                signal_type="ENTER",
+                tag="t",
+                side="BUY",
+                price=100.0,
+                message="BUY ENTER",
+                mode="paper",
+                notified=False,
+            )
+        )
         db.add(_user(instance_id))
         await db.commit()
 

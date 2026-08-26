@@ -16,19 +16,19 @@ Uses IF NOT EXISTS / IF EXISTS (raw SQL, portable across SQLite and
 Postgres) since the table may already have been created out-of-band by
 whichever worker won that race on a given deployment.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 from alembic import op
 
 revision: str = "003"
-down_revision: Union[str, None] = "002"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "002"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS broker_credential (
             name TEXT NOT NULL,
             broker_name TEXT NOT NULL,
@@ -36,8 +36,7 @@ def upgrade() -> None:
             updated_at TEXT NOT NULL,
             PRIMARY KEY (name)
         )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

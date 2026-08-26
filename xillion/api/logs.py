@@ -4,8 +4,8 @@ for how entries get here. Gives the Logs page (frontend/src/pages/Logs.tsx)
 history to load on mount; the live tail still comes over the "log" WebSocket
 event the same capture pipeline broadcasts.
 """
+
 import json
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -44,7 +44,7 @@ def _row_dict(row: SystemLog) -> dict:
 @router.get("")
 async def list_logs(
     limit: int = Query(default=200, ge=1, le=1000),
-    level: Optional[str] = Query(default=None),
+    level: str | None = Query(default=None),
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):

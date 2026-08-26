@@ -5,8 +5,9 @@ over an endpoint that already exists -- tools inherit the app's real auth,
 risk gates, and TOTP-gated kill switch this way, instead of a second,
 parallel code path that could quietly bypass them.
 """
+
 import os
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -19,11 +20,15 @@ class XillionClient:
     """One instance per server process; logs in lazily on first tool call
     and reuses the session cookie httpx tracks automatically."""
 
-    def __init__(self, base_url: Optional[str] = None, transport: Optional[httpx.AsyncBaseTransport] = None) -> None:
+    def __init__(
+        self, base_url: str | None = None, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         """`transport` is a test-only seam (httpx.MockTransport) so the
         client's request/response handling is verifiable without a real
         running server -- see tests/unit/test_mcp_server.py."""
-        self.base_url = (base_url or os.environ.get("XILLION_API_BASE", "http://localhost:8001/api")).rstrip("/")
+        self.base_url = (
+            base_url or os.environ.get("XILLION_API_BASE", "http://localhost:8001/api")
+        ).rstrip("/")
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0, transport=transport)
         self._logged_in = False
 
@@ -53,13 +58,13 @@ class XillionClient:
             )
         self._logged_in = True
 
-    async def get(self, path: str, params: Optional[dict] = None) -> Any:
+    async def get(self, path: str, params: dict | None = None) -> Any:
         await self._ensure_login()
         resp = await self._client.get(path, params=params)
         resp.raise_for_status()
         return resp.json()
 
-    async def post(self, path: str, json_body: Optional[dict] = None) -> Any:
+    async def post(self, path: str, json_body: dict | None = None) -> Any:
         await self._ensure_login()
         resp = await self._client.post(path, json=json_body or {})
         resp.raise_for_status()

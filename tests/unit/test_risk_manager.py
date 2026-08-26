@@ -4,18 +4,29 @@ automation-platform-spec/10-RISK-ENGINE.md §10.2). Each check has at least
 one test proving it blocks when it alone fails, per that spec's own
 testing-requirements section (10.8).
 """
+
 import time
 from decimal import Decimal
 
 import pytest
 
 from xillion.core.events import Order, OrderRequest, OrderStatus, OrderType, Side
-from xillion.core.risk import MarketContext, RiskApproved, RiskManager, RiskRejected, StrategyRiskConfig
+from xillion.core.risk import (
+    MarketContext,
+    RiskApproved,
+    RiskManager,
+    RiskRejected,
+    StrategyRiskConfig,
+)
 
 
-def _order(qty: int = 1, strategy_id: str = "test-strat", price=None, symbol="NIFTY", side=Side.BUY) -> OrderRequest:
+def _order(
+    qty: int = 1, strategy_id: str = "test-strat", price=None, symbol="NIFTY", side=Side.BUY
+) -> OrderRequest:
     req = OrderRequest(
-        symbol=symbol, side=side, quantity=qty,
+        symbol=symbol,
+        side=side,
+        quantity=qty,
         order_type=OrderType.LIMIT if price is not None else OrderType.MARKET,
         price=Decimal(str(price)) if price is not None else None,
     )
@@ -29,13 +40,19 @@ def _config(capital: float = 100_000.0, **kwargs) -> StrategyRiskConfig:
 
 def _open_order(symbol="NIFTY", side=Side.SELL) -> Order:
     return Order(
-        client_order_id="existing-1", symbol=symbol, side=side, quantity=1,
-        order_type=OrderType.LIMIT, status=OrderStatus.ACCEPTED,
-        submitted_at=None, updated_at=None,
+        client_order_id="existing-1",
+        symbol=symbol,
+        side=side,
+        quantity=1,
+        order_type=OrderType.LIMIT,
+        status=OrderStatus.ACCEPTED,
+        submitted_at=None,
+        updated_at=None,
     )
 
 
 # ── Kill switch ────────────────────────────────────────────────────────────────
+
 
 def test_kill_switch_blocks_all_orders():
     rm = RiskManager()
@@ -63,6 +80,7 @@ def test_kill_switch_status_reflects_state():
 
 # ── Trading pause (CP13) — softer than the kill switch, manually reversible ────
 
+
 def test_pause_trading_blocks_orders():
     rm = RiskManager()
     rm.pause_trading()
@@ -80,6 +98,7 @@ def test_resume_trading_allows_orders_again():
 
 # ── Invalid / sane quantity ─────────────────────────────────────────────────────
 
+
 def test_zero_quantity_rejected():
     rm = RiskManager()
     result = rm.check(_order(qty=0), _config())
@@ -96,6 +115,7 @@ def test_negative_quantity_rejected():
 
 def test_qty_over_sane_ceiling_rejected():
     from xillion.config import get_settings
+
     rm = RiskManager()
     result = rm.check(_order(qty=get_settings().default_max_qty_per_order + 1), _config())
     assert isinstance(result, RiskRejected)
@@ -103,6 +123,7 @@ def test_qty_over_sane_ceiling_rejected():
 
 
 # ── Lot-size / freeze-qty checks (CP13, only run when MarketContext supplies them) ─
+
 
 def test_qty_not_a_lot_multiple_rejected():
     rm = RiskManager()
@@ -135,6 +156,7 @@ def test_qty_beyond_freeze_limit_rejected():
 
 
 # ── Price checks (tick, collar, circuit) ────────────────────────────────────────
+
 
 def test_price_not_tick_multiple_rejected():
     rm = RiskManager()
@@ -187,6 +209,7 @@ def test_price_outside_circuit_rejected():
 
 def test_notional_over_cap_rejected():
     from xillion.config import get_settings
+
     rm = RiskManager()
     over_cap_price = (get_settings().default_max_notional_per_order / 1) + 1000
     ctx = MarketContext(ltp=Decimal(str(over_cap_price)))
@@ -197,10 +220,14 @@ def test_notional_over_cap_rejected():
 
 # ── OPS limiter: soft throttle + hard ceiling ───────────────────────────────────
 
+
 def test_ops_soft_limit_throttles_burst(monkeypatch):
     from xillion.config import get_settings
+
     monkeypatch.setattr(get_settings(), "ops_limit_per_second", 3)
-    monkeypatch.setattr(get_settings(), "ops_burst_ceiling", 9)  # keep well clear of the hard ceiling
+    monkeypatch.setattr(
+        get_settings(), "ops_burst_ceiling", 9
+    )  # keep well clear of the hard ceiling
 
     rm = RiskManager()
     for _ in range(3):
@@ -214,6 +241,7 @@ def test_ops_soft_limit_throttles_burst(monkeypatch):
 
 def test_ops_window_resets_after_one_second(monkeypatch):
     from xillion.config import get_settings
+
     monkeypatch.setattr(get_settings(), "ops_limit_per_second", 3)
     monkeypatch.setattr(get_settings(), "ops_burst_ceiling", 9)
 
@@ -232,6 +260,7 @@ def test_ops_hard_ceiling_breach_fires_kill_switch(monkeypatch):
     """Hitting the burst ceiling is a runaway-loop signal -- spec: 'stop
     trading, don't throttle and continue'. Kill switch must fire."""
     from xillion.config import get_settings
+
     monkeypatch.setattr(get_settings(), "ops_limit_per_second", 2)
     monkeypatch.setattr(get_settings(), "ops_burst_ceiling", 4)
 
@@ -248,6 +277,7 @@ def test_ops_hard_ceiling_breach_fires_kill_switch(monkeypatch):
 
 # ── Idempotency (duplicate order dedup) ────────────────────────────────────────
 
+
 def test_duplicate_client_order_id_rejected():
     rm = RiskManager()
     req = _order()
@@ -262,7 +292,9 @@ def test_duplicate_client_order_id_rejected():
 def test_different_order_ids_not_treated_as_duplicates():
     rm = RiskManager()
     assert isinstance(rm.check(_order(), _config()), RiskApproved)
-    assert isinstance(rm.check(_order(), _config()), RiskApproved)  # fresh client_order_id each time
+    assert isinstance(
+        rm.check(_order(), _config()), RiskApproved
+    )  # fresh client_order_id each time
 
 
 def test_duplicate_check_expires_after_the_idempotency_window(monkeypatch):
@@ -271,12 +303,15 @@ def test_duplicate_check_expires_after_the_idempotency_window(monkeypatch):
     rm.check(req, _config())
 
     original_monotonic = time.monotonic
-    monkeypatch.setattr(time, "monotonic", lambda: original_monotonic() + rm._IDEMPOTENCY_WINDOW_SECONDS + 1)
+    monkeypatch.setattr(
+        time, "monotonic", lambda: original_monotonic() + rm._IDEMPOTENCY_WINDOW_SECONDS + 1
+    )
     result = rm.check(req, _config())
     assert isinstance(result, RiskApproved)
 
 
 # ── Self-trade guard ────────────────────────────────────────────────────────────
+
 
 def test_opposite_side_open_order_same_symbol_rejected():
     rm = RiskManager()
@@ -298,11 +333,14 @@ def test_opposite_side_open_order_different_symbol_is_fine():
     strikes) -- must not trip this guard."""
     rm = RiskManager()
     ctx = MarketContext(open_orders=[_open_order(symbol="NIFTY_LONG_PE", side=Side.BUY)])
-    result = rm.check(_order(symbol="NIFTY_SHORT_PE", side=Side.SELL), _config(), market_context=ctx)
+    result = rm.check(
+        _order(symbol="NIFTY_SHORT_PE", side=Side.SELL), _config(), market_context=ctx
+    )
     assert isinstance(result, RiskApproved)
 
 
 # ── Daily order-count cap ───────────────────────────────────────────────────────
+
 
 def test_max_orders_per_day_rejects_beyond_cap():
     rm = RiskManager()
@@ -323,6 +361,7 @@ def test_reset_daily_clears_order_count():
 
 
 # ── Daily loss gates ───────────────────────────────────────────────────────────
+
 
 def test_account_daily_loss_gate():
     rm = RiskManager()
@@ -396,6 +435,7 @@ def test_per_strategy_loss_gate():
 
 # ── Max open positions ─────────────────────────────────────────────────────────
 
+
 def test_max_positions_gate():
     rm = RiskManager()
     cfg = _config(max_open_positions=2)
@@ -412,9 +452,11 @@ def test_below_max_positions_approved():
 
 # ── notify callback ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_notify_called_on_kill_switch():
     import asyncio
+
     calls = []
 
     async def fake_notify(title, body, severity):

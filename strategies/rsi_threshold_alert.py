@@ -8,6 +8,7 @@ Works identically in backtest, paper, live, and alert modes. No broker
 imports. No mode-checking code. Just signal logic -- same pattern as
 example_sma_cross.py and nifty_spot_alert.py.
 """
+
 from xillion.core.events import Bar
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
 from xillion.engine.indicators import rsi as _rsi
@@ -21,20 +22,30 @@ class RSIThresholdStrategy(Strategy):
     timeframe = "15m"
 
     params_schema = [
-        ParamSpec("period", "int", default=14, min=2, max=200,
-                  description="RSI lookback period"),
-        ParamSpec("threshold", "float", default=70.0, min=0, max=100,
-                  description="RSI level to watch for a cross"),
-        ParamSpec("direction", "choice", default="above", choices=["above", "below"],
-                  description="Buy when RSI crosses above (momentum), or sell when it crosses below (reversal)"),
-        ParamSpec("qty", "int", default=1, min=1,
-                  description="Quantity per trade"),
+        ParamSpec("period", "int", default=14, min=2, max=200, description="RSI lookback period"),
+        ParamSpec(
+            "threshold",
+            "float",
+            default=70.0,
+            min=0,
+            max=100,
+            description="RSI level to watch for a cross",
+        ),
+        ParamSpec(
+            "direction",
+            "choice",
+            default="above",
+            choices=["above", "below"],
+            description="Buy when RSI crosses above (momentum), or sell when it crosses below (reversal)",
+        ),
+        ParamSpec("qty", "int", default=1, min=1, description="Quantity per trade"),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
         ctx.state.setdefault("position", "flat")
         ctx.log(
-            "info", "RSI Threshold started",
+            "info",
+            "RSI Threshold started",
             period=ctx.params["period"],
             threshold=ctx.params["threshold"],
             direction=ctx.params["direction"],

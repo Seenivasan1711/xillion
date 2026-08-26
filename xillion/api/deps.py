@@ -1,7 +1,8 @@
 """
 FastAPI dependencies: DB session, current user.
 """
-from typing import AsyncGenerator, Optional
+
+from collections.abc import AsyncGenerator
 
 from fastapi import Cookie, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ async def db_dep() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    session_token: Optional[str] = Cookie(None, alias="xillion_session"),
+    session_token: str | None = Cookie(None, alias="xillion_session"),
     db: AsyncSession = Depends(db_dep),
 ) -> AppUser:
     if not session_token:
@@ -29,9 +30,9 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
-    session_token: Optional[str] = Cookie(None, alias="xillion_session"),
+    session_token: str | None = Cookie(None, alias="xillion_session"),
     db: AsyncSession = Depends(db_dep),
-) -> Optional[AppUser]:
+) -> AppUser | None:
     if not session_token:
         return None
     return await validate_session(db, session_token)

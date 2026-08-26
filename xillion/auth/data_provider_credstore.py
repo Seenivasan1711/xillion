@@ -4,8 +4,8 @@ Same Fernet-based scheme as xillion/auth/credstore.py, kept in a parallel
 table (data_provider_credential) since a provider credential is a distinct
 concept from a broker credential even though the shape matches.
 """
-from datetime import datetime, timezone
-from typing import Optional
+
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ async def save_provider_credentials(
     db: AsyncSession, name: str, provider_name: str, payload: dict
 ) -> None:
     encrypted = encrypt_payload(payload)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     existing = await db.get(DataProviderCredential, name)
     if existing:
         existing.encrypted_payload = encrypted
@@ -36,7 +36,7 @@ async def save_provider_credentials(
     await db.commit()
 
 
-async def load_provider_credentials(db: AsyncSession, name: str) -> Optional[dict]:
+async def load_provider_credentials(db: AsyncSession, name: str) -> dict | None:
     row = await db.get(DataProviderCredential, name)
     if not row:
         return None

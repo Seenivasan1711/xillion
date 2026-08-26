@@ -22,9 +22,8 @@ data_gap, system_error) needs data this system doesn't capture yet
 `unclassified` here and are meant for a human to set via journal_note
 (see xillion/api/journal.py), not for this module to guess at.
 """
+
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import select
 
@@ -38,29 +37,31 @@ STILL_OPEN = "still_open"
 
 @dataclass
 class JournalEntry:
-    source: str          # "signal_log" | "backtest_trade"
-    source_id: str        # str(id), source-specific
-    strategy_name: Optional[str]
-    strategy_instance_id: Optional[str]
+    source: str  # "signal_log" | "backtest_trade"
+    source_id: str  # str(id), source-specific
+    strategy_name: str | None
+    strategy_instance_id: str | None
     symbol: str
-    side: Optional[str]
-    entry_price: Optional[float]
-    exit_price: Optional[float]
-    entry_ts: Optional[str]
-    exit_ts: Optional[str]
-    pnl: Optional[float]
-    target_price: Optional[float]
-    stop_loss_price: Optional[float]
-    ai_confidence: Optional[float]  # CP8 pre-trade hook's prediction, if one was made -- compare against `outcome`
+    side: str | None
+    entry_price: float | None
+    exit_price: float | None
+    entry_ts: str | None
+    exit_ts: str | None
+    pnl: float | None
+    target_price: float | None
+    stop_loss_price: float | None
+    ai_confidence: (
+        float | None
+    )  # CP8 pre-trade hook's prediction, if one was made -- compare against `outcome`
     outcome: str
-    tag: Optional[str]
+    tag: str | None
 
 
 def classify_signal_outcome(
-    side: Optional[str],
-    exit_price: Optional[float],
-    target_price: Optional[float],
-    stop_loss_price: Optional[float],
+    side: str | None,
+    exit_price: float | None,
+    target_price: float | None,
+    stop_loss_price: float | None,
 ) -> str:
     """For a signal_log ENTER/EXIT pair with a real exit price. Only
     returns stopped_out/target_hit when the exit price actually crossed
@@ -81,13 +82,15 @@ def classify_signal_outcome(
     return UNCLASSIFIED
 
 
-def classify_trade_outcome(pnl: Optional[float]) -> str:
+def classify_trade_outcome(pnl: float | None) -> str:
     if pnl is None:
         return UNCLASSIFIED
     return "win" if pnl > 0 else "loss"
 
 
-async def _signal_log_entries(session_factory, strategy_instance_id: Optional[str], limit: int) -> list[JournalEntry]:
+async def _signal_log_entries(
+    session_factory, strategy_instance_id: str | None, limit: int
+) -> list[JournalEntry]:
     async with session_factory() as session:
         stmt = select(SignalLog).where(SignalLog.signal_type == "ENTER")
         if strategy_instance_id:
@@ -98,9 +101,15 @@ async def _signal_log_entries(session_factory, strategy_instance_id: Optional[st
             return []
 
         entry_ids = [e.id for e in entries]
-        exits = (await session.execute(
-            select(SignalLog).where(SignalLog.parent_signal_id.in_(entry_ids))
-        )).scalars().all()
+        exits = (
+            (
+                await session.execute(
+                    select(SignalLog).where(SignalLog.parent_signal_id.in_(entry_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
         exit_by_parent = {e.parent_signal_id: e for e in exits}
 
     out = []
@@ -113,27 +122,42 @@ async def _signal_log_entries(session_factory, strategy_instance_id: Optional[st
             float(entry.target_price) if entry.target_price is not None else None,
             float(entry.stop_loss_price) if entry.stop_loss_price is not None else None,
         )
-        out.append(JournalEntry(
-            source="signal_log", source_id=str(entry.id),
-            strategy_name=None, strategy_instance_id=entry.strategy_instance_id,
-            symbol=entry.underlying_symbol, side=entry.side,
-            entry_price=float(entry.price) if entry.price is not None else None,
-            exit_price=exit_price,
-            entry_ts=entry.ts, exit_ts=exit_row.ts if exit_row else None,
-            pnl=None,
-            target_price=float(entry.target_price) if entry.target_price is not None else None,
-            stop_loss_price=float(entry.stop_loss_price) if entry.stop_loss_price is not None else None,
-            ai_confidence=float(entry.ai_confidence) if entry.ai_confidence is not None else None,
-            outcome=outcome, tag=entry.tag,
-        ))
+        out.append(
+            JournalEntry(
+                source="signal_log",
+                source_id=str(entry.id),
+                strategy_name=None,
+                strategy_instance_id=entry.strategy_instance_id,
+                symbol=entry.underlying_symbol,
+                side=entry.side,
+                entry_price=float(entry.price) if entry.price is not None else None,
+                exit_price=exit_price,
+                entry_ts=entry.ts,
+                exit_ts=exit_row.ts if exit_row else None,
+                pnl=None,
+                target_price=float(entry.target_price) if entry.target_price is not None else None,
+                stop_loss_price=(
+                    float(entry.stop_loss_price) if entry.stop_loss_price is not None else None
+                ),
+                ai_confidence=(
+                    float(entry.ai_confidence) if entry.ai_confidence is not None else None
+                ),
+                outcome=outcome,
+                tag=entry.tag,
+            )
+        )
     return out
 
 
-async def _backtest_trade_entries(session_factory, strategy_class_id: Optional[int], limit: int) -> list[JournalEntry]:
+async def _backtest_trade_entries(
+    session_factory, strategy_class_id: int | None, limit: int
+) -> list[JournalEntry]:
     async with session_factory() as session:
-        stmt = select(BacktestTrade, BacktestRun.strategy_class_id).join(
-            BacktestRun, BacktestTrade.run_id == BacktestRun.id
-        ).where(BacktestTrade.exit_price.is_not(None))
+        stmt = (
+            select(BacktestTrade, BacktestRun.strategy_class_id)
+            .join(BacktestRun, BacktestTrade.run_id == BacktestRun.id)
+            .where(BacktestTrade.exit_price.is_not(None))
+        )
         if strategy_class_id is not None:
             stmt = stmt.where(BacktestRun.strategy_class_id == strategy_class_id)
         stmt = stmt.order_by(BacktestTrade.id.desc()).limit(limit)
@@ -142,23 +166,34 @@ async def _backtest_trade_entries(session_factory, strategy_class_id: Optional[i
     out = []
     for trade, _cls_id in rows:
         pnl = float(trade.pnl) if trade.pnl is not None else None
-        out.append(JournalEntry(
-            source="backtest_trade", source_id=str(trade.id),
-            strategy_name=None, strategy_instance_id=None,
-            symbol=trade.symbol, side=trade.side,
-            entry_price=float(trade.entry_price), exit_price=float(trade.exit_price),
-            entry_ts=trade.entry_ts, exit_ts=trade.exit_ts,
-            pnl=pnl, target_price=None, stop_loss_price=None, ai_confidence=None,
-            outcome=classify_trade_outcome(pnl), tag=trade.tag,
-        ))
+        out.append(
+            JournalEntry(
+                source="backtest_trade",
+                source_id=str(trade.id),
+                strategy_name=None,
+                strategy_instance_id=None,
+                symbol=trade.symbol,
+                side=trade.side,
+                entry_price=float(trade.entry_price),
+                exit_price=float(trade.exit_price),
+                entry_ts=trade.entry_ts,
+                exit_ts=trade.exit_ts,
+                pnl=pnl,
+                target_price=None,
+                stop_loss_price=None,
+                ai_confidence=None,
+                outcome=classify_trade_outcome(pnl),
+                tag=trade.tag,
+            )
+        )
     return out
 
 
 async def build_journal(
     session_factory,
     *,
-    strategy_instance_id: Optional[str] = None,
-    strategy_class_id: Optional[int] = None,
+    strategy_instance_id: str | None = None,
+    strategy_class_id: int | None = None,
     limit: int = 200,
 ) -> list[JournalEntry]:
     """Combined, outcome-classified journal from both sources, newest first

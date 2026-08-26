@@ -3,9 +3,10 @@ BacktestBroker — built-in broker for backtesting.
 Deterministic, no network calls, replays historical bars.
 This broker is used by the BacktestEngine, not directly by strategies.
 """
-from datetime import datetime, timezone
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import AsyncIterator, Optional
 from uuid import uuid4
 
 from xillion.core.broker_base import Broker, BrokerCapabilities
@@ -57,10 +58,11 @@ class BacktestBroker(Broker):
         return {"available": 0}
 
     async def place_order(self, request: OrderRequest) -> Order:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fill_price = request.price or Decimal("0")
         if request.order_type.value == "MARKET":
             from xillion.core.events import Side
+
             if request.side == Side.BUY:
                 fill_price = fill_price * Decimal(str(1 + self._slippage))
             else:
@@ -113,15 +115,11 @@ class BacktestBroker(Broker):
         return
         yield
 
-    async def get_history(
-        self, symbol: str, timeframe: str, from_ts, to_ts
-    ) -> list[Bar]:
+    async def get_history(self, symbol: str, timeframe: str, from_ts, to_ts) -> list[Bar]:
         return [
             b
             for b in self._bars
-            if b.symbol == symbol
-            and b.timeframe == timeframe
-            and from_ts <= b.ts <= to_ts
+            if b.symbol == symbol and b.timeframe == timeframe and from_ts <= b.ts <= to_ts
         ]
 
     async def get_quote(self, symbols: list[str]) -> dict[str, Tick]:

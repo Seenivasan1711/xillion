@@ -2,7 +2,6 @@
 Signal history API (CP4) -- read access to signal_log, the alert-mode
 forward-test dataset. No consumers existed before CP4 (no API, no UI).
 """
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -14,7 +13,7 @@ from xillion.db.models import AppUser, SignalLog, StrategyInstance
 router = APIRouter(prefix="/signals", tags=["signals"])
 
 
-def _row_dict(s: SignalLog, instance_name: Optional[str]) -> dict:
+def _row_dict(s: SignalLog, instance_name: str | None) -> dict:
     return {
         "id": s.id,
         "strategy_instance_id": s.strategy_instance_id,
@@ -38,7 +37,7 @@ def _row_dict(s: SignalLog, instance_name: Optional[str]) -> dict:
 
 @router.get("")
 async def list_signals(
-    instance_id: Optional[str] = Query(None),
+    instance_id: str | None = Query(None),
     limit: int = Query(100, le=500),
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),

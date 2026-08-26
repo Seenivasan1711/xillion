@@ -1,5 +1,4 @@
 import os
-import pytest
 
 # Use an in-memory SQLite for tests
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")

@@ -4,6 +4,7 @@ resolve_strike/get_spot/get_option_price/subscribe_instrument -- against a
 stub broker and a pre-populated instrument cache. No FastAPI, no alert mode,
 no market hours involved.
 """
+
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -41,14 +42,23 @@ class _OptionsProbeStrategy(Strategy):
         resolved = await ctx.resolve_strike("NIFTY", "this_week", 0, "CE")
         ctx.state["resolved"] = resolved
         await ctx.subscribe_instrument(resolved.tradingsymbol, resolved.exchange)
-        ctx.state["option_price"] = await ctx.get_option_price(resolved.tradingsymbol, resolved.exchange)
+        ctx.state["option_price"] = await ctx.get_option_price(
+            resolved.tradingsymbol, resolved.exchange
+        )
 
 
 def _row(token: int, tradingsymbol: str, strike: Decimal, expiry: date) -> InstrumentRow:
     return InstrumentRow(
-        instrument_token=token, exchange="NFO", tradingsymbol=tradingsymbol, name="NIFTY",
-        expiry=expiry, strike=strike, option_type="CE", segment="NFO-OPT",
-        lot_size=25, tick_size=Decimal("0.05"),
+        instrument_token=token,
+        exchange="NFO",
+        tradingsymbol=tradingsymbol,
+        name="NIFTY",
+        expiry=expiry,
+        strike=strike,
+        option_type="CE",
+        segment="NFO-OPT",
+        lot_size=25,
+        tick_size=Decimal("0.05"),
     )
 
 

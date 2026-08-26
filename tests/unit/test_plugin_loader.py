@@ -1,4 +1,5 @@
 """Tests for plugin discovery and validation."""
+
 import pytest
 
 from xillion.core.plugin_loader import PluginLoader
@@ -31,6 +32,7 @@ async def test_no_crashes_on_missing_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("BROKERS_DIR", str(tmp_path / "nonexistent_brokers"))
     # Must re-import config to pick up new env
     from xillion import config as cfg
+
     cfg.get_settings.cache_clear()
     loader = PluginLoader()
     registry = await loader.discover_all()

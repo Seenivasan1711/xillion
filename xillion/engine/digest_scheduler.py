@@ -7,9 +7,10 @@ market_scheduler.py's transition-detection polling: a digest is a calendar
 event ("every day at 4pm"), not a reaction to market state, so there's
 nothing to detect a transition on.
 """
+
 import asyncio
 import zoneinfo
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -19,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
-DAILY_HOUR = 16   # 4pm IST -- after the 3:30pm market close
+DAILY_HOUR = 16  # 4pm IST -- after the 3:30pm market close
 DAILY_MINUTE = 0
 WEEKLY_WEEKDAY = 6  # Sunday (Python: Monday=0 .. Sunday=6)
 WEEKLY_HOUR = 18
@@ -35,8 +36,11 @@ async def _send_digest(app, since: datetime, period_label: str) -> None:
     if telegram is not None:
         await telegram.send(message)
     logger.info(
-        "digest sent", period=period_label, trade_count=report.trade_count,
-        total_pnl=report.total_pnl, error_count=report.error_count,
+        "digest sent",
+        period=period_label,
+        trade_count=report.trade_count,
+        total_pnl=report.total_pnl,
+        error_count=report.error_count,
     )
 
 
@@ -48,7 +52,9 @@ async def run_daily_digest(app) -> None:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
         try:
-            await _send_digest(app, since=datetime.now(timezone.utc) - timedelta(hours=24), period_label="Daily")
+            await _send_digest(
+                app, since=datetime.now(UTC) - timedelta(hours=24), period_label="Daily"
+            )
         except Exception as exc:
             logger.error("daily digest failed", error=str(exc))
 
@@ -64,6 +70,8 @@ async def run_weekly_digest(app) -> None:
             target += timedelta(days=7)
         await asyncio.sleep((target - now).total_seconds())
         try:
-            await _send_digest(app, since=datetime.now(timezone.utc) - timedelta(days=7), period_label="Weekly")
+            await _send_digest(
+                app, since=datetime.now(UTC) - timedelta(days=7), period_label="Weekly"
+            )
         except Exception as exc:
             logger.error("weekly digest failed", error=str(exc))

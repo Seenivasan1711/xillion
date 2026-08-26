@@ -2,12 +2,12 @@
 FastAPI application entry point.
 In production, also serves the built React frontend from frontend/dist/.
 """
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import structlog
 from fastapi import FastAPI
@@ -16,9 +16,23 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from xillion import __version__
-from xillion.api import backtest, brokers, data, data_providers, health, instances, journal as journal_router, logs as logs_router, positions as positions_router, risk as risk_router, signals, strategies, ws
 from xillion.api import auth as auth_router
+from xillion.api import (
+    backtest,
+    brokers,
+    data,
+    data_providers,
+    health,
+    instances,
+    signals,
+    strategies,
+    ws,
+)
+from xillion.api import journal as journal_router
+from xillion.api import logs as logs_router
 from xillion.api import portfolio as portfolio_router
+from xillion.api import positions as positions_router
+from xillion.api import risk as risk_router
 from xillion.api import settings as settings_router
 from xillion.api import trades as trades_router
 from xillion.config import get_settings
@@ -45,7 +59,9 @@ structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
-        structlog.processors.CallsiteParameterAdder([structlog.processors.CallsiteParameter.MODULE]),
+        structlog.processors.CallsiteParameterAdder(
+            [structlog.processors.CallsiteParameter.MODULE]
+        ),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
@@ -58,7 +74,7 @@ logger = structlog.get_logger(__name__)
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
-async def _load_zerodha_credentials() -> Optional[dict]:
+async def _load_zerodha_credentials() -> dict | None:
     """Prefer credentials from the encrypted DB store; fall back to env vars."""
     from xillion.auth.credstore import load_credentials
     from xillion.db.session import get_session_factory
@@ -126,7 +142,7 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
             "instance": broker,
             "status": "connected",
             "last_error": None,
-            "connected_at": datetime.now(timezone.utc).isoformat(),
+            "connected_at": datetime.now(UTC).isoformat(),
         }
         logger.info("zerodha: connected successfully")
 
@@ -139,15 +155,19 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         if old is not None:
             old.cancel()
         app.state.zerodha_broadcaster = supervise(
-            "tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram
+            "tick_broadcaster",
+            lambda: _tick_broadcaster(broker, app.state.bus),
+            notifier=app.state.telegram,
         )
     except Exception as exc:
         logger.error("zerodha: failed to connect", error=str(exc))
-        asyncio.create_task(app.state.telegram.alert(
-            title="Zerodha connect failed",
-            body=f"No live prices/orders until this is fixed: {exc}",
-            severity="critical",
-        ))
+        asyncio.create_task(
+            app.state.telegram.alert(
+                title="Zerodha connect failed",
+                body=f"No live prices/orders until this is fixed: {exc}",
+                severity="critical",
+            )
+        )
         app.state.broker_instances["Zerodha Primary"] = {
             "name": "Zerodha Primary",
             "broker_name": "Zerodha",
@@ -158,7 +178,7 @@ async def _try_connect_zerodha(app: FastAPI) -> None:
         }
 
 
-async def _load_dhan_credentials() -> Optional[dict]:
+async def _load_dhan_credentials() -> dict | None:
     """Same DB-first, env-fallback pattern as _load_zerodha_credentials."""
     from xillion.auth.credstore import load_credentials
     from xillion.db.session import get_session_factory
@@ -207,7 +227,7 @@ async def _try_connect_dhan(app: FastAPI) -> None:
             "instance": broker,
             "status": "connected",
             "last_error": None,
-            "connected_at": datetime.now(timezone.utc).isoformat(),
+            "connected_at": datetime.now(UTC).isoformat(),
         }
         logger.info("dhan: connected successfully")
 
@@ -224,15 +244,19 @@ async def _try_connect_dhan(app: FastAPI) -> None:
         if old is not None:
             old.cancel()
         app.state.dhan_broadcaster = supervise(
-            "dhan_tick_broadcaster", lambda: _tick_broadcaster(broker, app.state.bus), notifier=app.state.telegram
+            "dhan_tick_broadcaster",
+            lambda: _tick_broadcaster(broker, app.state.bus),
+            notifier=app.state.telegram,
         )
     except Exception as exc:
         logger.error("dhan: failed to connect", error=str(exc))
-        asyncio.create_task(app.state.telegram.alert(
-            title="Dhan connect failed",
-            body=f"No Dhan orders/prices until this is fixed: {exc}",
-            severity="warning",  # not critical -- Zerodha remains the primary broker
-        ))
+        asyncio.create_task(
+            app.state.telegram.alert(
+                title="Dhan connect failed",
+                body=f"No Dhan orders/prices until this is fixed: {exc}",
+                severity="warning",  # not critical -- Zerodha remains the primary broker
+            )
+        )
         app.state.broker_instances["Dhan Primary"] = {
             "name": "Dhan Primary",
             "broker_name": "Dhan",
@@ -309,6 +333,7 @@ async def _daily_token_refresh(app: FastAPI) -> None:
         if now >= target:
             # Next day
             from datetime import timedelta
+
             target = target + timedelta(days=1)
         sleep_secs = (target - now).total_seconds()
         logger.info("zerodha: token refresh scheduled", sleep_seconds=int(sleep_secs))
@@ -320,6 +345,7 @@ async def _daily_token_refresh(app: FastAPI) -> None:
                 await info["instance"].disconnect()
             # Remove cached token so fresh login runs
             from pathlib import Path
+
             token_file = Path("data/zerodha_token.json")
             if token_file.exists():
                 token_file.unlink()
@@ -364,6 +390,7 @@ async def _daily_instrument_refresh(app: FastAPI) -> None:
         target = now.replace(hour=8, minute=45, second=0, microsecond=0)
         if now >= target:
             from datetime import timedelta
+
             target = target + timedelta(days=1)
         sleep_secs = (target - now).total_seconds()
         logger.info("instrument cache refresh scheduled", sleep_seconds=int(sleep_secs))
@@ -415,26 +442,43 @@ async def lifespan(app: FastAPI):
     engine.set_registry(registry)
     app.state.strategy_engine = engine
 
-    app.state.broker_instances: dict = {}
-    app.state.backfill_jobs: dict = {}
+    # Type annotations aren't valid on a non-self attribute assignment
+    # (mypy: "Type cannot be declared in assignment to non-self attribute"),
+    # so these are plain dict literals, not `: dict = {}`.
+    app.state.broker_instances = {}
+    app.state.backfill_jobs = {}
 
     # Connect configured brokers (non-blocking — errors are logged, not raised)
     await _try_connect_zerodha(app)
     await _try_connect_dhan(app)  # CP15 -- no-ops cleanly if not configured
 
     # Schedule daily token + instrument-dump refresh
-    refresh_task = supervise("daily_token_refresh", lambda: _daily_token_refresh(app), notifier=telegram)
-    dhan_refresh_task = supervise("daily_dhan_refresh", lambda: _daily_dhan_refresh(app), notifier=telegram)
-    instrument_refresh_task = supervise("daily_instrument_refresh", lambda: _daily_instrument_refresh(app), notifier=telegram)
-    market_scheduler_task = supervise("market_hours_scheduler", lambda: run_market_hours_scheduler(app), notifier=telegram)
+    refresh_task = supervise(
+        "daily_token_refresh", lambda: _daily_token_refresh(app), notifier=telegram
+    )
+    dhan_refresh_task = supervise(
+        "daily_dhan_refresh", lambda: _daily_dhan_refresh(app), notifier=telegram
+    )
+    instrument_refresh_task = supervise(
+        "daily_instrument_refresh", lambda: _daily_instrument_refresh(app), notifier=telegram
+    )
+    market_scheduler_task = supervise(
+        "market_hours_scheduler", lambda: run_market_hours_scheduler(app), notifier=telegram
+    )
     log_persistence_task = supervise("log_persistence", run_log_persistence, notifier=telegram)
     daily_digest_task = supervise("daily_digest", lambda: run_daily_digest(app), notifier=telegram)
-    weekly_digest_task = supervise("weekly_digest", lambda: run_weekly_digest(app), notifier=telegram)
+    weekly_digest_task = supervise(
+        "weekly_digest", lambda: run_weekly_digest(app), notifier=telegram
+    )
     # CP14: X02 (square-off, 15:15 IST) then M01 (reconciliation, 15:45 IST)
     # -- deliberately separate supervised tasks, see eod_scheduler.py's
     # docstring for why they aren't one combined job.
-    square_off_task = supervise("eod_square_off", lambda: run_square_off_scheduler(app), notifier=telegram)
-    reconciliation_task = supervise("eod_reconciliation", lambda: run_reconciliation_scheduler(app), notifier=telegram)
+    square_off_task = supervise(
+        "eod_square_off", lambda: run_square_off_scheduler(app), notifier=telegram
+    )
+    reconciliation_task = supervise(
+        "eod_reconciliation", lambda: run_reconciliation_scheduler(app), notifier=telegram
+    )
 
     logger.info("xillion ready")
     yield

@@ -6,6 +6,7 @@ unverified end-to-end" position as data_providers/dhanhq.py). Request/
 response shapes here are copied from DhanHQ's real docs
 (dhanhq.co/docs/v2/orders/), not guessed.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -23,12 +24,19 @@ def _broker() -> DhanBroker:
 
 
 def _resolved(**overrides):
-    defaults = dict(security_id="11536", exchange_segment="NSE_EQ", instrument="EQUITY", lot_size=1, tick_size="0.05")
+    defaults = dict(
+        security_id="11536",
+        exchange_segment="NSE_EQ",
+        instrument="EQUITY",
+        lot_size=1,
+        tick_size="0.05",
+    )
     defaults.update(overrides)
     return ResolvedSecurity(**defaults)
 
 
 # ── Status / order-type mapping completeness ────────────────────────────────
+
 
 def test_status_map_covers_every_documented_dhan_status():
     # From dhanhq.co/docs/v2/orders/ Order Book response enum, verbatim.
@@ -48,17 +56,32 @@ def test_order_type_map_covers_every_xillion_order_type():
 
 # ── place_order: success envelope ───────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_place_order_success_maps_response_fields(monkeypatch):
     broker = _broker()
-    async def _fake_resolve(symbol): return _resolved()
+
+    async def _fake_resolve(symbol):
+        return _resolved()
+
     monkeypatch.setattr(broker, "_resolve", _fake_resolve)
     monkeypatch.setattr(
-        broker, "_dhan",
-        type("F", (), {"place_order": staticmethod(lambda **kw: {"orderId": "112111182198", "orderStatus": "PENDING"})})(),
+        broker,
+        "_dhan",
+        type(
+            "F",
+            (),
+            {
+                "place_order": staticmethod(
+                    lambda **kw: {"orderId": "112111182198", "orderStatus": "PENDING"}
+                )
+            },
+        )(),
     )
 
-    request = OrderRequest(symbol="RELIANCE", side=Side.BUY, quantity=5, order_type=OrderType.MARKET)
+    request = OrderRequest(
+        symbol="RELIANCE", side=Side.BUY, quantity=5, order_type=OrderType.MARKET
+    )
     order = await broker.place_order(request)
 
     assert order.broker_order_id == "112111182198"
@@ -70,18 +93,28 @@ async def test_place_order_success_maps_response_fields(monkeypatch):
 @pytest.mark.asyncio
 async def test_place_order_passes_correct_fields_to_the_sdk(monkeypatch):
     broker = _broker()
-    async def _fake_resolve(symbol): return _resolved(security_id="99999", exchange_segment="NSE_FNO")
+
+    async def _fake_resolve(symbol):
+        return _resolved(security_id="99999", exchange_segment="NSE_FNO")
+
     monkeypatch.setattr(broker, "_resolve", _fake_resolve)
     captured = {}
 
     def fake_place_order(**kw):
         captured.update(kw)
         return {"orderId": "1", "orderStatus": "TRANSIT"}
-    monkeypatch.setattr(broker, "_dhan", type("F", (), {"place_order": staticmethod(fake_place_order)})())
+
+    monkeypatch.setattr(
+        broker, "_dhan", type("F", (), {"place_order": staticmethod(fake_place_order)})()
+    )
 
     request = OrderRequest(
-        symbol="NIFTY26AUG24000CE", side=Side.SELL, quantity=65, order_type=OrderType.LIMIT,
-        price=Decimal("45.5"), tag="my_tag",
+        symbol="NIFTY26AUG24000CE",
+        side=Side.SELL,
+        quantity=65,
+        order_type=OrderType.LIMIT,
+        price=Decimal("45.5"),
+        tag="my_tag",
     )
     await broker.place_order(request)
 
@@ -96,17 +129,36 @@ async def test_place_order_passes_correct_fields_to_the_sdk(monkeypatch):
 
 # ── place_order: failure envelope ───────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_place_order_failure_is_rejected_not_raised(monkeypatch):
     broker = _broker()
-    async def _fake_resolve(symbol): return _resolved()
+
+    async def _fake_resolve(symbol):
+        return _resolved()
+
     monkeypatch.setattr(broker, "_resolve", _fake_resolve)
     monkeypatch.setattr(
-        broker, "_dhan",
-        type("F", (), {"place_order": staticmethod(lambda **kw: {"status": "failure", "remarks": "Insufficient balance", "data": ""})})(),
+        broker,
+        "_dhan",
+        type(
+            "F",
+            (),
+            {
+                "place_order": staticmethod(
+                    lambda **kw: {
+                        "status": "failure",
+                        "remarks": "Insufficient balance",
+                        "data": "",
+                    }
+                )
+            },
+        )(),
     )
 
-    request = OrderRequest(symbol="RELIANCE", side=Side.BUY, quantity=5, order_type=OrderType.MARKET)
+    request = OrderRequest(
+        symbol="RELIANCE", side=Side.BUY, quantity=5, order_type=OrderType.MARKET
+    )
     order = await broker.place_order(request)
 
     assert order.status == OrderStatus.REJECTED
@@ -115,15 +167,27 @@ async def test_place_order_failure_is_rejected_not_raised(monkeypatch):
 
 # ── _dhan_to_order (order book row parsing) ─────────────────────────────────
 
+
 def test_dhan_to_order_parses_a_real_order_book_row():
     # Verbatim shape from dhanhq.co/docs/v2/orders/ Order Book response.
     row = {
-        "dhanClientId": "1000000003", "orderId": "112111182198", "correlationId": "123abc678",
-        "orderStatus": "TRADED", "transactionType": "BUY", "exchangeSegment": "NSE_EQ",
-        "productType": "INTRADAY", "orderType": "MARKET", "validity": "DAY",
-        "tradingSymbol": "RELIANCE", "securityId": "11536", "quantity": 5,
-        "disclosedQuantity": 0, "price": 0.0, "triggerPrice": 0.0,
-        "filledQty": 5, "averageTradedPrice": 2456.75,
+        "dhanClientId": "1000000003",
+        "orderId": "112111182198",
+        "correlationId": "123abc678",
+        "orderStatus": "TRADED",
+        "transactionType": "BUY",
+        "exchangeSegment": "NSE_EQ",
+        "productType": "INTRADAY",
+        "orderType": "MARKET",
+        "validity": "DAY",
+        "tradingSymbol": "RELIANCE",
+        "securityId": "11536",
+        "quantity": 5,
+        "disclosedQuantity": 0,
+        "price": 0.0,
+        "triggerPrice": 0.0,
+        "filledQty": 5,
+        "averageTradedPrice": 2456.75,
     }
     broker = _broker()
     order = broker._dhan_to_order(row)
@@ -139,14 +203,26 @@ def test_dhan_to_order_parses_a_real_order_book_row():
 
 
 def test_dhan_to_order_sell_side():
-    row = {"orderId": "1", "transactionType": "SELL", "orderStatus": "PENDING", "tradingSymbol": "X", "quantity": 1}
+    row = {
+        "orderId": "1",
+        "transactionType": "SELL",
+        "orderStatus": "PENDING",
+        "tradingSymbol": "X",
+        "quantity": 1,
+    }
     order = _broker()._dhan_to_order(row)
     assert order.side == Side.SELL
     assert order.status == OrderStatus.ACCEPTED
 
 
 def test_dhan_to_order_falls_back_to_order_id_with_no_correlation_id():
-    row = {"orderId": "555", "transactionType": "BUY", "orderStatus": "TRANSIT", "tradingSymbol": "X", "quantity": 1}
+    row = {
+        "orderId": "555",
+        "transactionType": "BUY",
+        "orderStatus": "TRANSIT",
+        "tradingSymbol": "X",
+        "quantity": 1,
+    }
     order = _broker()._dhan_to_order(row)
     assert order.client_order_id == "555"
 
@@ -189,7 +265,10 @@ def _write_master(tmp_path, rows):
 @pytest.mark.asyncio
 async def test_fetch_instrument_dump_parses_a_real_option_row(tmp_path, monkeypatch):
     master_path = _write_master(tmp_path, [_REAL_NIFTY_CE_ROW, _REAL_EQUITY_ROW])
-    async def _fake_ensure(client): return master_path
+
+    async def _fake_ensure(client):
+        return master_path
+
     monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
 
     broker = _broker()
@@ -210,14 +289,19 @@ async def test_fetch_instrument_dump_parses_a_real_option_row(tmp_path, monkeypa
 @pytest.mark.asyncio
 async def test_fetch_instrument_dump_future_has_no_strike_or_option_type(tmp_path, monkeypatch):
     master_path = _write_master(tmp_path, [_REAL_NIFTY_FUT_ROW])
-    async def _fake_ensure(client): return master_path
+
+    async def _fake_ensure(client):
+        return master_path
+
     monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
 
     broker = _broker()
     rows = await broker.fetch_instrument_dump(["NFO"])
 
     assert len(rows) == 1
-    assert rows[0].strike is None, "STRIKE_PRICE is a negative placeholder for futures, not a real strike"
+    assert (
+        rows[0].strike is None
+    ), "STRIKE_PRICE is a negative placeholder for futures, not a real strike"
     assert rows[0].option_type is None
     assert rows[0].tradingsymbol == "NIFTY-Sep2026-FUT"
 
@@ -225,7 +309,10 @@ async def test_fetch_instrument_dump_future_has_no_strike_or_option_type(tmp_pat
 @pytest.mark.asyncio
 async def test_fetch_instrument_dump_defaults_to_nfo_and_bfo(tmp_path, monkeypatch):
     master_path = _write_master(tmp_path, [_REAL_NIFTY_CE_ROW])
-    async def _fake_ensure(client): return master_path
+
+    async def _fake_ensure(client):
+        return master_path
+
     monkeypatch.setattr("brokers.dhan.ensure_scrip_master", _fake_ensure)
 
     broker = _broker()

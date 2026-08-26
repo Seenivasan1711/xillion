@@ -6,6 +6,7 @@ Strategy" because _validate_strategy_class rejected the type and
 plugin discovery logged the failure instead of raising where anyone would
 see it during normal use.
 """
+
 import pytest
 
 from xillion.core.plugin_loader import PluginLoader

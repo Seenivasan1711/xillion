@@ -1,5 +1,6 @@
 """Tests for market-hours and holiday gating."""
-from datetime import date, datetime
+
+from datetime import datetime
 
 from xillion.core.market_calendar import IST, is_market_open
 
@@ -42,6 +43,7 @@ def test_closed_after_market_close_boundary():
 
 def test_unknown_market_raises():
     import pytest
+
     with pytest.raises(ValueError, match="unknown market calendar"):
         is_market_open(_ist(2026, 7, 28, 10, 0), market="FOREX_24_5")
 

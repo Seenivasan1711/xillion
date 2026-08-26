@@ -3,21 +3,27 @@ Position arithmetic — the shared core used by BOTH the live engine and the
 backtest engine. These are the parity tests: if this file passes, a strategy
 computes the same position and P&L whether it is backtesting or trading live.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from xillion.core.events import Side
-from xillion.engine.position_math import PositionState, apply_fill
+from xillion.engine.position_math import apply_fill
 
-TS = datetime(2026, 6, 1, 9, 15, tzinfo=timezone.utc)
+TS = datetime(2026, 6, 1, 9, 15, tzinfo=UTC)
 
 
 def _fill(state, side, qty, price, multiplier=1):
     return apply_fill(
-        state, symbol="TEST", side=side, quantity=qty,
-        price=Decimal(str(price)), ts=TS, multiplier=multiplier,
+        state,
+        symbol="TEST",
+        side=side,
+        quantity=qty,
+        price=Decimal(str(price)),
+        ts=TS,
+        multiplier=multiplier,
     )
 
 
@@ -41,7 +47,7 @@ def test_average_in_long():
     state = _fill(None, Side.BUY, 10, 100).state
     out = _fill(state, Side.BUY, 10, 120)
     assert out.state.qty == 20
-    assert out.state.avg_price == Decimal("110")   # (100*10 + 120*10) / 20
+    assert out.state.avg_price == Decimal("110")  # (100*10 + 120*10) / 20
     assert out.closed_trade is None
 
 
@@ -57,7 +63,7 @@ def test_close_long_for_profit():
     out = _fill(state, Side.SELL, 10, 110)
     assert out.state.qty == 0
     assert out.closed_trade is not None
-    assert out.closed_trade.pnl == pytest.approx(100.0)   # 10 * 10
+    assert out.closed_trade.pnl == pytest.approx(100.0)  # 10 * 10
     assert out.closed_trade.side == "LONG"
 
 
@@ -66,7 +72,7 @@ def test_close_short_for_profit():
     state = _fill(None, Side.SELL, 10, 100).state
     out = _fill(state, Side.BUY, 10, 90)
     assert out.state.qty == 0
-    assert out.closed_trade.pnl == pytest.approx(100.0)   # (90-100) * 10 * -1
+    assert out.closed_trade.pnl == pytest.approx(100.0)  # (90-100) * 10 * -1
     assert out.closed_trade.side == "SHORT"
 
 
@@ -80,7 +86,7 @@ def test_partial_reduce_keeps_avg_price():
     state = _fill(None, Side.BUY, 10, 100).state
     out = _fill(state, Side.SELL, 4, 110)
     assert out.state.qty == 6
-    assert out.state.avg_price == Decimal("100")          # unchanged
+    assert out.state.avg_price == Decimal("100")  # unchanged
     assert out.closed_trade.quantity == 4
     assert out.closed_trade.pnl == pytest.approx(40.0)
 
@@ -93,7 +99,7 @@ def test_reversal_reprices_remainder():
     state = _fill(None, Side.BUY, 10, 100).state
     out = _fill(state, Side.SELL, 15, 110)
     assert out.state.qty == -5
-    assert out.state.avg_price == Decimal("110")           # repriced, not 100
+    assert out.state.avg_price == Decimal("110")  # repriced, not 100
     assert out.closed_trade.quantity == 10
     assert out.closed_trade.pnl == pytest.approx(100.0)
 

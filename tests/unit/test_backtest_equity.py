@@ -9,7 +9,8 @@ These pin down the bugs found in the 2026-08 audit:
     premium-selling strategies could not be backtested at all;
   - P&L ignored the contract multiplier.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -19,15 +20,20 @@ from xillion.core.events import Bar
 from xillion.core.strategy_base import Strategy
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 
-START = datetime(2026, 6, 1, 9, 15, tzinfo=timezone.utc)
+START = datetime(2026, 6, 1, 9, 15, tzinfo=UTC)
 
 
 def _bars(closes, symbol="TEST", timeframe="1d"):
     return [
         Bar(
-            symbol=symbol, timeframe=timeframe, ts=START + timedelta(days=i),
-            open=Decimal(str(c)), high=Decimal(str(c)), low=Decimal(str(c)),
-            close=Decimal(str(c)), volume=100,
+            symbol=symbol,
+            timeframe=timeframe,
+            ts=START + timedelta(days=i),
+            open=Decimal(str(c)),
+            high=Decimal(str(c)),
+            low=Decimal(str(c)),
+            close=Decimal(str(c)),
+            volume=100,
         )
         for i, c in enumerate(closes)
     ]
@@ -57,9 +63,15 @@ class ShortAndHold(Strategy):
 
 async def _run(strategy, closes, **kw):
     return await BacktestEngine().run(
-        strategy=strategy, bars=_bars(closes), instruments=["TEST"],
-        timeframe="1d", initial_capital=100_000.0, params={},
-        slippage_bps=0, fee_config=FeeConfig.zero(), **kw
+        strategy=strategy,
+        bars=_bars(closes),
+        instruments=["TEST"],
+        timeframe="1d",
+        initial_capital=100_000.0,
+        params={},
+        slippage_bps=0,
+        fee_config=FeeConfig.zero(),
+        **kw,
     )
 
 
@@ -70,7 +82,7 @@ async def test_equity_curve_tracks_unrealised_gain():
     result = await _run(BuyAndHold(), [100, 110, 120, 130])
     curve = result.equity_curve
     assert curve[-1] > curve[1], "equity did not move while a position was open"
-    assert curve[-1] == pytest.approx(100_030.0)   # +30 unrealised on 1 unit
+    assert curve[-1] == pytest.approx(100_030.0)  # +30 unrealised on 1 unit
 
 
 @pytest.mark.asyncio

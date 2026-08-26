@@ -5,6 +5,7 @@ enough to verify by hand, structural/compositional checks where it isn't
 (Supertrend) rather than risking a transcription error in a 35-point
 hand-computed EMA chain.
 """
+
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -17,12 +18,19 @@ from xillion.engine import indicators as ind
 def _bars(ohlcs: list[tuple[float, float, float, float]]) -> list[Bar]:
     ts = datetime(2026, 1, 1)
     out = []
-    for i, (o, h, l, c) in enumerate(ohlcs):
-        out.append(Bar(
-            symbol="X", timeframe="1d", ts=ts + timedelta(days=i),
-            open=Decimal(str(o)), high=Decimal(str(h)), low=Decimal(str(l)),
-            close=Decimal(str(c)), volume=1000,
-        ))
+    for i, (o, h, lo, c) in enumerate(ohlcs):
+        out.append(
+            Bar(
+                symbol="X",
+                timeframe="1d",
+                ts=ts + timedelta(days=i),
+                open=Decimal(str(o)),
+                high=Decimal(str(h)),
+                low=Decimal(str(lo)),
+                close=Decimal(str(c)),
+                volume=1000,
+            )
+        )
     return out
 
 
@@ -52,11 +60,13 @@ def test_rsi_not_enough_data():
 
 
 def test_atr_hand_checked():
-    bars = _bars([
-        (9, 10, 8, 9),
-        (8, 9, 7, 8),    # TR = max(9-7, |9-9|, |7-9|) = 2
-        (9, 13, 9, 12),  # TR = max(13-9, |13-8|, |9-8|) = 5
-    ])
+    bars = _bars(
+        [
+            (9, 10, 8, 9),
+            (8, 9, 7, 8),  # TR = max(9-7, |9-9|, |7-9|) = 2
+            (9, 13, 9, 12),  # TR = max(13-9, |13-8|, |9-8|) = 5
+        ]
+    )
     assert ind.atr(bars, 2) == pytest.approx(3.5)  # (2+5)/2
     assert ind.atr(bars, 5) is None
 
@@ -70,8 +80,8 @@ def test_vwap_hand_checked():
 def test_bollinger_hand_checked():
     lower, mid, upper = ind.bollinger([1, 2, 3, 4, 5], 5, num_std=2.0)
     assert mid == pytest.approx(3.0)
-    assert lower == pytest.approx(3.0 - 2 * (2 ** 0.5))
-    assert upper == pytest.approx(3.0 + 2 * (2 ** 0.5))
+    assert lower == pytest.approx(3.0 - 2 * (2**0.5))
+    assert upper == pytest.approx(3.0 + 2 * (2**0.5))
 
 
 def test_bollinger_not_enough_data():
@@ -85,7 +95,7 @@ def test_macd_matches_its_own_ema_composition():
 
     fast_series = ind.ema_series(closes, fast)
     slow_series = ind.ema_series(closes, slow)
-    macd_series = [f - s for f, s in zip(fast_series, slow_series)]
+    macd_series = [f - s for f, s in zip(fast_series, slow_series, strict=False)]
     expected_signal_series = ind.ema_series(macd_series, signal)
 
     assert line == pytest.approx(macd_series[-1])

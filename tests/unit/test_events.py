@@ -1,27 +1,25 @@
 """Tests for core event types."""
-from datetime import datetime, timezone
+
+from dataclasses import FrozenInstanceError
+from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
 
 from xillion.core.events import (
     Bar,
-    Fill,
-    Order,
     OrderRequest,
     OrderStatus,
     OrderType,
     Position,
     Side,
     Tick,
-    TimeInForce,
 )
 
 
 def test_tick_immutable():
-    tick = Tick(symbol="NIFTY", ltp=Decimal("21000"), ltt=datetime.now(timezone.utc))
-    with pytest.raises(Exception):
+    tick = Tick(symbol="NIFTY", ltp=Decimal("21000"), ltt=datetime.now(UTC))
+    with pytest.raises(FrozenInstanceError):
         tick.ltp = Decimal("22000")  # type: ignore[misc]
 
 
@@ -29,14 +27,14 @@ def test_bar_immutable():
     bar = Bar(
         symbol="NIFTY",
         timeframe="5m",
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         open=Decimal("21000"),
         high=Decimal("21050"),
         low=Decimal("20990"),
         close=Decimal("21030"),
         volume=1000,
     )
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         bar.close = Decimal("21100")  # type: ignore[misc]
 
 

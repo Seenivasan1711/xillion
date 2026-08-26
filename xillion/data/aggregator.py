@@ -2,9 +2,9 @@
 Tick-to-bar aggregator. Consumes ticks from the data bus and emits closed bars
 at configured timeframes. Handles multiple symbols and timeframes concurrently.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 import structlog
 
@@ -28,10 +28,10 @@ TIMEFRAME_SECONDS: dict[str, int] = {
 
 def _bar_open_time(ts: datetime, tf_seconds: int) -> datetime:
     """Round ts down to the nearest bar-open time for the given timeframe."""
-    epoch = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
+    epoch = ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
     epoch_ts = int(epoch.timestamp())
     bar_ts = (epoch_ts // tf_seconds) * tf_seconds
-    return datetime.fromtimestamp(bar_ts, tz=timezone.utc)
+    return datetime.fromtimestamp(bar_ts, tz=UTC)
 
 
 class _PartialBar:
@@ -103,5 +103,5 @@ class TickAggregator:
 
         return closed_bars
 
-    def get_partial_bar(self, symbol: str, timeframe: str) -> Optional[_PartialBar]:
+    def get_partial_bar(self, symbol: str, timeframe: str) -> _PartialBar | None:
         return self._partials.get((symbol, timeframe))

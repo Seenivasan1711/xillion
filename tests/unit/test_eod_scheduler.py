@@ -1,5 +1,6 @@
 """CP14 scheduler timing + connected-broker discovery."""
-from datetime import datetime, time, timedelta
+
+from datetime import datetime, time
 
 from xillion.engine.eod_scheduler import IST, _connected_brokers, _next_occurrence
 
@@ -28,16 +29,19 @@ def test_next_occurrence_rolls_over_when_exactly_at_target():
 class _FakeApp:
     class State:
         pass
+
     def __init__(self, broker_instances):
         self.state = self.State()
         self.state.broker_instances = broker_instances
 
 
 async def test_connected_brokers_skips_entries_with_no_instance():
-    app = _FakeApp({
-        "Zerodha Primary": {"instance": "fake-broker-1", "status": "connected"},
-        "Dhan Primary": {"instance": None, "status": "failed"},
-    })
+    app = _FakeApp(
+        {
+            "Zerodha Primary": {"instance": "fake-broker-1", "status": "connected"},
+            "Dhan Primary": {"instance": None, "status": "failed"},
+        }
+    )
     result = await _connected_brokers(app)
     assert result == [("Zerodha Primary", "fake-broker-1")]
 

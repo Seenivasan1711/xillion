@@ -2,19 +2,20 @@
 Append-only audit log with a hash chain.
 Every important event (order, lifecycle, config change, risk gate) is recorded here.
 """
+
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import insert, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _compute_hash(prev_hash: str | None, payload_json: str) -> str:

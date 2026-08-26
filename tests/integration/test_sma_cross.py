@@ -2,17 +2,18 @@
 Integration test: SMA Cross strategy against a synthetic tick stream.
 Verifies that the strategy places the right orders through the DummyBroker.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
-from xillion.core.events import Bar, Side
+from xillion.core.events import Bar
 from xillion.engine.backtest_engine import BacktestEngine
 
 
 def _bar(symbol: str, close: float, minute: int) -> Bar:
-    base = datetime(2024, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2024, 1, 15, 9, 0, 0, tzinfo=UTC)
     ts = base + timedelta(minutes=minute * 15)
     price = Decimal(str(close))
     return Bar(

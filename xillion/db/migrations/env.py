@@ -1,4 +1,5 @@
 """Alembic environment — reads DATABASE_URL from env, converts to sync URL."""
+
 import os
 from logging.config import fileConfig
 

@@ -1,12 +1,12 @@
 """
 Backtest API endpoints — trigger and retrieve backtest runs.
 """
+
 import csv
 import io
 import json
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -22,7 +22,7 @@ from xillion.data.repository import BarRepository
 from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser
 from xillion.db.session import get_session_factory
-from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
+from xillion.engine.backtest_engine import BacktestEngine
 from xillion.engine.optimization import grid_search, walk_forward
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -71,7 +71,7 @@ class RunBacktestRequest(BaseModel):
     initial_capital: float = 100000.0
     slippage_bps: int = 5
     params: dict = {}
-    bars: Optional[list[dict]] = None  # inline bars for testing
+    bars: list[dict] | None = None  # inline bars for testing
 
 
 @router.post("/run")
@@ -156,7 +156,7 @@ async def run_backtest_csv(
     try:
         params_dict = json.loads(params) if params else {}
     except json.JSONDecodeError as exc:
-        raise HTTPException(422, f"Invalid params JSON: {exc}")
+        raise HTTPException(422, f"Invalid params JSON: {exc}") from exc
 
     content = await file.read()
     bars, parse_errors = _parse_csv_bars(content, default_timeframe=timeframe)
@@ -213,7 +213,9 @@ class RunBacktestProviderRequest(ProviderBarSourceRequest):
 
 
 async def _resolve_strategy_and_bars(
-    body: ProviderBarSourceRequest, request: Request, db: AsyncSession,
+    body: ProviderBarSourceRequest,
+    request: Request,
+    db: AsyncSession,
 ) -> tuple[type, list[Bar]]:
     """Shared by /run-provider, /optimize, /walk-forward: resolve the
     strategy class, resolve provider credentials/broker, fetch bars through
@@ -247,7 +249,11 @@ async def _resolve_strategy_and_bars(
     if caps.requires_broker:
         broker_instances = getattr(request.app.state, "broker_instances", {})
         connected = next(
-            (info["instance"] for info in broker_instances.values() if info.get("status") == "connected"),
+            (
+                info["instance"]
+                for info in broker_instances.values()
+                if info.get("status") == "connected"
+            ),
             None,
         )
         if connected is None:
@@ -275,7 +281,7 @@ async def _resolve_strategy_and_bars(
             broker=broker,
         )
     except ValueError as exc:
-        raise HTTPException(422, str(exc))
+        raise HTTPException(422, str(exc)) from exc
 
     if not bars:
         raise HTTPException(
@@ -343,8 +349,16 @@ async def run_grid_search(
     strategy_cls, bars = await _resolve_strategy_and_bars(body, request, db)
 
     results = await grid_search(
-        strategy_cls, bars, [body.symbol], body.timeframe, body.initial_capital,
-        body.param_grid, body.base_params, body.slippage_bps, None, body.rank_by,
+        strategy_cls,
+        bars,
+        [body.symbol],
+        body.timeframe,
+        body.initial_capital,
+        body.param_grid,
+        body.base_params,
+        body.slippage_bps,
+        None,
+        body.rank_by,
     )
     return {
         "rank_by": body.rank_by,
@@ -374,9 +388,18 @@ async def run_walk_forward(
     strategy_cls, bars = await _resolve_strategy_and_bars(body, request, db)
 
     result = await walk_forward(
-        strategy_cls, bars, [body.symbol], body.timeframe, body.initial_capital,
-        body.param_grid, body.n_folds, body.train_ratio,
-        body.base_params, body.slippage_bps, None, body.rank_by,
+        strategy_cls,
+        bars,
+        [body.symbol],
+        body.timeframe,
+        body.initial_capital,
+        body.param_grid,
+        body.n_folds,
+        body.train_ratio,
+        body.base_params,
+        body.slippage_bps,
+        None,
+        body.rank_by,
     )
     return {
         "rank_by": result.rank_by,
@@ -408,9 +431,9 @@ class BacktestRunSummary(BaseModel):
     to_ts: str
     initial_capital: float
     started_at: str
-    finished_at: Optional[str]
+    finished_at: str | None
     metrics: dict
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @router.get("/runs")

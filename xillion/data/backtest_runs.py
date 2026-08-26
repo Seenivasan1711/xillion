@@ -4,8 +4,9 @@ existed since the initial migrations, but nothing ever wrote to them, so no
 backtest history was queryable -- every result only ever lived in the HTTP
 response and was gone the moment the tab closed (CP3).
 """
+
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -14,7 +15,7 @@ from xillion.engine.backtest_engine import BacktestResult
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 async def persist_backtest_run(
@@ -29,7 +30,9 @@ async def persist_backtest_run(
     history-tracking side effect."""
     async with session_factory() as session:
         strategy_row = (
-            await session.execute(select(StrategyClass).where(StrategyClass.name == result.strategy_name))
+            await session.execute(
+                select(StrategyClass).where(StrategyClass.name == result.strategy_name)
+            )
         ).scalar_one_or_none()
         if strategy_row is None:
             return False
@@ -85,12 +88,16 @@ async def list_backtest_runs(session_factory, *, limit: int = 50) -> list[Backte
         return list(result.scalars().all())
 
 
-async def get_backtest_run(session_factory, run_id: str) -> tuple[BacktestRun | None, list[BacktestTrade]]:
+async def get_backtest_run(
+    session_factory, run_id: str
+) -> tuple[BacktestRun | None, list[BacktestTrade]]:
     async with session_factory() as session:
         run = await session.get(BacktestRun, run_id)
         if run is None:
             return None, []
         trades_result = await session.execute(
-            select(BacktestTrade).where(BacktestTrade.run_id == run_id).order_by(BacktestTrade.entry_ts)
+            select(BacktestTrade)
+            .where(BacktestTrade.run_id == run_id)
+            .order_by(BacktestTrade.entry_ts)
         )
         return run, list(trades_result.scalars().all())

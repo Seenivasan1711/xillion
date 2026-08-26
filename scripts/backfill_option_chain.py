@@ -25,6 +25,7 @@ Usage:
     python scripts/backfill_option_chain.py --from 2021-01-01 --to 2026-08-25 \
         --underlying-filter NIFTY,BANKNIFTY
 """
+
 import asyncio
 from datetime import date, timedelta
 
@@ -38,10 +39,11 @@ def main(
     from_date: str = typer.Option(..., "--from", help="YYYY-MM-DD, inclusive"),
     to_date: str = typer.Option(..., "--to", help="YYYY-MM-DD, inclusive"),
     underlying_filter: str = typer.Option(
-        "NIFTY,BANKNIFTY", "--underlying-filter",
+        "NIFTY,BANKNIFTY",
+        "--underlying-filter",
         help="Comma-separated underlyings to keep from each day's whole-file "
-             "fetch. Matches scripts/backfill.py's scoping so the two tables "
-             "cover the same underlyings.",
+        "fetch. Matches scripts/backfill.py's scoping so the two tables "
+        "cover the same underlyings.",
     ),
 ) -> None:
     filter_set = {s.strip() for s in underlying_filter.split(",") if s.strip()} or None
@@ -100,10 +102,19 @@ def main(
                         break
                     except Exception as exc:
                         if attempt == 2:
-                            logger.error("option chain backfill: day failed, skipping", day=str(day), error=str(exc))
+                            logger.error(
+                                "option chain backfill: day failed, skipping",
+                                day=str(day),
+                                error=str(exc),
+                            )
                             rows = []
                             break
-                        logger.warning("option chain backfill: retrying day", day=str(day), attempt=attempt + 1, error=str(exc))
+                        logger.warning(
+                            "option chain backfill: retrying day",
+                            day=str(day),
+                            attempt=attempt + 1,
+                            error=str(exc),
+                        )
                         await asyncio.sleep(3)
                 if rows:
                     fetched += 1
@@ -112,14 +123,19 @@ def main(
             if i % 50 == 0 or day == end:
                 logger.info(
                     "option chain backfill progress",
-                    day=str(day), pct=round(100 * i / total_days, 1),
-                    fetched=fetched, skipped=skipped, empty=empty,
+                    day=str(day),
+                    pct=round(100 * i / total_days, 1),
+                    fetched=fetched,
+                    skipped=skipped,
+                    empty=empty,
                 )
             day += timedelta(days=1)
 
         logger.info(
             "option chain backfill complete",
-            fetched=fetched, skipped_already_done=skipped, empty_or_holiday=empty,
+            fetched=fetched,
+            skipped_already_done=skipped,
+            empty_or_holiday=empty,
         )
 
     asyncio.run(_run())

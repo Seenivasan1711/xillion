@@ -14,9 +14,9 @@ means a bar can sit open indefinitely if ticks stop arriving entirely
 boundary, not silently pretended away. A timer-based sweep would close
 that gap; not built here.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 from xillion.core.events import Bar, Tick
 from xillion.data.bus import MarketDataBus
@@ -25,18 +25,31 @@ from xillion.data.bus import MarketDataBus
 # dropdown, strategy_class.default_timeframe) -- an unrecognised timeframe
 # string is skipped rather than guessed at.
 _TIMEFRAME_SECONDS: dict[str, int] = {
-    "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400,
+    "1m": 60,
+    "3m": 180,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "1d": 86400,
 }
 
 
 def _bucket_start(ts: datetime, seconds: int) -> datetime:
     epoch = int(ts.timestamp())
     bucket_epoch = epoch - (epoch % seconds)
-    return datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
+    return datetime.fromtimestamp(bucket_epoch, tz=UTC)
 
 
 class _BarAccumulator:
-    def __init__(self, symbol: str, timeframe: str, bucket_start: datetime, price: Decimal, cumulative_volume: Optional[int]) -> None:
+    def __init__(
+        self,
+        symbol: str,
+        timeframe: str,
+        bucket_start: datetime,
+        price: Decimal,
+        cumulative_volume: int | None,
+    ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
         self.bucket_start = bucket_start
@@ -51,7 +64,7 @@ class _BarAccumulator:
         self._first_cumulative = cumulative_volume
         self._last_cumulative = cumulative_volume
 
-    def update(self, price: Decimal, cumulative_volume: Optional[int]) -> None:
+    def update(self, price: Decimal, cumulative_volume: int | None) -> None:
         self.high = max(self.high, price)
         self.low = min(self.low, price)
         self.close = price
@@ -63,8 +76,14 @@ class _BarAccumulator:
         if self._first_cumulative is not None and self._last_cumulative is not None:
             volume = max(0, self._last_cumulative - self._first_cumulative)
         return Bar(
-            symbol=self.symbol, timeframe=self.timeframe, ts=self.bucket_start,
-            open=self.open, high=self.high, low=self.low, close=self.close, volume=volume,
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            ts=self.bucket_start,
+            open=self.open,
+            high=self.high,
+            low=self.low,
+            close=self.close,
+            volume=volume,
         )
 
 
@@ -91,12 +110,16 @@ class BarAggregator:
             acc = self._accumulators.get(key)
 
             if acc is None:
-                self._accumulators[key] = _BarAccumulator(tick.symbol, tf, bucket, tick.ltp, tick.volume)
+                self._accumulators[key] = _BarAccumulator(
+                    tick.symbol, tf, bucket, tick.ltp, tick.volume
+                )
                 continue
 
             if bucket > acc.bucket_start:
                 finished = acc.to_bar()
-                self._accumulators[key] = _BarAccumulator(tick.symbol, tf, bucket, tick.ltp, tick.volume)
+                self._accumulators[key] = _BarAccumulator(
+                    tick.symbol, tf, bucket, tick.ltp, tick.volume
+                )
                 await self._bus.publish_bar(finished)
             elif bucket == acc.bucket_start:
                 acc.update(tick.ltp, tick.volume)

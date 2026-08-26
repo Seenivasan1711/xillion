@@ -4,8 +4,9 @@ future asset class (e.g. forex, near-24/5 session hours) can register its
 own calendar alongside NSE_BSE, rather than requiring a rewrite of this
 module.
 """
+
 import zoneinfo
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 
 IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
@@ -17,10 +18,10 @@ MARKET_CLOSE = time(15, 30)
 # annual updates, NOT a live-fetched exchange calendar. Verify against the
 # official NSE/BSE circular before relying on it.
 NSE_BSE_HOLIDAYS_2026: set[date] = {
-    date(2026, 1, 26),   # Republic Day
-    date(2026, 3, 4),    # Holi (indicative -- verify against the official circular)
-    date(2026, 8, 15),   # Independence Day
-    date(2026, 10, 2),   # Gandhi Jayanti
+    date(2026, 1, 26),  # Republic Day
+    date(2026, 3, 4),  # Holi (indicative -- verify against the official circular)
+    date(2026, 8, 15),  # Independence Day
+    date(2026, 10, 2),  # Gandhi Jayanti
     date(2026, 12, 25),  # Christmas
 }
 
@@ -42,7 +43,7 @@ _CALENDARS = {
 def is_market_open(now: datetime, market: str = "NSE_BSE") -> bool:
     """`now` may be naive (assumed UTC) or tz-aware."""
     if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
+        now = now.replace(tzinfo=UTC)
     calendar = _CALENDARS.get(market)
     if calendar is None:
         raise ValueError(f"unknown market calendar: {market!r}")

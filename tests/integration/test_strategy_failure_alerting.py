@@ -6,7 +6,8 @@ on_bar/on_tick exceptions were caught and logged but never notified, and
 on_tick specifically didn't even set status="error"/last_error the way
 on_bar and on_start already did.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -19,7 +20,7 @@ from xillion.core.strategy_base import Strategy
 from xillion.data.bus import MarketDataBus
 from xillion.engine.strategy_engine import StrategyEngine
 
-NOW = datetime(2026, 1, 1, 9, 20, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 1, 1, 9, 20, 0, tzinfo=UTC)
 
 
 class _FakeNotifier:
@@ -64,15 +65,22 @@ async def _spawn(strategy_cls, instance_id, notifier):
     engine = StrategyEngine(bus=bus, risk_manager=RiskManager())
     engine.set_registry(registry)
     runner = await engine.spawn(
-        instance_id=instance_id, strategy_name=strategy_cls.name,
-        broker=DummyBroker(), instruments=["NIFTY"], timeframe="5m",
-        capital=Decimal("100000"), params={}, mode="paper", notifier=notifier,
+        instance_id=instance_id,
+        strategy_name=strategy_cls.name,
+        broker=DummyBroker(),
+        instruments=["NIFTY"],
+        timeframe="5m",
+        capital=Decimal("100000"),
+        params={},
+        mode="paper",
+        notifier=notifier,
     )
     return runner, bus
 
 
 async def _settle():
     import asyncio
+
     for _ in range(5):
         await asyncio.sleep(0)
 
@@ -82,10 +90,18 @@ async def test_on_bar_exception_alerts_and_sets_error_status():
     notifier = _FakeNotifier()
     runner, bus = await _spawn(_RaisingOnBarStrategy, "fail-onbar-1", notifier)
 
-    await bus.publish_bar(Bar(
-        symbol="NIFTY", timeframe="5m", ts=NOW,
-        open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"), volume=0,
-    ))
+    await bus.publish_bar(
+        Bar(
+            symbol="NIFTY",
+            timeframe="5m",
+            ts=NOW,
+            open=Decimal("100"),
+            high=Decimal("101"),
+            low=Decimal("99"),
+            close=Decimal("100"),
+            volume=0,
+        )
+    )
     await _settle()
 
     assert runner.status == "error"
@@ -122,9 +138,15 @@ async def test_on_start_exception_alerts():
     engine.set_registry(registry)
 
     runner = await engine.spawn(
-        instance_id="fail-onstart-1", strategy_name=_RaisingOnStartStrategy.name,
-        broker=DummyBroker(), instruments=["NIFTY"], timeframe="5m",
-        capital=Decimal("100000"), params={}, mode="paper", notifier=notifier,
+        instance_id="fail-onstart-1",
+        strategy_name=_RaisingOnStartStrategy.name,
+        broker=DummyBroker(),
+        instruments=["NIFTY"],
+        timeframe="5m",
+        capital=Decimal("100000"),
+        params={},
+        mode="paper",
+        notifier=notifier,
     )
     await _settle()
 
@@ -140,10 +162,18 @@ async def test_no_notifier_configured_does_not_crash_on_failure():
     from happening -- notification is a bonus on top, not a dependency."""
     runner, bus = await _spawn(_RaisingOnBarStrategy, "fail-onbar-no-notifier", None)
 
-    await bus.publish_bar(Bar(
-        symbol="NIFTY", timeframe="5m", ts=NOW,
-        open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100"), volume=0,
-    ))
+    await bus.publish_bar(
+        Bar(
+            symbol="NIFTY",
+            timeframe="5m",
+            ts=NOW,
+            open=Decimal("100"),
+            high=Decimal("101"),
+            low=Decimal("99"),
+            close=Decimal("100"),
+            volume=0,
+        )
+    )
     await _settle()
 
     assert runner.status == "error"

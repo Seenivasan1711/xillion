@@ -16,13 +16,13 @@ which now round-trips through StrategyInstance.state_blob (see
 xillion/engine/strategy_engine.py) rather than resetting to {} on every
 spawn as it silently did before this checkpoint.
 """
+
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class TrailDirection(str, Enum):
+class TrailDirection(StrEnum):
     LONG = "LONG"
     SHORT = "SHORT"
 
@@ -33,11 +33,12 @@ class TrailState:
     place -- every update returns a NEW TrailState (frozen), so "did the
     stop change" is always an explicit comparison, never an accidental
     in-place edit that could bypass the ratchet."""
+
     direction: TrailDirection
     entry_price: Decimal
     stop: Decimal
-    high_water_mark: Decimal   # best price seen so far, LONG-relevant
-    low_water_mark: Decimal    # best price seen so far, SHORT-relevant
+    high_water_mark: Decimal  # best price seen so far, LONG-relevant
+    low_water_mark: Decimal  # best price seen so far, SHORT-relevant
     initial_risk_per_unit: Decimal  # |entry_price - initial_stop|, for R-multiple calcs
     breakeven_moved: bool = False
 
@@ -82,6 +83,7 @@ def observe_price(state: TrailState, price: Decimal) -> TrailState:
 # addition, not required for "at least one algorithm" (this checkpoint's
 # own Verify line).
 
+
 def fixed_trail(state: TrailState, trail_amount: Decimal) -> Decimal:
     """Algorithm 1 (spec §3.2.1): trail a fixed distance behind the best
     price seen. Simplest, most broadly applicable -- works for any
@@ -96,17 +98,17 @@ def fixed_trail(state: TrailState, trail_amount: Decimal) -> Decimal:
 
 # Spec's own "recommended default" -- discrete, auditable, easy to backtest.
 R_LADDER: list[tuple[Decimal, Decimal]] = [
-    (Decimal("1.0"), Decimal("0.0")),   # at +1.0R -> stop to breakeven
-    (Decimal("1.5"), Decimal("0.5")),   # at +1.5R -> lock +0.5R
-    (Decimal("2.0"), Decimal("1.0")),   # at +2.0R -> lock +1.0R
-    (Decimal("3.0"), Decimal("2.0")),   # at +3.0R -> lock +2.0R
+    (Decimal("1.0"), Decimal("0.0")),  # at +1.0R -> stop to breakeven
+    (Decimal("1.5"), Decimal("0.5")),  # at +1.5R -> lock +0.5R
+    (Decimal("2.0"), Decimal("1.0")),  # at +2.0R -> lock +1.0R
+    (Decimal("3.0"), Decimal("2.0")),  # at +3.0R -> lock +2.0R
 ]
 
 
 def r_ladder_trail(state: TrailState, ladder: list[tuple[Decimal, Decimal]] = R_LADDER) -> Decimal:
     """Algorithm 4 (spec §3.2.4, "recommended default"): stop moves in
     discrete steps as R-multiple profit accrues, rather than continuously."""
-    locked: Optional[Decimal] = None
+    locked: Decimal | None = None
     for trigger_r, lock_r in ladder:
         if state.r_multiple >= trigger_r:
             locked = lock_r
@@ -146,7 +148,7 @@ def breakeven_shift(
     state: TrailState,
     trigger_r: Decimal = Decimal("1.0"),
     buffer: Decimal = Decimal("0"),
-) -> Optional[Decimal]:
+) -> Decimal | None:
     """T05 -- fires once, separate from T03 because its semantics differ
     (a threshold crossing, not a continuous trail). `buffer` should cover
     round-trip cost so "breakeven" is truly zero, not a small guaranteed
@@ -159,7 +161,9 @@ def breakeven_shift(
     return ratchet(state.direction, state.stop, candidate)
 
 
-def apply_trail(state: TrailState, candidate: Decimal, min_stop_move: Decimal = Decimal("0")) -> TrailState:
+def apply_trail(
+    state: TrailState, candidate: Decimal, min_stop_move: Decimal = Decimal("0")
+) -> TrailState:
     """Spec §3.3 step 3: skip the update unless it moves by more than
     min_stop_move (prevents order-modify spam / OPS burn on a noisy price
     series). Always applies the ratchet regardless of min_stop_move, so a
@@ -171,7 +175,9 @@ def apply_trail(state: TrailState, candidate: Decimal, min_stop_move: Decimal = 
 
 
 def apply_breakeven_shift(
-    state: TrailState, trigger_r: Decimal = Decimal("1.0"), buffer: Decimal = Decimal("0"),
+    state: TrailState,
+    trigger_r: Decimal = Decimal("1.0"),
+    buffer: Decimal = Decimal("0"),
 ) -> TrailState:
     candidate = breakeven_shift(state, trigger_r, buffer)
     if candidate is None:

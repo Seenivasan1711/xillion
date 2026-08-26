@@ -16,12 +16,13 @@ same trading day do not require a new login. Tokens expire around 6 AM IST.
 NOTE: The auto-login flow automates Zerodha's web login using your credentials
 and TOTP. Review Zerodha's API developer terms before using this in production.
 """
+
 import asyncio
 import json
-from datetime import date, datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import AsyncIterator, Optional
 from urllib.parse import parse_qs, urlparse
 
 import pyotp
@@ -49,7 +50,7 @@ _TWOFA_URL = "https://kite.zerodha.com/api/twofa"
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ZerodhaBroker(Broker):
@@ -67,7 +68,16 @@ class ZerodhaBroker(Broker):
         supports_cover_orders=True,
         supports_modify_order=True,
         supports_partial_fills=True,
-        supported_timeframes=["minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute", "day"],
+        supported_timeframes=[
+            "minute",
+            "3minute",
+            "5minute",
+            "10minute",
+            "15minute",
+            "30minute",
+            "60minute",
+            "day",
+        ],
         supported_exchanges=["NSE", "BSE", "NFO", "MCX", "CDS"],
     )
 
@@ -75,12 +85,12 @@ class ZerodhaBroker(Broker):
         self._kite = None
         self._ticker = None
         self._ticker_connected = False  # real socket state, separate from _connected (REST session)
-        self._access_token: Optional[str] = None
+        self._access_token: str | None = None
         self._connected = False
         self._credentials: dict = {}
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._order_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._token_to_symbol: dict[int, str] = {}  # instrument_token → trading symbol
         self._notifier = notifier  # optional TelegramNotifier, for reconnect-exhausted alerts
 
@@ -89,10 +99,10 @@ class ZerodhaBroker(Broker):
     async def connect(self, credentials: dict) -> None:
         try:
             from kiteconnect import KiteConnect
-        except ImportError:
+        except ImportError as exc:
             raise RuntimeError(
                 "kiteconnect is not installed. Run: pip install kiteconnect"
-            )
+            ) from exc
 
         self._credentials = credentials
         self._loop = asyncio.get_event_loop()
@@ -105,7 +115,9 @@ class ZerodhaBroker(Broker):
             if await self._token_valid():
                 self._access_token = cached
                 self._connected = True
-                logger.info("zerodha: resumed with cached token", user_id=credentials.get("user_id"))
+                logger.info(
+                    "zerodha: resumed with cached token", user_id=credentials.get("user_id")
+                )
                 return
 
         # Need a fresh login — TOTP_SECRET required
@@ -190,7 +202,7 @@ class ZerodhaBroker(Broker):
         except Exception:
             return False
 
-    def _load_token_cache(self, user_id: str) -> Optional[str]:
+    def _load_token_cache(self, user_id: str) -> str | None:
         if not _TOKEN_CACHE.exists():
             return None
         try:
@@ -204,7 +216,9 @@ class ZerodhaBroker(Broker):
     def _save_token_cache(self, user_id: str, token: str) -> None:
         _TOKEN_CACHE.parent.mkdir(parents=True, exist_ok=True)
         _TOKEN_CACHE.write_text(
-            json.dumps({"user_id": user_id, "access_token": token, "saved_at": _utcnow().isoformat()})
+            json.dumps(
+                {"user_id": user_id, "access_token": token, "saved_at": _utcnow().isoformat()}
+            )
         )
 
     async def disconnect(self) -> None:
@@ -458,7 +472,7 @@ class ZerodhaBroker(Broker):
                     self._notifier.alert(
                         title="Zerodha feed down",
                         body="WebSocket reconnect attempts exhausted. Live ticks have stopped "
-                             "-- alerts will not fire until this is restarted.",
+                        "-- alerts will not fire until this is restarted.",
                         severity="critical",
                     ),
                     loop,
@@ -484,15 +498,19 @@ class ZerodhaBroker(Broker):
 
     async def get_history(self, symbol: str, timeframe: str, from_ts, to_ts) -> list[Bar]:
         _interval = {
-            "1m": "minute", "3m": "3minute", "5m": "5minute", "10m": "10minute",
-            "15m": "15minute", "30m": "30minute", "1h": "60minute", "1d": "day",
+            "1m": "minute",
+            "3m": "3minute",
+            "5m": "5minute",
+            "10m": "10minute",
+            "15m": "15minute",
+            "30m": "30minute",
+            "1h": "60minute",
+            "1d": "day",
         }
         interval = _interval.get(timeframe, timeframe)
         loop = asyncio.get_event_loop()
         try:
-            ltp = await loop.run_in_executor(
-                None, lambda: self._kite.ltp([self._qualify(symbol)])
-            )
+            ltp = await loop.run_in_executor(None, lambda: self._kite.ltp([self._qualify(symbol)]))
             token = list(ltp.values())[0]["instrument_token"]
             rows = await loop.run_in_executor(
                 None, lambda: self._kite.historical_data(token, from_ts, to_ts, interval)
@@ -540,8 +558,15 @@ class ZerodhaBroker(Broker):
     _GTT_ORDER_TYPE = "LIMIT"
 
     async def place_protective_gtt(
-        self, *, symbol: str, exchange: str, side: Side, quantity: int,
-        stop_price: Decimal, target_price: Optional[Decimal], last_price: Decimal,
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        side: Side,
+        quantity: int,
+        stop_price: Decimal,
+        target_price: Decimal | None,
+        last_price: Decimal,
     ) -> str:
         def _leg(price: Decimal) -> dict:
             return {
@@ -579,20 +604,22 @@ class ZerodhaBroker(Broker):
         # without a live account.
         trigger_id = response.get("trigger_id") if isinstance(response, dict) else response
         logger.info(
-            "zerodha: protective GTT placed", symbol=symbol, trigger_id=trigger_id,
-            stop_price=str(stop_price), target_price=str(target_price) if target_price else None,
+            "zerodha: protective GTT placed",
+            symbol=symbol,
+            trigger_id=trigger_id,
+            stop_price=str(stop_price),
+            target_price=str(target_price) if target_price else None,
         )
         return str(trigger_id)
 
     async def cancel_gtt(self, gtt_id: str) -> None:
-        await asyncio.get_event_loop().run_in_executor(
-            None, lambda: self._kite.delete_gtt(gtt_id)
-        )
+        await asyncio.get_event_loop().run_in_executor(None, lambda: self._kite.delete_gtt(gtt_id))
 
     # ── Instrument master (options resolution) ──────────────────────────────────
 
     async def fetch_instrument_dump(
-        self, exchanges: Optional[list[str]] = None,
+        self,
+        exchanges: list[str] | None = None,
     ) -> list[InstrumentRow]:
         """Fetch Kite's instrument master for the given exchanges. Plain REST
         metadata -- unlike live ticks/historical candles, this may not
@@ -601,31 +628,32 @@ class ZerodhaBroker(Broker):
         loop = asyncio.get_event_loop()
         rows: list[InstrumentRow] = []
         for exchange in exchanges:
-            items = await loop.run_in_executor(
-                None, lambda ex=exchange: self._kite.instruments(ex)
-            )
+            items = await loop.run_in_executor(None, lambda ex=exchange: self._kite.instruments(ex))
             for item in items:
                 expiry_raw = item.get("expiry")
-                expiry: Optional[date] = None
+                expiry: date | None = None
                 if expiry_raw:
                     expiry = (
-                        expiry_raw if isinstance(expiry_raw, date)
+                        expiry_raw
+                        if isinstance(expiry_raw, date)
                         else date.fromisoformat(str(expiry_raw)[:10])
                     )
                 strike_raw = item.get("strike") or 0
                 strike = Decimal(str(strike_raw)) if strike_raw else None
                 instrument_type = item.get("instrument_type", "")
                 option_type = instrument_type if instrument_type in ("CE", "PE") else None
-                rows.append(InstrumentRow(
-                    instrument_token=int(item["instrument_token"]),
-                    exchange=item.get("exchange", exchange),
-                    tradingsymbol=item["tradingsymbol"],
-                    name=item.get("name") or item["tradingsymbol"],
-                    expiry=expiry,
-                    strike=strike,
-                    option_type=option_type,
-                    segment=item.get("segment", ""),
-                    lot_size=int(item.get("lot_size") or 1),
-                    tick_size=Decimal(str(item.get("tick_size") or "0.05")),
-                ))
+                rows.append(
+                    InstrumentRow(
+                        instrument_token=int(item["instrument_token"]),
+                        exchange=item.get("exchange", exchange),
+                        tradingsymbol=item["tradingsymbol"],
+                        name=item.get("name") or item["tradingsymbol"],
+                        expiry=expiry,
+                        strike=strike,
+                        option_type=option_type,
+                        segment=item.get("segment", ""),
+                        lot_size=int(item.get("lot_size") or 1),
+                        tick_size=Decimal(str(item.get("tick_size") or "0.05")),
+                    )
+                )
         return rows

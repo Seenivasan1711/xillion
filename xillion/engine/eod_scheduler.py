@@ -12,12 +12,14 @@ check is only meaningful if it runs strictly after X02 has had time to act
 out the other, which is exactly the fragility this pair of jobs exists to
 guard against everywhere else in the system.
 """
+
 import asyncio
 import zoneinfo
 from datetime import datetime, time, timedelta
 
 import structlog
 
+from xillion.core.broker_base import Broker
 from xillion.core.market_calendar import is_market_open
 from xillion.engine.reconciliation import run_reconciliation
 from xillion.engine.square_off import run_square_off
@@ -26,7 +28,7 @@ logger = structlog.get_logger(__name__)
 
 IST = zoneinfo.ZoneInfo("Asia/Kolkata")
 
-SQUARE_OFF_TIME = time(15, 15)     # Lane A -- automation-platform-spec X02
+SQUARE_OFF_TIME = time(15, 15)  # Lane A -- automation-platform-spec X02
 RECONCILIATION_TIME = time(15, 45)  # Lane A -- automation-platform-spec M01
 
 
@@ -37,7 +39,7 @@ def _next_occurrence(now: datetime, target: time) -> datetime:
     return candidate
 
 
-async def _connected_brokers(app) -> list[tuple[str, object]]:
+async def _connected_brokers(app) -> list[tuple[str, Broker]]:
     """(name, broker instance) for every currently-connected broker --
     X02/M01 run against whatever's actually connected, not a fixed list."""
     out = []
@@ -84,7 +86,9 @@ async def run_reconciliation_scheduler(app) -> None:
             notifier = getattr(app.state, "telegram", None)
             for name, broker in await _connected_brokers(app):
                 result = await run_reconciliation(
-                    broker, broker_name=name, db_factory=get_session_factory,
+                    broker,
+                    broker_name=name,
+                    db_factory=get_session_factory,
                     notify=notifier.alert if notifier else None,
                 )
                 logger.info("M01 reconciliation ran", broker=name, status=result.status)

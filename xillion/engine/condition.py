@@ -14,22 +14,33 @@ show for it):
 Exactly one of "threshold" (a literal number) or "other_metric" (a second
 metric spec) must be set.
 """
-from typing import Optional
 
 from xillion.core.events import Bar
 from xillion.engine import indicators as ind
 
 OPERATORS = (">", "<", ">=", "<=", "==", "crosses_above", "crosses_below")
 METRICS = (
-    "close", "open", "high", "low", "volume",
-    "sma", "ema", "rsi", "atr", "vwap",
-    "bb_upper", "bb_mid", "bb_lower",
-    "macd_line", "macd_signal", "macd_hist",
+    "close",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "sma",
+    "ema",
+    "rsi",
+    "atr",
+    "vwap",
+    "bb_upper",
+    "bb_mid",
+    "bb_lower",
+    "macd_line",
+    "macd_signal",
+    "macd_hist",
     "supertrend",
 )
 
 
-def _compute_metric(bars: list[Bar], metric: dict) -> Optional[float]:
+def _compute_metric(bars: list[Bar], metric: dict) -> float | None:
     name = metric["name"]
     if name not in METRICS:
         raise ValueError(f"Unknown metric {name!r}")
@@ -69,7 +80,9 @@ def _compute_metric(bars: list[Bar], metric: dict) -> Optional[float]:
     if name in ("macd_line", "macd_signal", "macd_hist"):
         m = ind.macd(
             closes,
-            int(metric.get("fast", 12)), int(metric.get("slow", 26)), int(metric.get("signal", 9)),
+            int(metric.get("fast", 12)),
+            int(metric.get("slow", 26)),
+            int(metric.get("signal", 9)),
         )
         if m is None:
             return None
@@ -82,7 +95,7 @@ def _compute_metric(bars: list[Bar], metric: dict) -> Optional[float]:
     raise ValueError(f"Unknown metric {name!r}")  # unreachable, satisfies type checkers
 
 
-def evaluate(condition: dict, bars: list[Bar]) -> Optional[bool]:
+def evaluate(condition: dict, bars: list[Bar]) -> bool | None:
     """True/False, or None if there isn't enough history yet to compute."""
     operator = condition["operator"]
     if operator not in OPERATORS:
@@ -128,7 +141,7 @@ def evaluate(condition: dict, bars: list[Bar]) -> Optional[bool]:
     return current == ref  # "=="
 
 
-def evaluate_all(conditions: list[dict], bars: list[Bar]) -> Optional[bool]:
+def evaluate_all(conditions: list[dict], bars: list[Bar]) -> bool | None:
     """AND of every condition. None (not enough data yet) if any one of
     them can't be evaluated -- an empty list is always False, never "no
     conditions means always enter", which would be a dangerous default."""

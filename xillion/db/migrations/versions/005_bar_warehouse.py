@@ -9,15 +9,16 @@ CP2 (data warehouse): tracks which date ranges are already fetched per
 serve every later request from Postgres with zero provider HTTP calls. See
 xillion/data/warehouse.py.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "005"
-down_revision: Union[str, None] = "004"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "004"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

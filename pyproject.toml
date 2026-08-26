@@ -62,6 +62,18 @@ target-version = "py311"
 select = ["E", "W", "F", "I", "B", "UP"]
 ignore = ["E501", "B008", "B006"]
 
+[tool.ruff.lint.per-file-ignores]
+# Strategy/HistoricalDataProvider are deliberately "optional-override" base
+# classes for a plugin architecture -- subclasses implement only the hooks
+# they need (e.g. an on_bar-only strategy has no reason to override
+# on_tick). B024/B027 want either @abstractmethod on every hook (which
+# would force every existing strategy plugin to implement all five) or no
+# ABC inheritance at all (which loses the "you must implement Strategy" type
+# check) -- neither fits this pattern, so both rules are silenced here
+# specifically rather than repo-wide.
+"xillion/core/strategy_base.py" = ["B024", "B027"]
+"xillion/core/data_provider_base.py" = ["B024"]
+
 [tool.black]
 line-length = 100
 target-version = ["py311"]

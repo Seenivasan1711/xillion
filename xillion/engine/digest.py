@@ -7,6 +7,7 @@ that's the only place real live/paper P&L (as opposed to backtest metrics
 or alert-mode target/stop outcomes -- see xillion/engine/journal.py's own
 docstring on why those two don't carry real fill data) actually lives.
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -48,7 +49,9 @@ async def build_digest(session_factory, *, since: datetime, period_label: str) -
         trades = _match_fills(list(rows))
 
         error_result = await db.execute(
-            select(SystemLog).where(SystemLog.ts >= since_iso, SystemLog.level.in_(("error", "critical")))
+            select(SystemLog).where(
+                SystemLog.ts >= since_iso, SystemLog.level.in_(("error", "critical"))
+            )
         )
         error_count = len(error_result.scalars().all())
 
@@ -61,7 +64,9 @@ async def build_digest(session_factory, *, since: datetime, period_label: str) -
 
     by_instance: dict = {}
     for t in trades:
-        by_instance[t["instance_name"]] = round(by_instance.get(t["instance_name"], 0.0) + t["pnl"], 2)
+        by_instance[t["instance_name"]] = round(
+            by_instance.get(t["instance_name"], 0.0) + t["pnl"], 2
+        )
 
     return DigestReport(
         period_label=period_label,

@@ -1,6 +1,7 @@
 """
 Broker plugin API endpoints: discovered classes and live connection management.
 """
+
 from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter(prefix="/brokers", tags=["brokers"])
@@ -14,7 +15,7 @@ async def list_broker_classes(request: Request):
         return {"brokers": [], "errors": {}}
     registry = loader.registry
     brokers = []
-    for name, cls in registry.brokers.items():
+    for _name, cls in registry.brokers.items():
         caps = getattr(cls, "capabilities", None)
         brokers.append(
             {
@@ -73,6 +74,7 @@ async def reconnect_broker(name: str, request: Request):
         raise HTTPException(status_code=400, detail="Reconnect not implemented for this broker")
 
     import xillion.main as main_module
+
     await getattr(main_module, handler_name)(request.app)
     info = request.app.state.broker_instances.get(name, {})
     return {"name": name, "status": info.get("status", "unknown")}
@@ -117,7 +119,9 @@ async def refresh_instruments(request: Request):
 
     broker, source = main_module._select_instrument_cache_broker(request.app)
     if broker is None:
-        raise HTTPException(status_code=409, detail="No broker connected to refresh instruments from")
+        raise HTTPException(
+            status_code=409, detail="No broker connected to refresh instruments from"
+        )
 
     count = await refresh_instrument_cache(broker, get_session_factory)
     return {"source": source, "row_count": count}

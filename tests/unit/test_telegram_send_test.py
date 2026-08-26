@@ -4,6 +4,7 @@ swallow every failure so a broken Telegram config never crashes real
 alerting/trading code), the "Send test message" button needs to actually
 tell the user whether it worked.
 """
+
 import httpx
 import pytest
 
@@ -25,7 +26,9 @@ async def test_send_test_reports_success(monkeypatch):
     class _FakeResponse:
         is_success = True
         status_code = 200
-        def json(self): return {}
+
+        def json(self):
+            return {}
 
     async def _fake_post(self, url, json, timeout):
         return _FakeResponse()
@@ -43,7 +46,9 @@ async def test_send_test_reports_telegram_api_error(monkeypatch):
     class _FakeResponse:
         is_success = False
         status_code = 401
-        def json(self): return {"description": "Unauthorized"}
+
+        def json(self):
+            return {"description": "Unauthorized"}
 
     async def _fake_post(self, url, json, timeout):
         return _FakeResponse()

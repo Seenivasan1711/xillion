@@ -3,6 +3,7 @@ Pre-trade AI confidence hook (CP8): disabled by default (no network call at
 all), and any failure when configured returns None rather than raising --
 a review service being down must never break a real alert.
 """
+
 import httpx
 import pytest
 
@@ -17,9 +18,11 @@ def _patch_client_transport(monkeypatch, handler) -> None:
     network, using the ORIGINAL __init__ captured at import time -- patching
     via a lambda that calls httpx.AsyncClient.__init__ directly recurses
     forever once that name itself is the patched attribute."""
+
     def _patched_init(self, **kwargs):
         kwargs["transport"] = httpx.MockTransport(handler)
         _ORIGINAL_ASYNC_CLIENT_INIT(self, **kwargs)
+
     monkeypatch.setattr(httpx.AsyncClient, "__init__", _patched_init)
 
 

@@ -33,12 +33,12 @@ URL first and fall back to the legacy one on a 404, so no hardcoded
 cutover date is needed -- correct regardless of exactly which day NSE
 switched formats.
 """
+
 import csv
 import io
 import zipfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 import httpx
 import structlog
@@ -49,10 +49,10 @@ from xillion.data.option_chain import HistoricalOptionRow
 
 logger = structlog.get_logger(__name__)
 
-_URL_TEMPLATE = "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip"
-_LEGACY_URL_TEMPLATE = (
-    "https://archives.nseindia.com/content/historical/DERIVATIVES/{yyyy}/{mon}/fo{dd}{mon}{yyyy}bhav.csv.zip"
+_URL_TEMPLATE = (
+    "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip"
 )
+_LEGACY_URL_TEMPLATE = "https://archives.nseindia.com/content/historical/DERIVATIVES/{yyyy}/{mon}/fo{dd}{mon}{yyyy}bhav.csv.zip"
 _USER_AGENT = "Mozilla/5.0 (compatible; xillion-backtester/1.0)"
 
 
@@ -131,11 +131,17 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         if day.weekday() >= 5:
             return []
         async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": _USER_AGENT}) as client:
-            day_bars = await self._fetch_and_parse_day(client, day, underlying_filter=underlying_filter)
+            day_bars = await self._fetch_and_parse_day(
+                client, day, underlying_filter=underlying_filter
+            )
         return list(day_bars.values())
 
     async def _fetch_and_parse_day(
-        self, client: httpx.AsyncClient, day: date, *, underlying_filter: "set[str] | None" = None,
+        self,
+        client: httpx.AsyncClient,
+        day: date,
+        *,
+        underlying_filter: "set[str] | None" = None,
     ) -> dict[str, Bar]:
         """Download and parse one day's whole-market ZIP once, returning
         every instrument's bar keyed by tradingsymbol (or only those whose
@@ -144,13 +150,21 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         or simply pre-2024 (where that URL never existed) -- falls back to
         the legacy archive, which itself just returns {} for an actual
         holiday, so this never fabricates data either way."""
-        result = await self._fetch_and_parse_day_new(client, day, underlying_filter=underlying_filter)
+        result = await self._fetch_and_parse_day_new(
+            client, day, underlying_filter=underlying_filter
+        )
         if result:
             return result
-        return await self._fetch_and_parse_day_legacy(client, day, underlying_filter=underlying_filter)
+        return await self._fetch_and_parse_day_legacy(
+            client, day, underlying_filter=underlying_filter
+        )
 
     async def _fetch_and_parse_day_new(
-        self, client: httpx.AsyncClient, day: date, *, underlying_filter: "set[str] | None" = None,
+        self,
+        client: httpx.AsyncClient,
+        day: date,
+        *,
+        underlying_filter: "set[str] | None" = None,
     ) -> dict[str, Bar]:
         url = _URL_TEMPLATE.format(ymd=day.strftime("%Y%m%d"))
         try:
@@ -169,7 +183,10 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
                 with zf.open(csv_name) as f:
                     reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
                     for row in reader:
-                        if underlying_filter is not None and row.get("TckrSymb") not in underlying_filter:
+                        if (
+                            underlying_filter is not None
+                            and row.get("TckrSymb") not in underlying_filter
+                        ):
                             continue
                         sym = row.get("FinInstrmNm") or row.get("TckrSymb")
                         if not sym or sym in result:
@@ -183,10 +200,16 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         return result
 
     async def _fetch_and_parse_day_legacy(
-        self, client: httpx.AsyncClient, day: date, *, underlying_filter: "set[str] | None" = None,
+        self,
+        client: httpx.AsyncClient,
+        day: date,
+        *,
+        underlying_filter: "set[str] | None" = None,
     ) -> dict[str, Bar]:
         url = _LEGACY_URL_TEMPLATE.format(
-            yyyy=day.strftime("%Y"), mon=day.strftime("%b").upper(), dd=day.strftime("%d"),
+            yyyy=day.strftime("%Y"),
+            mon=day.strftime("%b").upper(),
+            dd=day.strftime("%d"),
         )
         try:
             resp = await client.get(url)
@@ -246,7 +269,9 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             return await self._fetch_option_chain_for_day_legacy(client, day)
 
     async def _fetch_option_chain_for_day_new(
-        self, client: httpx.AsyncClient, day: date,
+        self,
+        client: httpx.AsyncClient,
+        day: date,
     ) -> list[HistoricalOptionRow]:
         url = _URL_TEMPLATE.format(ymd=day.strftime("%Y%m%d"))
         try:
@@ -274,7 +299,9 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         return rows
 
     async def _fetch_option_chain_for_day_legacy(
-        self, client: httpx.AsyncClient, day: date,
+        self,
+        client: httpx.AsyncClient,
+        day: date,
     ) -> list[HistoricalOptionRow]:
         """Two real, honestly-documented approximations that the new-format
         path above doesn't need, both because the legacy file simply
@@ -296,7 +323,9 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
           would need to replace this before pre-2024 backtests can size
           positions at all."""
         url = _LEGACY_URL_TEMPLATE.format(
-            yyyy=day.strftime("%Y"), mon=day.strftime("%b").upper(), dd=day.strftime("%d"),
+            yyyy=day.strftime("%Y"),
+            mon=day.strftime("%b").upper(),
+            dd=day.strftime("%d"),
         )
         try:
             resp = await client.get(url)
@@ -304,7 +333,9 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
                 return []
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            logger.warning("nse bhavcopy legacy option-chain fetch failed", date=str(day), error=str(exc))
+            logger.warning(
+                "nse bhavcopy legacy option-chain fetch failed", date=str(day), error=str(exc)
+            )
             return []
 
         raw_rows: list[dict] = []
@@ -314,7 +345,9 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
                 with zf.open(csv_name) as f:
                     raw_rows = list(csv.DictReader(io.TextIOWrapper(f, encoding="utf-8")))
         except (zipfile.BadZipFile, StopIteration) as exc:
-            logger.warning("nse bhavcopy legacy option-chain parse failed", date=str(day), error=str(exc))
+            logger.warning(
+                "nse bhavcopy legacy option-chain parse failed", date=str(day), error=str(exc)
+            )
             return []
 
         # Nearest-expiry future close per underlying, for the spot proxy.
@@ -333,7 +366,7 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             if close > 0:
                 future_closes.setdefault(underlying, []).append((expiry, close))
 
-        def _spot_proxy(underlying: str) -> Optional[Decimal]:
+        def _spot_proxy(underlying: str) -> Decimal | None:
             candidates = future_closes.get(underlying)
             if not candidates:
                 return None
@@ -365,9 +398,15 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             underlying_price_str = (row.get("UndrlygPric") or "").strip()
             underlying_price = Decimal(underlying_price_str) if underlying_price_str else None
             return HistoricalOptionRow(
-                tradingsymbol=tradingsymbol, exchange="NFO", underlying=underlying,
-                expiry=expiry, strike=strike, option_type=option_type, lot_size=lot_size,
-                close=close, underlying_price=underlying_price,
+                tradingsymbol=tradingsymbol,
+                exchange="NFO",
+                underlying=underlying,
+                expiry=expiry,
+                strike=strike,
+                option_type=option_type,
+                lot_size=lot_size,
+                close=close,
+                underlying_price=underlying_price,
             )
         except (KeyError, InvalidOperation, ValueError):
             return None
@@ -391,7 +430,7 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
     # ── Legacy (pre-2024) format helpers ────────────────────────────────────────
 
     @staticmethod
-    def _parse_legacy_expiry(expiry_str: "str | None") -> Optional[date]:
+    def _parse_legacy_expiry(expiry_str: "str | None") -> date | None:
         if not expiry_str:
             return None
         try:
@@ -400,7 +439,7 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
             return None
 
     @classmethod
-    def _legacy_tradingsymbol_from_row(cls, row: dict) -> Optional[str]:
+    def _legacy_tradingsymbol_from_row(cls, row: dict) -> str | None:
         """Synthetic, internal-only convention -- see this module's
         docstring for why (no ready-made tradingsymbol column pre-2024,
         and this data never needs to match NSE's/Zerodha's real naming
@@ -471,7 +510,13 @@ class NSEBhavcopyProvider(HistoricalDataProvider):
         except (KeyError, InvalidOperation):
             return None
         return HistoricalOptionRow(
-            tradingsymbol=tradingsymbol, exchange="NFO", underlying=underlying,
-            expiry=expiry, strike=strike, option_type=option_type, lot_size=0,
-            close=close, underlying_price=spot_proxy_fn(underlying),
+            tradingsymbol=tradingsymbol,
+            exchange="NFO",
+            underlying=underlying,
+            expiry=expiry,
+            strike=strike,
+            option_type=option_type,
+            lot_size=0,
+            close=close,
+            underlying_price=spot_proxy_fn(underlying),
         )

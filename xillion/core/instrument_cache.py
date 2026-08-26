@@ -4,10 +4,10 @@ instrument dump and reads it back into the resolver's InstrumentRow
 dataclass. Kite's dump doesn't change intraday except around rare
 instrument suspensions -- refreshed once daily (see main.py).
 """
+
+from datetime import UTC, datetime
 from datetime import date as _date
-from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
 
 import structlog
 from sqlalchemy import delete, select
@@ -19,11 +19,13 @@ logger = structlog.get_logger(__name__)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 async def refresh_instrument_cache(
-    broker, db_factory, exchanges: Optional[list[str]] = None,
+    broker,
+    db_factory,
+    exchanges: list[str] | None = None,
 ) -> int:
     """Fetch the broker's instrument dump and reload the `instrument` table.
     Truncate + reload -- cheap (tens of thousands of rows), run once/day."""
@@ -33,26 +35,28 @@ async def refresh_instrument_cache(
     async with db_factory()() as session:
         await session.execute(delete(Instrument))
         for row in rows:
-            session.add(Instrument(
-                instrument_token=row.instrument_token,
-                exchange=row.exchange,
-                tradingsymbol=row.tradingsymbol,
-                name=row.name,
-                expiry=row.expiry.isoformat() if row.expiry else None,
-                strike=float(row.strike) if row.strike is not None else None,
-                option_type=row.option_type,
-                segment=row.segment,
-                lot_size=row.lot_size,
-                tick_size=float(row.tick_size),
-                last_updated=now,
-            ))
+            session.add(
+                Instrument(
+                    instrument_token=row.instrument_token,
+                    exchange=row.exchange,
+                    tradingsymbol=row.tradingsymbol,
+                    name=row.name,
+                    expiry=row.expiry.isoformat() if row.expiry else None,
+                    strike=float(row.strike) if row.strike is not None else None,
+                    option_type=row.option_type,
+                    segment=row.segment,
+                    lot_size=row.lot_size,
+                    tick_size=float(row.tick_size),
+                    last_updated=now,
+                )
+            )
         await session.commit()
 
     logger.info("instrument cache refreshed", row_count=len(rows), exchanges=exchanges)
     return len(rows)
 
 
-async def load_instrument_rows(db_factory, name: Optional[str] = None) -> list[InstrumentRow]:
+async def load_instrument_rows(db_factory, name: str | None = None) -> list[InstrumentRow]:
     """Read cached instrument rows back into the resolver's dataclass,
     optionally filtered to one underlying."""
     async with db_factory()() as session:

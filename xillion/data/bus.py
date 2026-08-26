@@ -4,9 +4,10 @@ Strategies subscribe to (symbol, timeframe) topics and receive Bar/Tick events.
 In live/paper mode the broker plugin publishes ticks; in backtest the
 backtest broker publishes historical bars in order.
 """
+
 import asyncio
 from collections import defaultdict
-from typing import Callable, Coroutine
+from collections.abc import Callable, Coroutine
 
 import structlog
 

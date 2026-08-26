@@ -4,6 +4,7 @@ through this before it's console-rendered. It must never raise or block a
 log call -- see xillion/observability/log_capture.py's docstring for why
 (it runs synchronously on every logger.info/.warning/etc call in the app).
 """
+
 import asyncio
 
 import pytest
@@ -22,7 +23,11 @@ def test_event_is_enqueued_with_expected_shape():
     result = log_capture.capture_processor(
         None, "info", {"event": "something happened", "module": "strategy_engine", "foo": "bar"}
     )
-    assert result == {"event": "something happened", "module": "strategy_engine", "foo": "bar"}  # unchanged, passed through
+    assert result == {
+        "event": "something happened",
+        "module": "strategy_engine",
+        "foo": "bar",
+    }  # unchanged, passed through
 
     entry = log_capture._get_queue().get_nowait()
     assert entry["level"] == "info"

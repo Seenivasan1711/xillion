@@ -14,29 +14,29 @@ Contract rules:
 - Do NOT spawn threads or processes.
 - Access the world exclusively through `ctx`.
 """
-from decimal import Decimal
-from typing import Optional
 
-from xillion.core.events import Bar, Order, Tick
+from xillion.core.events import Bar, Order
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
 
 
 class MyStrategy(Strategy):
     # ── Metadata ──────────────────────────────────────────────────────────────
-    name = "My Strategy"               # Must be unique across all loaded strategies
+    name = "My Strategy"  # Must be unique across all loaded strategies
     version = "0.1.0"
     description = "A brief description of what this strategy does."
     author = "you"
-    timeframe = "5m"                   # Default bar timeframe to subscribe to
-    instruments = ["NIFTY 50"]         # Default instruments (overridable per instance)
+    timeframe = "5m"  # Default bar timeframe to subscribe to
+    instruments = ["NIFTY 50"]  # Default instruments (overridable per instance)
 
     # ── Parameter schema ──────────────────────────────────────────────────────
     # These drive the config form in the dashboard.
     params_schema = [
-        ParamSpec("period", "int", default=14, min=2, max=200,
-                  description="Lookback period in bars"),
-        ParamSpec("qty", "int", default=1, min=1,
-                  description="Quantity per order (lots or shares)"),
+        ParamSpec(
+            "period", "int", default=14, min=2, max=200, description="Lookback period in bars"
+        ),
+        ParamSpec(
+            "qty", "int", default=1, min=1, description="Quantity per order (lots or shares)"
+        ),
     ]
 
     # ── Lifecycle hooks ───────────────────────────────────────────────────────

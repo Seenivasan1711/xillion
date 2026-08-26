@@ -3,9 +3,10 @@ PaperBroker — simulates live trading using real market ticks with fake fills.
 Phase 3+ will connect this to a real broker's WebSocket for live tick data.
 For now (Phase 1-2) it uses the BacktestBroker's fill logic.
 """
-from datetime import datetime, timezone
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import AsyncIterator, Optional
 from uuid import uuid4
 
 from xillion.core.broker_base import Broker, BrokerCapabilities
@@ -56,7 +57,7 @@ class PaperBroker(Broker):
         return {"available": 999_999_999, "note": "paper mode"}
 
     async def place_order(self, request: OrderRequest) -> Order:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         from xillion.core.events import Side
 
         last_price = self._last_prices.get(request.symbol, Decimal("0"))
@@ -120,7 +121,7 @@ class PaperBroker(Broker):
         return []
 
     async def get_quote(self, symbols: list[str]) -> dict[str, Tick]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return {
             sym: Tick(
                 symbol=sym,

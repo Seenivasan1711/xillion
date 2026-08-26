@@ -11,7 +11,8 @@ to Dhan's user_profile endpoint to validate the token, which has nothing to
 do with what these tests are proving (that credentials round-trip through
 encrypted DB storage correctly).
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -33,7 +34,9 @@ class _FakeRequest:
 
 
 def _user() -> AppUser:
-    return AppUser(id=1, username="test-user", password_hash="x", created_at=datetime.now(timezone.utc).isoformat())
+    return AppUser(
+        id=1, username="test-user", password_hash="x", created_at=datetime.now(UTC).isoformat()
+    )
 
 
 @pytest.mark.asyncio
@@ -55,7 +58,9 @@ async def test_dhan_credentials_round_trip_through_encrypted_db_storage(monkeypa
         assert before.configured is False
 
     async with factory() as db:
-        body = DhanCredentialsRequest(client_id="1000000003", access_token="tok-abc", pin="1234", totp_secret="")
+        body = DhanCredentialsRequest(
+            client_id="1000000003", access_token="tok-abc", pin="1234", totp_secret=""
+        )
         result = await put_dhan_credentials(body, request, db, user)
         assert result["saved"] is True
 
@@ -144,5 +149,5 @@ async def test_saving_dhan_broker_credentials_also_configures_the_dhanhq_data_pr
     async with factory() as db:
         provider_creds = await load_provider_credentials(db, "DhanHQ")
         assert provider_creds is not None
-        assert provider_creds["api_key"] == "tok-abc"        # access token
+        assert provider_creds["api_key"] == "tok-abc"  # access token
         assert provider_creds["api_secret"] == "1000000003"  # client ID

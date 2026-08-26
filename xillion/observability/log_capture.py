@@ -13,9 +13,10 @@ etc. call across the app, so it must never block or raise. It only enqueues
 -- the actual DB write and WS broadcast happen on the drain task, off the
 hot path.
 """
+
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _QUEUE_MAXSIZE = 2000
 _PRUNE_EVERY_N_WRITES = 200
@@ -34,11 +35,12 @@ def _get_queue() -> "asyncio.Queue[dict]":
 def capture_processor(logger, method_name, event_dict):
     try:
         fields = {
-            k: v for k, v in event_dict.items()
+            k: v
+            for k, v in event_dict.items()
             if k not in ("event", "module", "level", "timestamp")
         }
         entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "level": method_name,
             "source": event_dict.get("module") or "system",
             "message": str(event_dict.get("event", "")),
@@ -67,13 +69,15 @@ async def run_log_persistence() -> None:
         entry = await queue.get()
         try:
             async with factory() as db:
-                db.add(SystemLog(
-                    ts=entry["ts"],
-                    level=entry["level"],
-                    source=entry["source"],
-                    message=entry["message"],
-                    fields_json=json.dumps(entry["fields"], default=str),
-                ))
+                db.add(
+                    SystemLog(
+                        ts=entry["ts"],
+                        level=entry["level"],
+                        source=entry["source"],
+                        message=entry["message"],
+                        fields_json=json.dumps(entry["fields"], default=str),
+                    )
+                )
                 await db.commit()
         except Exception:
             pass
@@ -97,7 +101,7 @@ async def _prune_old_logs(factory) -> None:
 
     from xillion.db.models import SystemLog
 
-    cutoff = (datetime.now(timezone.utc) - _RETENTION).isoformat()
+    cutoff = (datetime.now(UTC) - _RETENTION).isoformat()
     async with factory() as db:
         await db.execute(delete(SystemLog).where(SystemLog.ts < cutoff))
         await db.commit()

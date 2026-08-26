@@ -8,6 +8,7 @@ CSV format (header required):
 Example:
   python scripts/import_csv.py data/nifty_5m.csv --timeframe 5m --symbol NIFTY50
 """
+
 import asyncio
 import csv
 import sys
@@ -42,7 +43,10 @@ def main(
             # See scripts/backfill.py's identical guard: create_all() against
             # a production-pointed DB desyncs Alembic's version tracking from
             # the real schema, which crashed a later real deploy.
-            print("production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed", file=sys.stderr)
+            print(
+                "production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed",
+                file=sys.stderr,
+            )
         else:
             await init_db()
         factory = get_session_factory()

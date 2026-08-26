@@ -34,13 +34,14 @@ order, and exchange/security are resolved from Dhan's own scrip master by
 symbol -- OrderRequest carries neither field explicitly, matching the same
 limitation zerodha.py already has (it hardcodes NSE + MIS product type).
 """
+
 import asyncio
 import csv
 import json
-from datetime import date, datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import AsyncIterator, Optional
 
 import httpx
 import pyotp
@@ -48,7 +49,10 @@ import structlog
 
 from xillion.core.broker_base import Broker, BrokerCapabilities
 from xillion.core.dhan_instruments import (
-    EXCHANGE_SEGMENT_TO_FEED_CODE, ResolvedSecurity, ensure_scrip_master, resolve_security,
+    EXCHANGE_SEGMENT_TO_FEED_CODE,
+    ResolvedSecurity,
+    ensure_scrip_master,
+    resolve_security,
 )
 from xillion.core.events import (
     Bar,
@@ -70,7 +74,7 @@ _PRODUCT_TYPE = "INTRADAY"
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class DhanBroker(Broker):
@@ -79,8 +83,8 @@ class DhanBroker(Broker):
     capabilities = BrokerCapabilities(
         supports_websocket=True,
         supports_historical=True,
-        supports_bracket_orders=True,   # Dhan's BO product type -- not wired to a distinct order path here yet
-        supports_cover_orders=True,     # Dhan's CO product type -- same caveat
+        supports_bracket_orders=True,  # Dhan's BO product type -- not wired to a distinct order path here yet
+        supports_cover_orders=True,  # Dhan's CO product type -- same caveat
         supports_modify_order=True,
         supports_partial_fills=True,
         supported_timeframes=["1m", "5m", "15m", "1h", "1d"],
@@ -88,25 +92,28 @@ class DhanBroker(Broker):
     )
 
     def __init__(self, notifier=None):
-        self._dhan = None            # dhanhq facade instance
-        self._context = None         # DhanContext
+        self._dhan = None  # dhanhq facade instance
+        self._context = None  # DhanContext
         self._client_id: str = ""
-        self._access_token: Optional[str] = None
+        self._access_token: str | None = None
         self._connected = False
         self._credentials: dict = {}
-        self._feed = None            # dhanhq.marketfeed.MarketFeed
+        self._feed = None  # dhanhq.marketfeed.MarketFeed
         self._feed_connected = False  # real socket state, separate from _connected (REST session)
-        self._feed_error_count = 0    # consecutive WS reconnect failures -- see _start_feed's _on_error
+        self._feed_error_count = (
+            0  # consecutive WS reconnect failures -- see _start_feed's _on_error
+        )
         self._tick_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._order_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._security_by_symbol: dict[str, ResolvedSecurity] = {}
         self._notifier = notifier
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
     async def connect(self, credentials: dict) -> None:
-        from dhanhq import DhanContext, dhanhq as DhanHQClient
+        from dhanhq import DhanContext
+        from dhanhq import dhanhq as DhanHQClient
 
         self._credentials = credentials
         self._loop = asyncio.get_event_loop()
@@ -170,11 +177,15 @@ class DhanBroker(Broker):
             profile = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: login.user_profile(token)
             )
-            return isinstance(profile, dict) and profile.get("status") not in ("failure", None) or bool(profile)
+            return (
+                isinstance(profile, dict)
+                and profile.get("status") not in ("failure", None)
+                or bool(profile)
+            )
         except Exception:
             return False
 
-    def _load_token_cache(self, client_id: str) -> Optional[str]:
+    def _load_token_cache(self, client_id: str) -> str | None:
         if not _TOKEN_CACHE.exists():
             return None
         try:
@@ -188,7 +199,9 @@ class DhanBroker(Broker):
     def _save_token_cache(self, client_id: str, token: str) -> None:
         _TOKEN_CACHE.parent.mkdir(parents=True, exist_ok=True)
         _TOKEN_CACHE.write_text(
-            json.dumps({"client_id": client_id, "access_token": token, "saved_at": _utcnow().isoformat()})
+            json.dumps(
+                {"client_id": client_id, "access_token": token, "saved_at": _utcnow().isoformat()}
+            )
         )
 
     async def disconnect(self) -> None:
@@ -222,14 +235,16 @@ class DhanBroker(Broker):
             net_qty = int(item.get("netQty") or 0)
             if net_qty == 0:
                 continue
-            positions.append(Position(
-                symbol=item.get("tradingSymbol") or item.get("securityId", ""),
-                quantity=net_qty,
-                avg_price=Decimal(str(item.get("costPrice") or 0)),
-                realised_pnl=Decimal(str(item.get("realizedProfit") or 0)),
-                unrealised_pnl=Decimal(str(item.get("unrealizedProfit") or 0)),
-                last_price=Decimal(str(item.get("lastTradedPrice") or 0)),
-            ))
+            positions.append(
+                Position(
+                    symbol=item.get("tradingSymbol") or item.get("securityId", ""),
+                    quantity=net_qty,
+                    avg_price=Decimal(str(item.get("costPrice") or 0)),
+                    realised_pnl=Decimal(str(item.get("realizedProfit") or 0)),
+                    unrealised_pnl=Decimal(str(item.get("unrealizedProfit") or 0)),
+                    last_price=Decimal(str(item.get("lastTradedPrice") or 0)),
+                )
+            )
         return positions
 
     async def get_holdings(self) -> list[dict]:
@@ -250,7 +265,7 @@ class DhanBroker(Broker):
         if resolved is None:
             raise ValueError(
                 f"Dhan: couldn't find {symbol!r} in the instrument master -- "
-                f"use Dhan's own naming convention (e.g. \"NIFTY-Aug2026-FUT\"), "
+                f'use Dhan\'s own naming convention (e.g. "NIFTY-Aug2026-FUT"), '
                 f"not another provider's symbol format"
             )
         self._security_by_symbol[symbol] = resolved
@@ -307,10 +322,17 @@ class DhanBroker(Broker):
             reason = (response or {}).get("remarks") or "unknown error"
             logger.error("dhan: place_order failed", symbol=request.symbol, error=reason)
             return Order(
-                client_order_id=request.client_order_id, symbol=request.symbol, side=request.side,
-                quantity=request.quantity, order_type=request.order_type, status=OrderStatus.REJECTED,
-                submitted_at=now, updated_at=now, rejection_reason=str(reason),
-                tag=request.tag, strategy_instance_id=request.strategy_instance_id,
+                client_order_id=request.client_order_id,
+                symbol=request.symbol,
+                side=request.side,
+                quantity=request.quantity,
+                order_type=request.order_type,
+                status=OrderStatus.REJECTED,
+                submitted_at=now,
+                updated_at=now,
+                rejection_reason=str(reason),
+                tag=request.tag,
+                strategy_instance_id=request.strategy_instance_id,
             )
         return Order(
             client_order_id=request.client_order_id or "",
@@ -337,7 +359,9 @@ class DhanBroker(Broker):
             )
             return isinstance(response, dict) and response.get("status") != "failure"
         except Exception as exc:
-            logger.error("dhan: cancel_order failed", broker_order_id=broker_order_id, error=str(exc))
+            logger.error(
+                "dhan: cancel_order failed", broker_order_id=broker_order_id, error=str(exc)
+            )
             return False
 
     async def modify_order(self, broker_order_id: str, **changes) -> Order:
@@ -401,7 +425,11 @@ class DhanBroker(Broker):
             resolved = await self._resolve(sym)
             feed_code = EXCHANGE_SEGMENT_TO_FEED_CODE.get(resolved.exchange_segment)
             if feed_code is None:
-                logger.error("dhan: no feed code for exchangeSegment", symbol=sym, segment=resolved.exchange_segment)
+                logger.error(
+                    "dhan: no feed code for exchangeSegment",
+                    symbol=sym,
+                    segment=resolved.exchange_segment,
+                )
                 continue
             instruments.append((feed_code, resolved.security_id))
         if instruments:
@@ -429,7 +457,11 @@ class DhanBroker(Broker):
         security_by_id: dict[str, str] = {}  # security_id -> our symbol, for tick attribution
 
         def _on_ticks(feed, data):
-            if not isinstance(data, dict) or data.get("type") not in ("Ticker Data", "Quote Data", "Full Data"):
+            if not isinstance(data, dict) or data.get("type") not in (
+                "Ticker Data",
+                "Quote Data",
+                "Full Data",
+            ):
                 return
             security_id = str(data.get("security_id", ""))
             symbol = security_by_id.get(security_id, security_id)
@@ -477,7 +509,7 @@ class DhanBroker(Broker):
                         self._notifier.alert(
                             title="Dhan feed disconnected",
                             body=f"WebSocket failed {_MAX_CONSECUTIVE_ERRORS} times in a row ({error}). "
-                                 "Stopped retrying -- reconnect via Configuration → Dhan.",
+                            "Stopped retrying -- reconnect via Configuration → Dhan.",
                             severity="warning",
                         ),
                         loop,
@@ -492,8 +524,13 @@ class DhanBroker(Broker):
         security_by_id.update({r.security_id: sym for sym, r in self._security_by_symbol.items()})
 
         self._feed = MarketFeed(
-            self._context, instruments=[], version="v2",
-            on_connect=_on_connect, on_ticks=_on_ticks, on_close=_on_close, on_error=_on_error,
+            self._context,
+            instruments=[],
+            version="v2",
+            on_connect=_on_connect,
+            on_ticks=_on_ticks,
+            on_close=_on_close,
+            on_error=_on_error,
         )
         # MarketFeed.__init__ calls asyncio.set_event_loop(self.loop), which
         # clobbers this (main) thread's default event loop with its own
@@ -528,7 +565,10 @@ class DhanBroker(Broker):
         provider = DhanHQProvider()
         try:
             return await provider.fetch_bars(
-                symbol, "NSE", timeframe, from_ts.date() if hasattr(from_ts, "date") else from_ts,
+                symbol,
+                "NSE",
+                timeframe,
+                from_ts.date() if hasattr(from_ts, "date") else from_ts,
                 to_ts.date() if hasattr(to_ts, "date") else to_ts,
                 credentials={"api_key": self._access_token, "api_secret": self._client_id},
             )
@@ -555,7 +595,7 @@ class DhanBroker(Broker):
         now = _utcnow()
         out: dict[str, Tick] = {}
         data = response.get("data", {}) if isinstance(response, dict) else {}
-        for segment, securities in data.items():
+        for _segment, securities in data.items():
             for security_id, payload in securities.items():
                 sym = symbol_by_security_id.get(str(security_id))
                 if sym is None:
@@ -566,7 +606,8 @@ class DhanBroker(Broker):
     # ── Instrument master (options resolution) ──────────────────────────────────
 
     async def fetch_instrument_dump(
-        self, exchanges: Optional[list[str]] = None,
+        self,
+        exchanges: list[str] | None = None,
     ) -> list[InstrumentRow]:
         """Fetch Dhan's scrip master and filter to F&O contracts, translated
         into the same InstrumentRow shape zerodha.py's fetch_instrument_dump
@@ -609,23 +650,27 @@ class DhanBroker(Broker):
                 expiry_raw = row.get("SM_EXPIRY_DATE")
                 expiry = date.fromisoformat(expiry_raw) if expiry_raw else None
                 strike_raw = row.get("STRIKE_PRICE")
-                strike: Optional[Decimal] = None
+                strike: Decimal | None = None
                 if strike_raw:
                     parsed_strike = Decimal(strike_raw)
                     if parsed_strike > 0:
                         strike = parsed_strike
-                option_type = row.get("OPTION_TYPE") if row.get("OPTION_TYPE") in ("CE", "PE") else None
+                option_type = (
+                    row.get("OPTION_TYPE") if row.get("OPTION_TYPE") in ("CE", "PE") else None
+                )
                 exchange = "NFO" if row["EXCH_ID"] == "NSE" else "BFO"
-                rows.append(InstrumentRow(
-                    instrument_token=security_id,
-                    exchange=exchange,
-                    tradingsymbol=symbol_name,
-                    name=row.get("UNDERLYING_SYMBOL") or symbol_name,
-                    expiry=expiry,
-                    strike=strike,
-                    option_type=option_type,
-                    segment=row.get("SEGMENT", ""),
-                    lot_size=int(float(row.get("LOT_SIZE") or 1)),
-                    tick_size=Decimal(row.get("TICK_SIZE") or "0.05"),
-                ))
+                rows.append(
+                    InstrumentRow(
+                        instrument_token=security_id,
+                        exchange=exchange,
+                        tradingsymbol=symbol_name,
+                        name=row.get("UNDERLYING_SYMBOL") or symbol_name,
+                        expiry=expiry,
+                        strike=strike,
+                        option_type=option_type,
+                        segment=row.get("SEGMENT", ""),
+                        lot_size=int(float(row.get("LOT_SIZE") or 1)),
+                        tick_size=Decimal(row.get("TICK_SIZE") or "0.05"),
+                    )
+                )
         return rows

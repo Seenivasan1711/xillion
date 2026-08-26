@@ -1,14 +1,13 @@
 """
 Xillion CLI. Entry point: `xillion <command>`.
 """
+
 import asyncio
 import csv
 import json
-import sys
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -27,6 +26,7 @@ console = Console()
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
+
 
 @db_app.command("upgrade")
 def db_upgrade():
@@ -47,6 +47,7 @@ def db_init():
 
 
 # ── Plugin commands ────────────────────────────────────────────────────────────
+
 
 @plugin_app.command("list")
 def plugin_list():
@@ -84,15 +85,16 @@ def plugin_list():
 
 # ── Backtest commands ──────────────────────────────────────────────────────────
 
+
 @backtest_app.command("run")
 def backtest_run(
     strategy: str = typer.Argument(..., help="Strategy name (as defined in strategy file)"),
     data: str = typer.Argument(..., help="Path to CSV file with OHLCV bars"),
-    from_ts: Optional[str] = typer.Option(None, "--from", help="Start datetime (ISO format)"),
-    to_ts: Optional[str] = typer.Option(None, "--to", help="End datetime (ISO format)"),
+    from_ts: str | None = typer.Option(None, "--from", help="Start datetime (ISO format)"),
+    to_ts: str | None = typer.Option(None, "--to", help="End datetime (ISO format)"),
     capital: float = typer.Option(100000.0, "--capital", "-c", help="Initial capital"),
     slippage: int = typer.Option(5, "--slippage", help="Slippage in basis points"),
-    params: Optional[str] = typer.Option(None, "--params", "-p", help="JSON params override"),
+    params: str | None = typer.Option(None, "--params", "-p", help="JSON params override"),
 ):
     """Run a backtest of a strategy against a CSV data file."""
 
@@ -179,7 +181,10 @@ def backtest_run(
             ("CAGR", f"{m.get('cagr_pct', 0):.2f}%"),
             ("Sharpe Ratio", f"{m.get('sharpe_ratio', 0):.3f}"),
             ("Sortino Ratio", f"{m.get('sortino_ratio', 0):.3f}"),
-            ("Max Drawdown", f"₹{m.get('max_drawdown', 0):,.2f} ({m.get('max_drawdown_pct', 0):.2f}%)"),
+            (
+                "Max Drawdown",
+                f"₹{m.get('max_drawdown', 0):,.2f} ({m.get('max_drawdown_pct', 0):.2f}%)",
+            ),
             ("Trades", str(m.get("trade_count", 0))),
             ("Win Rate", f"{m.get('win_rate_pct', 0):.2f}%"),
             ("Profit Factor", str(m.get("profit_factor", 0))),

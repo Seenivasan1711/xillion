@@ -14,6 +14,7 @@ Example (NSE bhavcopy needs no credentials, so this can run standalone):
       --symbol NIFTY26AUGFUT --exchange NFO --instrument-type future \
       --from-date 2023-01-01 --to-date 2026-08-24
 """
+
 import asyncio
 import sys
 from datetime import date
@@ -37,15 +38,22 @@ def _year_chunks(from_date: date, to_date: date):
 
 @app.command()
 def main(
-    provider: str = typer.Option(..., "--provider", help="Data provider name, e.g. 'NSE Bhavcopy (Free)'"),
-    symbol: str = typer.Option(..., "--symbol", help="Full tradingsymbol (ignored for whole-file-bulk providers' own persistence, but still used to report bars found)"),
+    provider: str = typer.Option(
+        ..., "--provider", help="Data provider name, e.g. 'NSE Bhavcopy (Free)'"
+    ),
+    symbol: str = typer.Option(
+        ...,
+        "--symbol",
+        help="Full tradingsymbol (ignored for whole-file-bulk providers' own persistence, but still used to report bars found)",
+    ),
     exchange: str = typer.Option("NFO", "--exchange"),
     instrument_type: str = typer.Option("option", "--instrument-type"),
     timeframe: str = typer.Option("1d", "--timeframe"),
     from_date: str = typer.Option(..., "--from-date", help="YYYY-MM-DD"),
     to_date: str = typer.Option(..., "--to-date", help="YYYY-MM-DD"),
     underlying_filter: str = typer.Option(
-        "", "--underlying-filter",
+        "",
+        "--underlying-filter",
         help=(
             "Comma-separated underlyings (e.g. 'NIFTY,BANKNIFTY') to keep from a "
             "whole-file-bulk provider's daily file. A real multi-year NFO backfill "
@@ -78,14 +86,20 @@ def main(
             # elsewhere (e.g. a fresh Render deploy) sees an old revision,
             # tries to recreate tables that already exist, and crashes with
             # "relation already exists".
-            print("production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed", file=sys.stderr)
+            print(
+                "production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed",
+                file=sys.stderr,
+            )
         else:
             await init_db()
         loader = PluginLoader()
         registry = await loader.discover_all()
         provider_cls = registry.data_providers.get(provider)
         if provider_cls is None:
-            print(f"Provider '{provider}' not found. Available: {list(registry.data_providers)}", file=sys.stderr)
+            print(
+                f"Provider '{provider}' not found. Available: {list(registry.data_providers)}",
+                file=sys.stderr,
+            )
             raise typer.Exit(1)
 
         provider_instance = provider_cls()
@@ -95,7 +109,10 @@ def main(
             async with factory() as session:
                 credentials = await load_provider_credentials(session, provider)
             if credentials is None:
-                print(f"'{provider}' needs credentials — set them via Settings → Data Providers first.", file=sys.stderr)
+                print(
+                    f"'{provider}' needs credentials — set them via Settings → Data Providers first.",
+                    file=sys.stderr,
+                )
                 raise typer.Exit(1)
 
         factory = get_session_factory()
@@ -108,15 +125,25 @@ def main(
             print(f"Backfilling {chunk_from} → {chunk_to} ...", flush=True)
             try:
                 bars = await warehouse.get_bars(
-                    provider_instance, symbol, exchange, timeframe, chunk_from, chunk_to,
-                    instrument_type=instrument_type, credentials=credentials, broker=None,
+                    provider_instance,
+                    symbol,
+                    exchange,
+                    timeframe,
+                    chunk_from,
+                    chunk_to,
+                    instrument_type=instrument_type,
+                    credentials=credentials,
+                    broker=None,
                     underlying_filter=filter_set,
                 )
             except Exception as exc:
                 print(f"  FAILED {chunk_from}-{chunk_to}: {exc}", file=sys.stderr)
-                print("  Progress up to this point is already committed. Re-run the same "
-                      "command to resume — earlier years won't be re-fetched.", file=sys.stderr)
-                raise typer.Exit(1)
+                print(
+                    "  Progress up to this point is already committed. Re-run the same "
+                    "command to resume — earlier years won't be re-fetched.",
+                    file=sys.stderr,
+                )
+                raise typer.Exit(1) from exc
             total_bars = len(bars)  # cumulative count for this symbol so far
             print(f"  {chunk_to.year}: {len(bars)} bars now covering {f}-{chunk_to}", flush=True)
 

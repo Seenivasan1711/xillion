@@ -3,6 +3,7 @@ HistoryManager: in-memory cache with a DB fallback for lookback the cache
 doesn't have yet -- the gap CP2 closes was that `repository` was accepted
 in __init__ but never read from.
 """
+
 from datetime import datetime
 from decimal import Decimal
 
@@ -16,9 +17,14 @@ from xillion.db.session import get_session_factory, init_db
 
 def _bar(ts: datetime, close: str) -> Bar:
     return Bar(
-        symbol="HIST_SYM", timeframe="1d", ts=ts,
-        open=Decimal(close), high=Decimal(close), low=Decimal(close),
-        close=Decimal(close), volume=1,
+        symbol="HIST_SYM",
+        timeframe="1d",
+        ts=ts,
+        open=Decimal(close),
+        high=Decimal(close),
+        low=Decimal(close),
+        close=Decimal(close),
+        volume=1,
     )
 
 
@@ -49,7 +55,7 @@ async def test_no_repository_means_in_memory_only_as_before():
 @pytest.mark.asyncio
 async def test_sufficient_in_memory_cache_skips_db_entirely():
     await init_db()
-    repo = BarRepository(get_session_factory())
+    BarRepository(get_session_factory())
 
     class _ExplodingRepo(BarRepository):
         async def get_bars(self, *a, **kw):

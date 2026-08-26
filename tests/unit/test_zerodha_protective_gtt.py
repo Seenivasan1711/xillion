@@ -7,6 +7,7 @@ Request/response shapes here match kiteconnect.KiteConnect's actual
 installed SDK source (place_gtt/_get_gtt_payload), not guessed. No network
 calls -- the KiteConnect client is stubbed.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -52,8 +53,13 @@ async def test_stop_only_places_a_single_type_gtt():
     broker = _broker(stub)
 
     trigger_id = await broker.place_protective_gtt(
-        symbol="NIFTY26AUG24000CE", exchange="NFO", side=Side.BUY, quantity=65,
-        stop_price=Decimal("120.5"), target_price=None, last_price=Decimal("90"),
+        symbol="NIFTY26AUG24000CE",
+        exchange="NFO",
+        side=Side.BUY,
+        quantity=65,
+        stop_price=Decimal("120.5"),
+        target_price=None,
+        last_price=Decimal("90"),
     )
 
     assert trigger_id == "123"
@@ -63,8 +69,11 @@ async def test_stop_only_places_a_single_type_gtt():
     assert call["trigger_values"] == [120.5]
     assert len(call["orders"]) == 1
     assert call["orders"][0] == {
-        "transaction_type": "BUY", "quantity": 65, "order_type": "LIMIT",
-        "product": "MIS", "price": 120.5,
+        "transaction_type": "BUY",
+        "quantity": 65,
+        "order_type": "LIMIT",
+        "product": "MIS",
+        "price": 120.5,
     }
     assert call["last_price"] == 90.0
 
@@ -75,8 +84,13 @@ async def test_stop_and_target_place_a_two_leg_oco_gtt_in_stop_then_target_order
     broker = _broker(stub)
 
     await broker.place_protective_gtt(
-        symbol="NIFTY26AUG24000CE", exchange="NFO", side=Side.BUY, quantity=65,
-        stop_price=Decimal("120.5"), target_price=Decimal("40.0"), last_price=Decimal("90"),
+        symbol="NIFTY26AUG24000CE",
+        exchange="NFO",
+        side=Side.BUY,
+        quantity=65,
+        stop_price=Decimal("120.5"),
+        target_price=Decimal("40.0"),
+        last_price=Decimal("90"),
     )
 
     call = stub.place_gtt_calls[0]
@@ -96,8 +110,13 @@ async def test_place_protective_gtt_accepts_a_bare_id_response_too():
     broker = _broker(stub)
 
     trigger_id = await broker.place_protective_gtt(
-        symbol="X", exchange="NFO", side=Side.BUY, quantity=1,
-        stop_price=Decimal("10"), target_price=None, last_price=Decimal("9"),
+        symbol="X",
+        exchange="NFO",
+        side=Side.BUY,
+        quantity=1,
+        stop_price=Decimal("10"),
+        target_price=None,
+        last_price=Decimal("9"),
     )
     assert trigger_id == "456"
 

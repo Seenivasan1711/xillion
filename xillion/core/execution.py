@@ -3,21 +3,27 @@ Execution Router: receives risk-approved order requests, routes to the
 appropriate broker plugin, persists order/fill records to DB, and tracks
 order state.
 """
+
 import asyncio
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import UTC, date, datetime
 
 import structlog
 
 from xillion.core.broker_base import Broker
-from xillion.core.events import Order, OrderRequest, OrderStatus, Position
-from xillion.core.risk import MarketContext, RiskDecision, RiskManager, RiskRejected, StrategyRiskConfig
+from xillion.core.events import Order, OrderRequest, OrderStatus
+from xillion.core.risk import (
+    MarketContext,
+    RiskDecision,
+    RiskManager,
+    RiskRejected,
+    StrategyRiskConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _now_iso() -> str:
@@ -35,8 +41,8 @@ class ExecutionRouter:
         broker: Broker,
         risk_manager: RiskManager,
         db_factory=None,
-        broker_connection_id: Optional[int] = None,
-        risk_config: Optional[StrategyRiskConfig] = None,
+        broker_connection_id: int | None = None,
+        risk_config: StrategyRiskConfig | None = None,
     ) -> None:
         self._broker = broker
         self._risk = risk_manager
@@ -57,8 +63,8 @@ class ExecutionRouter:
     async def submit(
         self,
         request: OrderRequest,
-        current_positions: Optional[int] = None,
-        market_context: Optional[MarketContext] = None,
+        current_positions: int | None = None,
+        market_context: MarketContext | None = None,
     ) -> Order:
         # CP13's not_self_trade check needs this instance's own open orders;
         # build it here rather than requiring every caller to pass it, same
@@ -68,7 +74,9 @@ class ExecutionRouter:
             ctx.open_orders = self.get_open_orders(request.strategy_instance_id)
 
         decision: RiskDecision = self._risk.check(
-            request, strategy_config=self.risk_config, current_positions=current_positions,
+            request,
+            strategy_config=self.risk_config,
+            current_positions=current_positions,
             market_context=ctx,
         )
         # CP13: every decision (approved or rejected) is recorded to the
@@ -131,7 +139,11 @@ class ExecutionRouter:
         from xillion.core.audit import AuditLog
 
         approved = isinstance(decision, RiskRejected) is False
-        payload = {
+        # dict[str, object]: this is a loose JSON-like audit payload with
+        # heterogeneous value types (str/int/bool, plus list[str] appended
+        # below) -- narrower inference from the literal above would reject
+        # the failed_checks/reason assignment even though it's correct.
+        payload: dict[str, object] = {
             "client_order_id": request.client_order_id,
             "symbol": request.symbol,
             "side": request.side.value,
@@ -157,12 +169,10 @@ class ExecutionRouter:
             return False
         return await self._broker.cancel_order(order.broker_order_id)
 
-    def get_order(self, client_order_id: str) -> Optional[Order]:
+    def get_order(self, client_order_id: str) -> Order | None:
         return self._orders.get(client_order_id)
 
-    def get_open_orders(
-        self, strategy_instance_id: Optional[str] = None
-    ) -> list[Order]:
+    def get_open_orders(self, strategy_instance_id: str | None = None) -> list[Order]:
         open_statuses = {
             OrderStatus.PENDING,
             OrderStatus.SUBMITTED,
@@ -202,7 +212,9 @@ class ExecutionRouter:
                         price=float(order.price) if order.price else None,
                         stop_price=None,
                         status=order.status.value,
-                        avg_fill_price=float(order.avg_fill_price) if order.avg_fill_price else None,
+                        avg_fill_price=(
+                            float(order.avg_fill_price) if order.avg_fill_price else None
+                        ),
                         rejection_reason=order.rejection_reason,
                         tag=order.tag,
                         submitted_at=order.submitted_at.isoformat(),
@@ -212,7 +224,9 @@ class ExecutionRouter:
                 else:
                     existing.status = order.status.value
                     existing.filled_quantity = order.filled_quantity
-                    existing.avg_fill_price = float(order.avg_fill_price) if order.avg_fill_price else None
+                    existing.avg_fill_price = (
+                        float(order.avg_fill_price) if order.avg_fill_price else None
+                    )
                     existing.updated_at = now
 
                 # Write FillRecord if order is filled

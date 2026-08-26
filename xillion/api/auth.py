@@ -2,8 +2,8 @@
 Auth endpoints: first-run setup, login/logout, TOTP management.
 Single-user system — the first account created becomes the only admin.
 """
-from datetime import datetime, timezone
-from typing import Optional
+
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
@@ -48,12 +48,14 @@ class SetupRequest(BaseModel):
 @router.post("/setup")
 async def setup_first_user(body: SetupRequest, db: AsyncSession = Depends(db_dep)):
     result = await db.execute(select(func.count(AppUser.id)))
-    if result.scalar() > 0:
-        raise HTTPException(status_code=400, detail="Setup already complete — a user already exists")
+    if (result.scalar() or 0) > 0:
+        raise HTTPException(
+            status_code=400, detail="Setup already complete — a user already exists"
+        )
     user = AppUser(
         username=body.username,
         password_hash=hash_password(body.password),
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         is_active=True,
     )
     db.add(user)
@@ -68,7 +70,7 @@ async def setup_first_user(body: SetupRequest, db: AsyncSession = Depends(db_dep
 class LoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: Optional[str] = None
+    totp_code: str | None = None
 
 
 @router.post("/login")
@@ -93,7 +95,7 @@ async def login(
         if not verify_code(secret, body.totp_code):
             raise HTTPException(status_code=401, detail="Invalid TOTP code")
 
-    user.last_login_at = datetime.now(timezone.utc).isoformat()
+    user.last_login_at = datetime.now(UTC).isoformat()
     await db.commit()
 
     ip = request.client.host if request.client else ""
@@ -106,7 +108,7 @@ async def login(
 @router.post("/logout")
 async def logout(
     response: Response,
-    session_token: Optional[str] = Cookie(None, alias="xillion_session"),
+    session_token: str | None = Cookie(None, alias="xillion_session"),
     db: AsyncSession = Depends(db_dep),
 ):
     if session_token:

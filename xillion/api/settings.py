@@ -1,11 +1,11 @@
 """
 Settings endpoints — manage broker credentials, app preferences.
 """
-from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.api.deps import db_dep, get_current_user
@@ -51,9 +51,9 @@ class ZerodhaCredentialsRequest(BaseModel):
 
 class ZerodhaCredentialsStatus(BaseModel):
     configured: bool
-    api_key_preview: Optional[str] = None
-    user_id: Optional[str] = None
-    updated_at: Optional[str] = None
+    api_key_preview: str | None = None
+    user_id: str | None = None
+    updated_at: str | None = None
 
 
 @router.get("/zerodha", response_model=ZerodhaCredentialsStatus)
@@ -139,8 +139,8 @@ class DhanCredentialsRequest(BaseModel):
 
 class DhanCredentialsStatus(BaseModel):
     configured: bool
-    client_id: Optional[str] = None
-    updated_at: Optional[str] = None
+    client_id: str | None = None
+    updated_at: str | None = None
 
 
 @router.get("/dhan", response_model=DhanCredentialsStatus)
@@ -180,7 +180,9 @@ async def put_dhan_credentials(
     # credential_fields maps onto) but the underlying values are the same.
     try:
         await save_provider_credentials(
-            db, "DhanHQ", "DhanHQ",
+            db,
+            "DhanHQ",
+            "DhanHQ",
             {"api_key": body.access_token, "api_secret": body.client_id},
         )
     except Exception as exc:
@@ -266,7 +268,11 @@ async def put_notifications(
 ):
     await save_credentials(db, NOTIFICATIONS_NAME, NOTIFICATIONS_BROKER, body.model_dump())
     request.app.state.telegram.configure(body.telegram_bot_token, body.telegram_chat_id)
-    logger.info("notification settings saved", user=user.username, telegram_configured=bool(body.telegram_bot_token))
+    logger.info(
+        "notification settings saved",
+        user=user.username,
+        telegram_configured=bool(body.telegram_bot_token),
+    )
     return {"saved": True}
 
 
@@ -340,9 +346,18 @@ async def put_risk_limits(
 # instrument/market_holiday) -- matches the UI's own "credentials and
 # settings are preserved" copy.
 _RESET_DATA_MODELS = [
-    FillRecord, BacktestTrade,  # children first -- both FK into rows deleted below
-    OrderRecord, PositionRecord, BacktestRun, SignalLog, SystemLog,
-    JournalNote, AuditLogRecord, DailyRiskState, DailyStrategyPnl, ReconciliationReport,
+    FillRecord,
+    BacktestTrade,  # children first -- both FK into rows deleted below
+    OrderRecord,
+    PositionRecord,
+    BacktestRun,
+    SignalLog,
+    SystemLog,
+    JournalNote,
+    AuditLogRecord,
+    DailyRiskState,
+    DailyStrategyPnl,
+    ReconciliationReport,
 ]
 
 
@@ -352,7 +367,7 @@ async def reset_data(
     user: AppUser = Depends(get_current_user),
 ):
     for model in _RESET_DATA_MODELS:
-        await db.execute(model.__table__.delete())
+        await db.execute(delete(model))
     await db.commit()
     logger.warning("all trade/log/run data reset", user=user.username)
     return {"reset": True}

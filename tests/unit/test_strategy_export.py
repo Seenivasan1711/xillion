@@ -4,21 +4,39 @@ history) are ever touched. Everything else -- rules, backtest/paper/live
 results, the failure-modes legend line -- must survive re-export
 byte-for-byte, since a human wrote it and it's not this module's to lose.
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from xillion.engine.journal import JournalEntry
 from xillion.engine.strategy_export import _TEMPLATE_PATH, export_strategy_markdown, slugify
 
 
-def _entry(outcome: str, symbol="TEST", side="BUY", entry_price=100.0, exit_price=95.0, exit_ts="2026-06-15T00:00:00") -> JournalEntry:
+def _entry(
+    outcome: str,
+    symbol="TEST",
+    side="BUY",
+    entry_price=100.0,
+    exit_price=95.0,
+    exit_ts="2026-06-15T00:00:00",
+) -> JournalEntry:
     return JournalEntry(
-        source="signal_log", source_id="1", strategy_name="Test Strategy",
-        strategy_instance_id="inst-1", symbol=symbol, side=side,
-        entry_price=entry_price, exit_price=exit_price,
-        entry_ts="2026-06-14T00:00:00", exit_ts=exit_ts,
-        pnl=None, target_price=110.0, stop_loss_price=95.0, ai_confidence=None,
-        outcome=outcome, tag="setup_1",
+        source="signal_log",
+        source_id="1",
+        strategy_name="Test Strategy",
+        strategy_instance_id="inst-1",
+        symbol=symbol,
+        side=side,
+        entry_price=entry_price,
+        exit_price=exit_price,
+        entry_ts="2026-06-14T00:00:00",
+        exit_ts=exit_ts,
+        pnl=None,
+        target_price=110.0,
+        stop_loss_price=95.0,
+        ai_confidence=None,
+        outcome=outcome,
+        tag="setup_1",
     )
 
 
@@ -67,7 +85,7 @@ def test_template_placeholder_row_is_actually_removed():
     was present without checking the placeholder was gone."""
     entries = [_entry("stopped_out")]
     content = export_strategy_markdown("Test Strategy", entries, {}, [])
-    section = content[content.index("## 5"):content.index("## 6")]
+    section = content[content.index("## 5") : content.index("## 6")]
     assert "| | | | |" not in section
 
 
@@ -75,11 +93,22 @@ def test_wins_and_open_signals_are_excluded_from_failure_log():
     entries = [
         _entry("target_hit"),  # not a failure
         JournalEntry(
-            source="signal_log", source_id="2", strategy_name="Test Strategy",
-            strategy_instance_id="inst-1", symbol="TEST", side="BUY",
-            entry_price=100.0, exit_price=None, entry_ts="2026-06-14T00:00:00", exit_ts=None,
-            pnl=None, target_price=110.0, stop_loss_price=95.0, ai_confidence=None,
-            outcome="still_open", tag="setup_2",
+            source="signal_log",
+            source_id="2",
+            strategy_name="Test Strategy",
+            strategy_instance_id="inst-1",
+            symbol="TEST",
+            side="BUY",
+            entry_price=100.0,
+            exit_price=None,
+            entry_ts="2026-06-14T00:00:00",
+            exit_ts=None,
+            pnl=None,
+            target_price=110.0,
+            stop_loss_price=95.0,
+            ai_confidence=None,
+            outcome="still_open",
+            tag="setup_2",
         ),
         _entry("stopped_out"),  # this one should show up
     ]
@@ -91,7 +120,9 @@ def test_wins_and_open_signals_are_excluded_from_failure_log():
 
 def test_manual_note_overrides_failure_mode_and_adds_change_made():
     entries = [_entry("unclassified")]
-    notes = {("signal_log", "1"): {"failure_mode": "late_entry", "change_made": "tightened entry filter"}}
+    notes = {
+        ("signal_log", "1"): {"failure_mode": "late_entry", "change_made": "tightened entry filter"}
+    }
     content = export_strategy_markdown("Test Strategy", entries, notes, [])
     assert "late_entry" in content
     assert "tightened entry filter" in content
@@ -106,7 +137,10 @@ def test_reexport_on_existing_content_is_idempotent_and_updates_in_place():
     # with a new version added -- must replace the old row set, not append
     # to it or duplicate the legend/prose again.
     second = export_strategy_markdown(
-        "Test Strategy", entries, {}, versions + [_version_row("1.0.1", "hash2")],
+        "Test Strategy",
+        entries,
+        {},
+        versions + [_version_row("1.0.1", "hash2")],
         existing_content=first,
     )
     assert second.count("Failure modes: `stopped_out`") == 1
@@ -117,7 +151,7 @@ def test_reexport_on_existing_content_is_idempotent_and_updates_in_place():
 
 def test_last_updated_is_bumped_to_today():
     content = export_strategy_markdown("Test Strategy", [], {}, [])
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     assert f"**Last updated:** {today}" in content
     assert "Last updated:** YYYY-MM-DD" not in content
 

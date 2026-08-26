@@ -2,10 +2,11 @@
 Broker plugin contract. Each broker file must export one class inheriting
 from Broker. The framework calls these; strategies never import brokers directly.
 """
+
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import AsyncIterator, Optional
 
 from xillion.core.events import Bar, Order, OrderRequest, Position, Side, Tick
 
@@ -13,6 +14,7 @@ from xillion.core.events import Bar, Order, OrderRequest, Position, Side, Tick
 @dataclass
 class BrokerCapabilities:
     """Declares what a broker supports. Disables unsupported UI features."""
+
     supports_websocket: bool = True
     supports_historical: bool = True
     supports_bracket_orders: bool = False
@@ -29,9 +31,7 @@ class BrokerCapabilities:
     supported_timeframes: list[str] = field(
         default_factory=lambda: ["1m", "5m", "15m", "30m", "1h", "1d"]
     )
-    supported_exchanges: list[str] = field(
-        default_factory=lambda: ["NSE", "BSE", "NFO", "MCX"]
-    )
+    supported_exchanges: list[str] = field(default_factory=lambda: ["NSE", "BSE", "NFO", "MCX"])
 
 
 class Broker(ABC):
@@ -49,8 +49,7 @@ class Broker(ABC):
         ...
 
     @abstractmethod
-    async def disconnect(self) -> None:
-        ...
+    async def disconnect(self) -> None: ...
 
     @abstractmethod
     async def healthcheck(self) -> bool:
@@ -58,54 +57,43 @@ class Broker(ABC):
         ...
 
     @abstractmethod
-    async def is_connected(self) -> bool:
-        ...
+    async def is_connected(self) -> bool: ...
 
     # ── Account ────────────────────────────────────────────────────────────────
 
     @abstractmethod
-    async def get_positions(self) -> list[Position]:
-        ...
+    async def get_positions(self) -> list[Position]: ...
 
     @abstractmethod
-    async def get_holdings(self) -> list[dict]:
-        ...
+    async def get_holdings(self) -> list[dict]: ...
 
     @abstractmethod
-    async def get_margins(self) -> dict:
-        ...
+    async def get_margins(self) -> dict: ...
 
     # ── Orders ─────────────────────────────────────────────────────────────────
 
     @abstractmethod
-    async def place_order(self, request: OrderRequest) -> Order:
-        ...
+    async def place_order(self, request: OrderRequest) -> Order: ...
 
     @abstractmethod
-    async def cancel_order(self, broker_order_id: str) -> bool:
-        ...
+    async def cancel_order(self, broker_order_id: str) -> bool: ...
 
     @abstractmethod
-    async def modify_order(self, broker_order_id: str, **changes) -> Order:
-        ...
+    async def modify_order(self, broker_order_id: str, **changes) -> Order: ...
 
     @abstractmethod
-    async def get_order(self, broker_order_id: str) -> Order:
-        ...
+    async def get_order(self, broker_order_id: str) -> Order: ...
 
     @abstractmethod
-    async def get_orders_today(self) -> list[Order]:
-        ...
+    async def get_orders_today(self) -> list[Order]: ...
 
     # ── Market data ────────────────────────────────────────────────────────────
 
     @abstractmethod
-    async def subscribe_ticks(self, symbols: list[str]) -> None:
-        ...
+    async def subscribe_ticks(self, symbols: list[str]) -> None: ...
 
     @abstractmethod
-    async def unsubscribe_ticks(self, symbols: list[str]) -> None:
-        ...
+    async def unsubscribe_ticks(self, symbols: list[str]) -> None: ...
 
     @abstractmethod
     def tick_stream(self) -> AsyncIterator[Tick]:
@@ -124,12 +112,10 @@ class Broker(ABC):
         timeframe: str,
         from_ts,
         to_ts,
-    ) -> list[Bar]:
-        ...
+    ) -> list[Bar]: ...
 
     @abstractmethod
-    async def get_quote(self, symbols: list[str]) -> dict[str, Tick]:
-        ...
+    async def get_quote(self, symbols: list[str]) -> dict[str, Tick]: ...
 
     # ── Protective GTT / Forever Orders (optional) ────────────────────────────
     # Not @abstractmethod: only brokers with capabilities.supports_gtt_orders
@@ -145,7 +131,7 @@ class Broker(ABC):
         side: Side,
         quantity: int,
         stop_price: Decimal,
-        target_price: Optional[Decimal],
+        target_price: Decimal | None,
         last_price: Decimal,
     ) -> str:
         """Place a broker-native trigger order that closes an existing

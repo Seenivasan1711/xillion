@@ -5,7 +5,8 @@ same engine CP1 hardened, so this proves the Strategy Builder produces a
 strategy that actually trades correctly, not just that condition.py's
 functions return the right booleans in isolation.
 """
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -14,14 +15,21 @@ from strategies.condition_strategy import ConditionStrategy
 from xillion.core.events import Bar
 from xillion.engine.backtest_engine import BacktestEngine, FeeConfig
 
-START = datetime(2026, 6, 1, 9, 15, tzinfo=timezone.utc)
+START = datetime(2026, 6, 1, 9, 15, tzinfo=UTC)
 
 
 def _bars(closes: list[float], symbol="COND_TEST") -> list[Bar]:
     return [
-        Bar(symbol=symbol, timeframe="1d", ts=START + timedelta(days=i),
-            open=Decimal(str(c)), high=Decimal(str(c)), low=Decimal(str(c)),
-            close=Decimal(str(c)), volume=100)
+        Bar(
+            symbol=symbol,
+            timeframe="1d",
+            ts=START + timedelta(days=i),
+            open=Decimal(str(c)),
+            high=Decimal(str(c)),
+            low=Decimal(str(c)),
+            close=Decimal(str(c)),
+            volume=100,
+        )
         for i, c in enumerate(closes)
     ]
 
@@ -35,7 +43,11 @@ async def test_entry_and_exit_conditions_produce_a_real_trade():
 
     params = {
         "entry_conditions": [
-            {"metric": {"name": "close"}, "operator": "crosses_above", "other_metric": {"name": "sma", "period": 3}},
+            {
+                "metric": {"name": "close"},
+                "operator": "crosses_above",
+                "other_metric": {"name": "sma", "period": 3},
+            },
         ],
         "exit_conditions": [
             {"metric": {"name": "close"}, "operator": "<", "threshold": 10},
@@ -62,8 +74,8 @@ async def test_entry_and_exit_conditions_produce_a_real_trade():
     trade = result.trades[0]
     assert trade["side"] == "LONG"
     assert trade["entry_price"] == pytest.approx(20.0)  # entry bar's close, zero slippage
-    assert trade["exit_price"] == pytest.approx(9.0)     # exit bar's close
-    assert trade["pnl"] == pytest.approx(-11.0)           # bought at 20, sold at 9, qty 1, zero fees
+    assert trade["exit_price"] == pytest.approx(9.0)  # exit bar's close
+    assert trade["pnl"] == pytest.approx(-11.0)  # bought at 20, sold at 9, qty 1, zero fees
 
 
 @pytest.mark.asyncio
@@ -74,7 +86,11 @@ async def test_short_direction_enters_with_sell_and_exits_with_buy():
 
     params = {
         "entry_conditions": [
-            {"metric": {"name": "close"}, "operator": "crosses_below", "other_metric": {"name": "sma", "period": 3}},
+            {
+                "metric": {"name": "close"},
+                "operator": "crosses_below",
+                "other_metric": {"name": "sma", "period": 3},
+            },
         ],
         "exit_conditions": [
             {"metric": {"name": "close"}, "operator": ">", "threshold": 15},
@@ -102,7 +118,9 @@ async def test_short_direction_enters_with_sell_and_exits_with_buy():
     assert trade["side"] == "SHORT"  # short entry sells first
     assert trade["entry_price"] == pytest.approx(5.0)
     assert trade["exit_price"] == pytest.approx(20.0)
-    assert trade["pnl"] == pytest.approx(-15.0)  # sold at 5, had to buy back at 20 -- a losing short
+    assert trade["pnl"] == pytest.approx(
+        -15.0
+    )  # sold at 5, had to buy back at 20 -- a losing short
 
 
 @pytest.mark.asyncio
@@ -111,7 +129,11 @@ async def test_no_trade_when_conditions_never_fire():
 
     params = {
         "entry_conditions": [
-            {"metric": {"name": "close"}, "operator": "crosses_above", "other_metric": {"name": "sma", "period": 3}},
+            {
+                "metric": {"name": "close"},
+                "operator": "crosses_above",
+                "other_metric": {"name": "sma", "period": 3},
+            },
         ],
         "exit_conditions": [{"metric": {"name": "close"}, "operator": "<", "threshold": 5}],
         "direction": "long",

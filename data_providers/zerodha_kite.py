@@ -10,6 +10,7 @@ brokers/zerodha.py) -- see docs/13-quantman-parity-roadmap.md's data-provider
 comparison table for the real limits: F&O history only goes back ~1 year,
 OHLC candles only (no OI/IV/Greeks time series).
 """
+
 from datetime import date, datetime
 
 from xillion.core.data_provider_base import DataProviderCapabilities, HistoricalDataProvider

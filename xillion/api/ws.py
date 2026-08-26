@@ -1,10 +1,9 @@
 """
 WebSocket endpoint for live UI updates: market data, order events, system logs.
 """
+
 import asyncio
-import json
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -22,7 +21,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.send_json(
             {
                 "type": "connected",
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "message": "Xillion WebSocket connected",
             }
         )
@@ -32,10 +31,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
                 if data == "ping":
                     await websocket.send_text("pong")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send a heartbeat
                 await websocket.send_json(
-                    {"type": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()}
+                    {"type": "heartbeat", "ts": datetime.now(UTC).isoformat()}
                 )
     except WebSocketDisconnect:
         pass

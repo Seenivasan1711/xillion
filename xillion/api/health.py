@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 
@@ -24,7 +24,7 @@ async def health(request: Request):
     return {
         "status": "ok",
         "version": __version__,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "brokers": brokers,
         "broker_count": len(brokers),
         "brokers_connected": all_connected,

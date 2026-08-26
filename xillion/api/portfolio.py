@@ -2,6 +2,7 @@
 Portfolio summary endpoint — aggregates PnL, equity, drawdown, and trade stats
 for the Dashboard hero card and equity curve.
 """
+
 from datetime import date
 from typing import Any
 
@@ -33,9 +34,7 @@ async def portfolio_summary(
     today = date.today().isoformat()
 
     # Today's aggregated risk state (written when DB persistence is active)
-    risk_row = await db.scalar(
-        select(DailyRiskState).where(DailyRiskState.trading_date == today)
-    )
+    risk_row = await db.scalar(select(DailyRiskState).where(DailyRiskState.trading_date == today))
     pnl_today_realised = float(risk_row.account_realised_pnl) if risk_row else 0.0
     pnl_today_unrealised = float(risk_row.account_unrealised_pnl) if risk_row else 0.0
     pnl_today = pnl_today_realised + pnl_today_unrealised
@@ -89,9 +88,7 @@ async def portfolio_summary(
         await db.execute(
             select(
                 DailyStrategyPnl.trading_date,
-                func.sum(
-                    DailyStrategyPnl.realised_pnl + DailyStrategyPnl.unrealised_pnl
-                ),
+                func.sum(DailyStrategyPnl.realised_pnl + DailyStrategyPnl.unrealised_pnl),
             )
             .group_by(DailyStrategyPnl.trading_date)
             .order_by(DailyStrategyPnl.trading_date)
@@ -104,7 +101,9 @@ async def portfolio_summary(
         running_equity += float(daily_pnl or 0)
         historical_equity.append({"ts": trading_date, "value": round(running_equity, 2)})
 
-    equity_total = (historical_equity[-1]["value"] if historical_equity else total_capital) + pnl_today
+    equity_total = (
+        historical_equity[-1]["value"] if historical_equity else total_capital
+    ) + pnl_today
 
     # Intraday curve from today's fills — running realised PnL throughout the session.
     # SELL proceeds minus BUY costs gives a rough directional curve; proper per-trade
@@ -156,6 +155,7 @@ async def portfolio_summary(
     win_rate = 0.0
     try:
         from xillion.api.trades import _match_fills
+
         fill_rows = (
             await db.execute(
                 select(
@@ -165,7 +165,9 @@ async def portfolio_summary(
                     StrategyInstance.mode,
                 )
                 .join(OrderRecord, FillRecord.order_id == OrderRecord.id)
-                .outerjoin(StrategyInstance, OrderRecord.strategy_instance_id == StrategyInstance.id)
+                .outerjoin(
+                    StrategyInstance, OrderRecord.strategy_instance_id == StrategyInstance.id
+                )
                 .where(FillRecord.ts >= today)
             )
         ).all()

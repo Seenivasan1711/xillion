@@ -4,6 +4,9 @@ across every running strategy instance. Tested via the pure
 collect_open_positions() function against a real spawned runner (DummyBroker
 fills instantly), not a hand-built fake position object.
 """
+
+from datetime import UTC
+
 import pytest
 
 from brokers._dummy import DummyBroker
@@ -29,9 +32,10 @@ class _BuyOnceStrategy(Strategy):
 
 
 def _tick(symbol: str, ltp: str):
-    from datetime import datetime, timezone
+    from datetime import datetime
     from decimal import Decimal
-    return Tick(symbol=symbol, ltp=Decimal(ltp), ltt=datetime.now(timezone.utc))
+
+    return Tick(symbol=symbol, ltp=Decimal(ltp), ltt=datetime.now(UTC))
 
 
 @pytest.mark.asyncio
@@ -47,12 +51,16 @@ async def test_collect_open_positions_reflects_a_real_fill(monkeypatch):
     engine.set_registry(registry)
 
     from decimal import Decimal
+
     await engine.spawn(
         instance_id="positions-test-instance",
         strategy_name=_BuyOnceStrategy.name,
         broker=DummyBroker(default_fill_price=Decimal("250")),
-        instruments=["POS_TEST_SYM"], timeframe="1m",
-        capital=Decimal("100000"), params={}, mode="paper",
+        instruments=["POS_TEST_SYM"],
+        timeframe="1m",
+        capital=Decimal("100000"),
+        params={},
+        mode="paper",
         instance_name="Positions Test Instance",
     )
 
@@ -72,10 +80,13 @@ async def test_collect_open_positions_reflects_a_real_fill(monkeypatch):
 async def test_collect_open_positions_excludes_flat_symbols():
     class _EmptyRunner:
         _instance_id = "x"
+
         class _ctx:
             _instance_name = "x"
             mode = "paper"
+
             @staticmethod
             def positions():
                 return []
+
     assert collect_open_positions([_EmptyRunner()]) == []

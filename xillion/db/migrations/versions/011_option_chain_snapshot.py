@@ -13,15 +13,16 @@ from NSE bhavcopy's own per-contract columns (including UndrlygPric, the
 exchange's own recorded underlying close -- used as the backtest spot
 proxy) rather than parsing strike/expiry out of tradingsymbol strings.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "011"
-down_revision: Union[str, None] = "010"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "010"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -39,7 +40,8 @@ def upgrade() -> None:
         sa.Column("underlying_price", sa.Numeric),
     )
     op.create_index(
-        "idx_option_chain_lookup", "option_chain_snapshot",
+        "idx_option_chain_lookup",
+        "option_chain_snapshot",
         ["underlying", "exchange", "trade_date"],
     )
 

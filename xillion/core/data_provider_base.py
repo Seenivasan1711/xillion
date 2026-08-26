@@ -13,10 +13,10 @@ Two shapes of provider exist:
     which reuses whatever Zerodha connection is already live rather than
     managing a second, separate authenticated session).
 """
+
 from abc import ABC
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 from xillion.core.events import Bar
 
@@ -25,13 +25,16 @@ from xillion.core.events import Bar
 class DataProviderCapabilities:
     """Declares what a provider supports. Drives Settings UI badges and
     which providers make sense to offer for a given instrument type."""
+
     supports_equity: bool = True
     supports_futures: bool = False
     supports_options: bool = False
     supports_forex: bool = False
     requires_credentials: bool = True
-    requires_broker: bool = False       # True for providers that piggyback on a connected Broker (e.g. Kite)
-    max_lookback_days: Optional[int] = None  # None = no known hard limit
+    requires_broker: bool = (
+        False  # True for providers that piggyback on a connected Broker (e.g. Kite)
+    )
+    max_lookback_days: int | None = None  # None = no known hard limit
     # True when one fetch_all_bars_for_day() call returns every instrument's
     # bar for that exchange/day (e.g. NSE bhavcopy's whole-market ZIP), so
     # BarWarehouse should persist the whole batch instead of the one symbol
@@ -67,7 +70,7 @@ class HistoricalDataProvider(ABC):
         to_date: date,
         *,
         instrument_type: str = "equity",
-        credentials: Optional[dict] = None,
+        credentials: dict | None = None,
         broker=None,
     ) -> list[Bar]:
         """Fetch historical OHLCV bars for one instrument over a date range.
@@ -89,9 +92,9 @@ class HistoricalDataProvider(ABC):
         timeframe: str,
         day: date,
         *,
-        credentials: Optional[dict] = None,
+        credentials: dict | None = None,
         broker=None,
-        underlying_filter: Optional[set[str]] = None,
+        underlying_filter: set[str] | None = None,
     ) -> list[Bar]:
         """Fetch every instrument's bar for one exchange/day in a single
         request. Only implemented by providers with

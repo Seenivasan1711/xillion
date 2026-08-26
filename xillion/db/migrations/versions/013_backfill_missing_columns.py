@@ -24,14 +24,15 @@ this migration only touches these two. `IF NOT EXISTS` throughout so this
 is a no-op (not an error) on any DB where create_all() never ran ad-hoc and
 migrations 006/008/009 already applied for real.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 from alembic import op
 
 revision: str = "013"
-down_revision: Union[str, None] = "012"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "012"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

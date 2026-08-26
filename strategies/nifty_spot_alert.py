@@ -10,6 +10,7 @@ static-instruments subscription path.
 Works identically in backtest, paper, and alert modes. No broker imports.
 No mode-checking code. Just signal logic.
 """
+
 from decimal import Decimal
 
 from xillion.core.events import Tick
@@ -25,17 +26,25 @@ class NiftySpotAlertStrategy(Strategy):
     instruments = ["NIFTY 50"]
 
     params_schema = [
-        ParamSpec("level", "float", default=25000.0,
-                  description="Price level to watch for a cross"),
-        ParamSpec("direction", "choice", default="above", choices=["above", "below"],
-                  description="Alert when price crosses above or below the level"),
+        ParamSpec(
+            "level", "float", default=25000.0, description="Price level to watch for a cross"
+        ),
+        ParamSpec(
+            "direction",
+            "choice",
+            default="above",
+            choices=["above", "below"],
+            description="Alert when price crosses above or below the level",
+        ),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
         ctx.state.setdefault("side", None)  # "above" | "below" | None (unknown yet)
         ctx.log(
-            "info", "Nifty Spot Alert started",
-            watch_level=ctx.params["level"], direction=ctx.params["direction"],
+            "info",
+            "Nifty Spot Alert started",
+            watch_level=ctx.params["level"],
+            direction=ctx.params["direction"],
         )
 
     async def on_tick(self, tick: Tick, ctx: StrategyContext) -> None:
@@ -56,8 +65,11 @@ class NiftySpotAlertStrategy(Strategy):
         else:
             await ctx.sell(tick.symbol, 1, tag="spot_level_cross")
         ctx.log(
-            "info", "level cross alert",
-            direction=direction, watch_level=str(level), ltp=str(tick.ltp),
+            "info",
+            "level cross alert",
+            direction=direction,
+            watch_level=str(level),
+            ltp=str(tick.ltp),
         )
 
     async def on_stop(self, ctx: StrategyContext, reason: str) -> None:

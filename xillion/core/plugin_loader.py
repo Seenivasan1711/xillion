@@ -3,12 +3,12 @@ Plugin loader: scans strategies/ and brokers/ directories, imports each .py
 file, validates the plugin contract, and registers valid plugins.
 Failed plugins are logged and skipped — they never crash the host process.
 """
+
 import hashlib
 import importlib.util
 import inspect
 import sys
 from pathlib import Path
-from typing import Type
 
 import structlog
 
@@ -39,7 +39,7 @@ def _import_module_from_file(path: Path):
     return module
 
 
-def _validate_strategy_class(cls: Type[Strategy]) -> None:
+def _validate_strategy_class(cls: type[Strategy]) -> None:
     if not cls.name:
         raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
     for spec in cls.params_schema:
@@ -53,21 +53,21 @@ def _validate_strategy_class(cls: Type[Strategy]) -> None:
             )
 
 
-def _validate_broker_class(cls: Type[Broker]) -> None:
+def _validate_broker_class(cls: type[Broker]) -> None:
     if not cls.name:
         raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
 
 
-def _validate_data_provider_class(cls: Type[HistoricalDataProvider]) -> None:
+def _validate_data_provider_class(cls: type[HistoricalDataProvider]) -> None:
     if not cls.name:
         raise PluginLoadError(f"{cls.__name__} has empty 'name' attribute")
 
 
 class PluginRegistry:
     def __init__(self) -> None:
-        self.strategies: dict[str, Type[Strategy]] = {}
-        self.brokers: dict[str, Type[Broker]] = {}
-        self.data_providers: dict[str, Type[HistoricalDataProvider]] = {}
+        self.strategies: dict[str, type[Strategy]] = {}
+        self.brokers: dict[str, type[Broker]] = {}
+        self.data_providers: dict[str, type[HistoricalDataProvider]] = {}
         self.strategy_file_hashes: dict[str, str] = {}
         self.broker_file_hashes: dict[str, str] = {}
         self.data_provider_file_hashes: dict[str, str] = {}

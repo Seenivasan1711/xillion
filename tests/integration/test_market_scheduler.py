@@ -6,8 +6,9 @@ pattern as the rest of this codebase's API tests -- see
 tests/unit/test_signals_api.py) plus the open/close transition-detection
 loop in run_market_hours_scheduler itself.
 """
+
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -33,7 +34,7 @@ class _NoopStrategy(Strategy):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 async def _make_app() -> FastAPI:
@@ -55,43 +56,74 @@ async def _make_app() -> FastAPI:
     return app
 
 
-async def _seed_instance(app: FastAPI, instance_id: str, auto_start: bool, status: str = "idle") -> None:
+async def _seed_instance(
+    app: FastAPI, instance_id: str, auto_start: bool, status: str = "idle"
+) -> None:
     await init_db()
     strategy_name = f"Market Scheduler Test Strategy {instance_id}"
     app.state.plugin_loader.registry.strategies[strategy_name] = _NoopStrategy
     factory = get_session_factory()
     async with factory() as db:
         bc = BrokerClass(
-            name=f"Dummy Broker {instance_id}", module_path="x", class_name="X", version="1.0.0",
-            capabilities_json="{}", discovered_at=_now(), last_seen_at=_now(),
+            name=f"Dummy Broker {instance_id}",
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            capabilities_json="{}",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(bc)
         await db.flush()
         conn = BrokerConnection(
-            broker_class_id=bc.id, name=f"conn-{instance_id}", credentials_ref="PAPER",
-            is_active=True, created_at=_now(), updated_at=_now(),
+            broker_class_id=bc.id,
+            name=f"conn-{instance_id}",
+            credentials_ref="PAPER",
+            is_active=True,
+            created_at=_now(),
+            updated_at=_now(),
         )
         db.add(conn)
         sc = StrategyClass(
-            name=strategy_name, module_path="x", class_name="X", version="1.0.0",
-            params_schema_json="{}", code_hash="abc", discovered_at=_now(), last_seen_at=_now(),
+            name=strategy_name,
+            module_path="x",
+            class_name="X",
+            version="1.0.0",
+            params_schema_json="{}",
+            code_hash="abc",
+            discovered_at=_now(),
+            last_seen_at=_now(),
         )
         db.add(sc)
         await db.flush()
-        db.add(StrategyInstance(
-            id=instance_id, strategy_class_id=sc.id, strategy_class_version="1.0.0",
-            name=f"Instance {instance_id}", mode="paper", status=status,
-            broker_connection_id=conn.id, instruments_json='["NIFTY"]', timeframe="5m",
-            params_json="{}", capital_allocation=100000, risk_limits_json="{}",
-            auto_start=auto_start, created_at=_now(), updated_at=_now(),
-        ))
+        db.add(
+            StrategyInstance(
+                id=instance_id,
+                strategy_class_id=sc.id,
+                strategy_class_version="1.0.0",
+                name=f"Instance {instance_id}",
+                mode="paper",
+                status=status,
+                broker_connection_id=conn.id,
+                instruments_json='["NIFTY"]',
+                timeframe="5m",
+                params_json="{}",
+                capital_allocation=100000,
+                risk_limits_json="{}",
+                auto_start=auto_start,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
         await db.commit()
 
 
 async def _get_status(instance_id: str) -> str:
     factory = get_session_factory()
     async with factory() as db:
-        result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == instance_id))
+        result = await db.execute(
+            select(StrategyInstance).where(StrategyInstance.id == instance_id)
+        )
         return result.scalar_one().status
 
 
@@ -123,7 +155,9 @@ async def test_market_close_stops_only_opted_in_running_instances():
     await app.state.strategy_engine.stop_instance("sched-autostop-2", reason="user_stopped")
     factory = get_session_factory()
     async with factory() as db:
-        result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == "sched-autostop-2"))
+        result = await db.execute(
+            select(StrategyInstance).where(StrategyInstance.id == "sched-autostop-2")
+        )
         inst = result.scalar_one()
         inst.status = "idle"
         await db.commit()
@@ -145,6 +179,7 @@ async def test_an_instance_already_running_is_skipped_not_errored():
     factory = get_session_factory()
     async with factory() as db:
         from xillion.api.instances import start_instance_core
+
         await start_instance_core(app, db, "sched-race-1")
 
     await _start_auto_instances(app)  # must not raise

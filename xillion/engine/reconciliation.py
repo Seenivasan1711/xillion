@@ -15,17 +15,18 @@ the Broker ABC doesn't expose today (get_margins() isn't that), and
 orders/fills reconciliation is a larger, separate piece of work. Both are
 honestly left for a follow-up, not silently skipped.
 """
+
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from decimal import Decimal
-from typing import Awaitable, Callable, Optional
+from datetime import UTC, date, datetime
 
 import structlog
 from sqlalchemy import select
 
 from xillion.core.broker_base import Broker
-from xillion.db.models import PositionRecord, ReconciliationReport as ReconciliationReportRecord
+from xillion.db.models import PositionRecord
+from xillion.db.models import ReconciliationReport as ReconciliationReportRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -34,8 +35,8 @@ logger = structlog.get_logger(__name__)
 class PositionMismatch:
     symbol: str
     issue: str  # "broker_only" | "internal_only" | "quantity_mismatch"
-    broker_qty: Optional[int] = None
-    internal_qty: Optional[int] = None
+    broker_qty: int | None = None
+    internal_qty: int | None = None
 
 
 @dataclass
@@ -49,14 +50,14 @@ class ReconciliationResult:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def run_reconciliation(
     broker: Broker,
     broker_name: str,
     db_factory,
-    notify: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
+    notify: Callable[[str, str, str], Awaitable[None]] | None = None,
 ) -> ReconciliationResult:
     """Compares the broker's live positions against xillion's own
     PositionRecord table for any strategy still showing a nonzero
@@ -70,17 +71,23 @@ async def run_reconciliation(
     except Exception as exc:
         logger.critical("M01: broker position fetch failed", error=str(exc))
         result = ReconciliationResult(
-            status="FAILED", trading_date=trading_date, checked_at=_now(),
+            status="FAILED",
+            trading_date=trading_date,
+            checked_at=_now(),
             notes=[f"broker fetch failed: {exc}"],
         )
         await _persist(db_factory, broker_name, result)
-        await _alert(notify, "M01 RECONCILIATION FAILED", f"Could not reach broker: {exc}", "critical")
+        await _alert(
+            notify, "M01 RECONCILIATION FAILED", f"Could not reach broker: {exc}", "critical"
+        )
         return result
 
     broker_by_symbol = {p.symbol: p.quantity for p in broker_positions if p.quantity != 0}
 
     async with db_factory()() as session:
-        db_result = await session.execute(select(PositionRecord).where(PositionRecord.quantity != 0))
+        db_result = await session.execute(
+            select(PositionRecord).where(PositionRecord.quantity != 0)
+        )
         internal_by_symbol = {r.symbol: r.quantity for r in db_result.scalars().all()}
 
     all_symbols = set(broker_by_symbol) | set(internal_by_symbol)
@@ -93,7 +100,9 @@ async def run_reconciliation(
         elif i_qty is not None and b_qty is None:
             mismatches.append(PositionMismatch(symbol, "internal_only", internal_qty=i_qty))
         elif b_qty != i_qty:
-            mismatches.append(PositionMismatch(symbol, "quantity_mismatch", broker_qty=b_qty, internal_qty=i_qty))
+            mismatches.append(
+                PositionMismatch(symbol, "quantity_mismatch", broker_qty=b_qty, internal_qty=i_qty)
+            )
 
     # EOD rule: for intraday strategies, ANY open position -- broker or
     # internal, matched or not -- is itself a discrepancy. This is the
@@ -102,14 +111,19 @@ async def run_reconciliation(
 
     status = "CLEAN" if not mismatches and not eod_open else "DISCREPANCY"
     result = ReconciliationResult(
-        status=status, trading_date=trading_date, checked_at=_now(),
-        position_mismatches=mismatches, eod_open_positions=eod_open,
+        status=status,
+        trading_date=trading_date,
+        checked_at=_now(),
+        position_mismatches=mismatches,
+        eod_open_positions=eod_open,
     )
 
     await _persist(db_factory, broker_name, result)
 
     if status != "CLEAN":
-        detail = f"{len(mismatches)} mismatch(es), {len(eod_open)} position(s) open at EOD: {eod_open}"
+        detail = (
+            f"{len(mismatches)} mismatch(es), {len(eod_open)} position(s) open at EOD: {eod_open}"
+        )
         logger.critical("M01: reconciliation DISCREPANCY", detail=detail)
         await _alert(notify, "M01 RECONCILIATION: DISCREPANCY", detail, "critical")
     else:
@@ -121,18 +135,27 @@ async def run_reconciliation(
 async def _persist(db_factory, broker_name: str, result: ReconciliationResult) -> None:
     try:
         async with db_factory()() as session:
-            session.add(ReconciliationReportRecord(
-                trading_date=result.trading_date.isoformat(),
-                broker_name=broker_name,
-                checked_at=result.checked_at.isoformat(),
-                status=result.status,
-                position_mismatches_json=json.dumps([
-                    {"symbol": m.symbol, "issue": m.issue, "broker_qty": m.broker_qty, "internal_qty": m.internal_qty}
-                    for m in result.position_mismatches
-                ]),
-                eod_open_positions_json=json.dumps(result.eod_open_positions),
-                notes_json=json.dumps(result.notes),
-            ))
+            session.add(
+                ReconciliationReportRecord(
+                    trading_date=result.trading_date.isoformat(),
+                    broker_name=broker_name,
+                    checked_at=result.checked_at.isoformat(),
+                    status=result.status,
+                    position_mismatches_json=json.dumps(
+                        [
+                            {
+                                "symbol": m.symbol,
+                                "issue": m.issue,
+                                "broker_qty": m.broker_qty,
+                                "internal_qty": m.internal_qty,
+                            }
+                            for m in result.position_mismatches
+                        ]
+                    ),
+                    eod_open_positions_json=json.dumps(result.eod_open_positions),
+                    notes_json=json.dumps(result.notes),
+                )
+            )
             await session.commit()
     except Exception as exc:
         logger.error("M01: failed to persist reconciliation report", error=str(exc))

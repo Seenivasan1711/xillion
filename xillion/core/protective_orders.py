@@ -30,10 +30,10 @@ genuine circuit-breaker for the worst case (process down, software stop
 can't fire at all), not a precision replacement for the tick-driven
 spread-value check that remains the primary, more accurate protection.
 """
+
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Optional
 
 from xillion.core.multileg import StructureType
 
@@ -42,10 +42,11 @@ from xillion.core.multileg import StructureType
 class ProtectiveOrderSpec:
     """Structure-dependent stop/target, computed once at fill time from the
     real average entry price (not the pre-trade estimate)."""
-    stop_value: Decimal      # trigger when the monitored value crosses this, in the "bad" direction
-    target_value: Optional[Decimal] = None
-    time_stop_date: Optional[date] = None  # exit regardless, once reached (e.g. 1 DTE)
-    reference_credit: Optional[Decimal] = None  # for logging/journal only
+
+    stop_value: Decimal  # trigger when the monitored value crosses this, in the "bad" direction
+    target_value: Decimal | None = None
+    time_stop_date: date | None = None  # exit regardless, once reached (e.g. 1 DTE)
+    reference_credit: Decimal | None = None  # for logging/journal only
 
 
 def credit_spread_protective_levels(
@@ -53,7 +54,7 @@ def credit_spread_protective_levels(
     *,
     target_pct_of_credit: Decimal = Decimal("0.50"),
     stop_multiple_of_credit: Decimal = Decimal("2.0"),
-    time_stop_date: Optional[date] = None,
+    time_stop_date: date | None = None,
 ) -> ProtectiveOrderSpec:
     """KB 10-FIRST-STRATEGY-SPEC.md §6: stop on SPREAD VALUE, e.g. 2x credit
     received (= a loss equal to 100% of the credit); target on spread value
@@ -74,8 +75,9 @@ def credit_spread_protective_levels(
 
 
 def short_leg_gtt_levels(
-    long_entry_price: Decimal, spec: ProtectiveOrderSpec,
-) -> tuple[Decimal, Optional[Decimal]]:
+    long_entry_price: Decimal,
+    spec: ProtectiveOrderSpec,
+) -> tuple[Decimal, Decimal | None]:
     """Converts a spread-value-based ProtectiveOrderSpec into an
     approximate (short-leg-price-only) stop/target pair for a broker-native
     GTT -- see this module's docstring for why it's approximate, not exact.
@@ -96,7 +98,7 @@ def check_exit_trigger(
     spec: ProtectiveOrderSpec,
     current_value: Decimal,
     current_date: date,
-) -> Optional[str]:
+) -> str | None:
     """Returns "STOP" | "TARGET" | "TIME_STOP" | None. Time stop is checked
     first -- an expiry-day gamma exit takes priority over a target that
     happens to be sitting right at the boundary. For a credit spread,
@@ -114,4 +116,5 @@ def check_exit_trigger(
 
 def is_defined_risk(structure_type: StructureType) -> bool:
     from xillion.core.multileg import DEFINED_RISK_STRUCTURES
+
     return structure_type in DEFINED_RISK_STRUCTURES

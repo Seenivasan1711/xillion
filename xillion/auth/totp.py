@@ -15,10 +15,12 @@ def verify_code(secret: str, code: str) -> bool:
 
 def _fernet():
     from xillion.config import get_settings
+
     key = get_settings().encryption_key.strip()
     if not key:
         return None
     from cryptography.fernet import Fernet
+
     return Fernet(key.encode())
 
 

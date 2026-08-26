@@ -2,6 +2,7 @@
 SQLAlchemy 2.0 ORM models — matches the schema in docs/05-data-model.md.
 Uses portable types (Numeric, Text, Integer, Boolean) for SQLite/Postgres compat.
 """
+
 from sqlalchemy import (
     Boolean,
     ForeignKey,
@@ -19,6 +20,7 @@ class Base(DeclarativeBase):
 
 
 # ── Plugin registry ────────────────────────────────────────────────────────────
+
 
 class StrategyClass(Base):
     __tablename__ = "strategy_class"
@@ -58,6 +60,7 @@ class BrokerClass(Base):
 class DataProviderClass(Base):
     """Discovered historical-data-provider plugins from data_providers/ --
     same drop-a-file discovery pattern as StrategyClass/BrokerClass."""
+
     __tablename__ = "data_provider_class"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -75,6 +78,7 @@ class DataProviderCredential(Base):
     """Encrypted API credentials for a data provider that needs its own key
     (e.g. TrueData, DhanHQ). Providers that piggyback on a connected broker
     (e.g. Kite) or need no auth (e.g. free NSE bhavcopy) have no row here."""
+
     __tablename__ = "data_provider_credential"
 
     name: Mapped[str] = mapped_column(Text, primary_key=True)  # e.g. "TrueData Primary"
@@ -84,6 +88,7 @@ class DataProviderCredential(Base):
 
 
 # ── Broker connections ─────────────────────────────────────────────────────────
+
 
 class BrokerConnection(Base):
     __tablename__ = "broker_connection"
@@ -105,6 +110,7 @@ class BrokerConnection(Base):
 
 # ── Strategy instances ─────────────────────────────────────────────────────────
 
+
 class StrategyInstance(Base):
     __tablename__ = "strategy_instance"
 
@@ -112,9 +118,11 @@ class StrategyInstance(Base):
     strategy_class_id: Mapped[int] = mapped_column(ForeignKey("strategy_class.id"), nullable=False)
     strategy_class_version: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    mode: Mapped[str] = mapped_column(Text, nullable=False)   # backtest | paper | live
-    status: Mapped[str] = mapped_column(Text, nullable=False) # idle|running|paused|error|killed
-    broker_connection_id: Mapped[int] = mapped_column(ForeignKey("broker_connection.id"), nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False)  # backtest | paper | live
+    status: Mapped[str] = mapped_column(Text, nullable=False)  # idle|running|paused|error|killed
+    broker_connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connection.id"), nullable=False
+    )
     instruments_json: Mapped[str] = mapped_column(Text, nullable=False)
     timeframe: Mapped[str] = mapped_column(Text, nullable=False)
     params_json: Mapped[str] = mapped_column(Text, nullable=False)
@@ -142,16 +150,19 @@ class StrategyInstance(Base):
 
 # ── Orders & fills ─────────────────────────────────────────────────────────────
 
+
 class OrderRecord(Base):
     __tablename__ = "order_record"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)  # UUID = client_order_id
     broker_order_id: Mapped[str | None] = mapped_column(Text)
-    broker_connection_id: Mapped[int] = mapped_column(ForeignKey("broker_connection.id"), nullable=False)
+    broker_connection_id: Mapped[int] = mapped_column(
+        ForeignKey("broker_connection.id"), nullable=False
+    )
     strategy_instance_id: Mapped[str | None] = mapped_column(ForeignKey("strategy_instance.id"))
     symbol: Mapped[str] = mapped_column(Text, nullable=False)
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
-    side: Mapped[str] = mapped_column(Text, nullable=False)      # BUY | SELL
+    side: Mapped[str] = mapped_column(Text, nullable=False)  # BUY | SELL
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     filled_quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     order_type: Mapped[str] = mapped_column(Text, nullable=False)
@@ -195,6 +206,7 @@ class FillRecord(Base):
 
 # ── Positions ──────────────────────────────────────────────────────────────────
 
+
 class PositionRecord(Base):
     __tablename__ = "position"
 
@@ -212,6 +224,7 @@ class PositionRecord(Base):
 
 
 # ── Audit log (append-only) ────────────────────────────────────────────────────
+
 
 class AuditLogRecord(Base):
     __tablename__ = "audit_log"
@@ -239,6 +252,7 @@ class ReconciliationReport(Base):
     own design: 'IF status != CLEAN -> block tomorrow's trading, require
     manual sign-off to resume' depends on there being a real record to
     check against, not a log line that scrolled past."""
+
     __tablename__ = "reconciliation_report"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -250,12 +264,11 @@ class ReconciliationReport(Base):
     eod_open_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
 
-    __table_args__ = (
-        Index("idx_reconciliation_date", "trading_date"),
-    )
+    __table_args__ = (Index("idx_reconciliation_date", "trading_date"),)
 
 
 # ── Daily risk state ───────────────────────────────────────────────────────────
+
 
 class DailyRiskState(Base):
     __tablename__ = "daily_risk_state"
@@ -282,6 +295,7 @@ class DailyStrategyPnl(Base):
 
 
 # ── Historical bars ────────────────────────────────────────────────────────────
+
 
 class BarRecord(Base):
     __tablename__ = "bar"
@@ -312,22 +326,21 @@ class OptionChainSnapshot(Base):
     column -- the exchange's own recorded underlying close at settlement,
     used as the backtest's spot proxy. Confirmed present against a real
     live bhavcopy file (2026-08-24) before this was built, not assumed."""
+
     __tablename__ = "option_chain_snapshot"
 
     trade_date: Mapped[str] = mapped_column(Text, primary_key=True)  # ISO date
     exchange: Mapped[str] = mapped_column(Text, primary_key=True)
     tradingsymbol: Mapped[str] = mapped_column(Text, primary_key=True)
-    underlying: Mapped[str] = mapped_column(Text, nullable=False)   # e.g. "NIFTY"
-    expiry: Mapped[str | None] = mapped_column(Text)                # ISO date
+    underlying: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. "NIFTY"
+    expiry: Mapped[str | None] = mapped_column(Text)  # ISO date
     strike: Mapped[float | None] = mapped_column(Numeric)
-    option_type: Mapped[str | None] = mapped_column(Text)           # CE | PE | None (futures)
+    option_type: Mapped[str | None] = mapped_column(Text)  # CE | PE | None (futures)
     lot_size: Mapped[int] = mapped_column(Integer, nullable=False)
     close: Mapped[float] = mapped_column(Numeric, nullable=False)
     underlying_price: Mapped[float | None] = mapped_column(Numeric)
 
-    __table_args__ = (
-        Index("idx_option_chain_lookup", "underlying", "exchange", "trade_date"),
-    )
+    __table_args__ = (Index("idx_option_chain_lookup", "underlying", "exchange", "trade_date"),)
 
 
 class BarCoverage(Base):
@@ -340,6 +353,7 @@ class BarCoverage(Base):
     `symbol="*"` is a wildcard row used by whole-file-bulk providers (e.g.
     NSE bhavcopy): one fetch persists every instrument's bar for that day, so
     coverage is tracked per exchange/day rather than per symbol."""
+
     __tablename__ = "bar_coverage"
 
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -354,6 +368,7 @@ class BarCoverage(Base):
 class MarketHoliday(Base):
     """Known non-trading days per exchange, so a backfill or paper-session
     scheduler can skip them without hitting the provider to find out."""
+
     __tablename__ = "market_holiday"
 
     exchange: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -363,6 +378,7 @@ class MarketHoliday(Base):
 
 # ── Journal (CP6) ──────────────────────────────────────────────────────────────
 
+
 class JournalNote(Base):
     """Manual annotation on a journal entry -- the failure-mode taxonomy
     entries auto-classification (xillion/engine/journal.py) has no real
@@ -371,6 +387,7 @@ class JournalNote(Base):
     narrative the docs/strategies/<name>.md failure log wants. Keyed by
     the same (source, source_id) journal.py uses, not a hard FK, since
     "source" spans two different tables (signal_log, backtest_trade)."""
+
     __tablename__ = "journal_note"
 
     source: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -384,6 +401,7 @@ class StrategyVersionHistory(Base):
     """Append-only log of every (version, code_hash) a strategy class has
     ever had. strategy_class itself is upserted in place on every plugin
     sync (see plugin_sync.py), which would otherwise silently lose this."""
+
     __tablename__ = "strategy_version_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -396,6 +414,7 @@ class StrategyVersionHistory(Base):
 
 
 # ── Backtest runs ──────────────────────────────────────────────────────────────
+
 
 class BacktestRun(Base):
     __tablename__ = "backtest_run"
@@ -444,6 +463,7 @@ class BacktestTrade(Base):
 
 # ── Auth & sessions ────────────────────────────────────────────────────────────
 
+
 class AppUser(Base):
     __tablename__ = "app_user"
 
@@ -486,10 +506,12 @@ class BrokerCredential(Base):
 
 # ── Instrument master (options resolution) ────────────────────────────────────
 
+
 class Instrument(Base):
     """Cached row from Kite's instrument dump. Refreshed daily. Nullable
     strike/option_type/expiry so non-derivative rows (indices, equities,
     futures, and any future asset class such as forex) fit the same table."""
+
     __tablename__ = "instrument"
 
     instrument_token: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -512,6 +534,7 @@ class Instrument(Base):
 
 # ── Signal log (alert mode) ────────────────────────────────────────────────────
 
+
 class SignalLog(Base):
     """Every signal emitted by an alert-mode strategy instance. No fill/price
     execution data — this is the forward-test dataset the build spec calls for.
@@ -521,10 +544,13 @@ class SignalLog(Base):
     strategy uses to pair an EXIT back to the ENTER it closes, via
     `parent_signal_id` (CP4 -- before this, `signal_type` held the tag
     string and there was no ENTER/EXIT distinction or linkage at all)."""
+
     __tablename__ = "signal_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    strategy_instance_id: Mapped[str] = mapped_column(ForeignKey("strategy_instance.id"), nullable=False)
+    strategy_instance_id: Mapped[str] = mapped_column(
+        ForeignKey("strategy_instance.id"), nullable=False
+    )
     ts: Mapped[str] = mapped_column(Text, nullable=False)
     underlying_symbol: Mapped[str] = mapped_column(Text, nullable=False)
     resolved_tradingsymbol: Mapped[str | None] = mapped_column(Text)
@@ -533,7 +559,9 @@ class SignalLog(Base):
     parent_signal_id: Mapped[int | None] = mapped_column(ForeignKey("signal_log.id"))
     target_price: Mapped[float | None] = mapped_column(Numeric)
     stop_loss_price: Mapped[float | None] = mapped_column(Numeric)
-    ai_confidence: Mapped[float | None] = mapped_column(Numeric)  # 0-100, CP8 pre-trade hook; NULL if not configured
+    ai_confidence: Mapped[float | None] = mapped_column(
+        Numeric
+    )  # 0-100, CP8 pre-trade hook; NULL if not configured
     side: Mapped[str | None] = mapped_column(Text)  # BUY | SELL
     price: Mapped[float | None] = mapped_column(Numeric)
     message: Mapped[str] = mapped_column(Text, nullable=False)  # the "reason" text
@@ -547,11 +575,18 @@ class SignalLog(Base):
     __table_args__ = (
         Index("idx_signal_log_instance_ts", "strategy_instance_id", "ts"),
         Index("idx_signal_log_underlying_ts", "underlying_symbol", "ts"),
-        Index("idx_signal_log_open_entry", "strategy_instance_id", "underlying_symbol", "tag", "signal_type"),
+        Index(
+            "idx_signal_log_open_entry",
+            "strategy_instance_id",
+            "underlying_symbol",
+            "tag",
+            "signal_type",
+        ),
     )
 
 
 # ── Notifications ──────────────────────────────────────────────────────────────
+
 
 class NotificationChannel(Base):
     __tablename__ = "notification_channel"
@@ -571,7 +606,9 @@ class NotificationRule(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(ForeignKey("notification_channel.id"), nullable=False)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
-    min_severity: Mapped[str] = mapped_column(Text, nullable=False)  # debug|info|warn|error|critical
+    min_severity: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )  # debug|info|warn|error|critical
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     channel: Mapped[NotificationChannel] = relationship(back_populates="rules")
@@ -579,12 +616,14 @@ class NotificationRule(Base):
 
 # ── System logs ──────────────────────────────────────────────────────────────
 
+
 class SystemLog(Base):
     """Every structlog event app-wide, captured by
     xillion/observability/log_capture.py so the Logs page (CP9) has
     something to load on mount instead of starting blank and losing
     everything on reload -- see that module's docstring for the full
     pipeline."""
+
     __tablename__ = "system_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -1,4 +1,5 @@
 """Tests for options instrument resolution (strike/expiry/ATM logic)."""
+
 from datetime import date
 from decimal import Decimal
 
@@ -40,41 +41,64 @@ def _opt_row(
     )
 
 
-def _nifty_chain_for_expiry(expiry: date, strikes: list[int], token_start: int) -> list[InstrumentRow]:
+def _nifty_chain_for_expiry(
+    expiry: date, strikes: list[int], token_start: int
+) -> list[InstrumentRow]:
     rows = []
     token = token_start
     for strike in strikes:
         for opt_type in ("CE", "PE"):
-            rows.append(_opt_row(
-                token, "NFO", f"NIFTY{expiry:%y%b%d}{strike}{opt_type}".upper(),
-                "NIFTY", expiry, Decimal(strike), opt_type,
-            ))
+            rows.append(
+                _opt_row(
+                    token,
+                    "NFO",
+                    f"NIFTY{expiry:%y%b%d}{strike}{opt_type}".upper(),
+                    "NIFTY",
+                    expiry,
+                    Decimal(strike),
+                    opt_type,
+                )
+            )
             token += 1
     return rows
 
 
 # ── select_expiry: Nifty weekly ────────────────────────────────────────────────
 
+
 def test_select_expiry_this_week_nifty():
     weekly_expiries = [date(2026, 7, 28), date(2026, 8, 4), date(2026, 8, 11)]
-    rows = [r for e in weekly_expiries for r in _nifty_chain_for_expiry(e, [25000], 1000 + weekly_expiries.index(e) * 10)]
+    rows = [
+        r
+        for e in weekly_expiries
+        for r in _nifty_chain_for_expiry(e, [25000], 1000 + weekly_expiries.index(e) * 10)
+    ]
     assert select_expiry(rows, "NIFTY", "this_week", TODAY) == date(2026, 7, 28)
 
 
 def test_select_expiry_next_week_nifty():
     weekly_expiries = [date(2026, 7, 28), date(2026, 8, 4), date(2026, 8, 11)]
-    rows = [r for e in weekly_expiries for r in _nifty_chain_for_expiry(e, [25000], 1000 + weekly_expiries.index(e) * 10)]
+    rows = [
+        r
+        for e in weekly_expiries
+        for r in _nifty_chain_for_expiry(e, [25000], 1000 + weekly_expiries.index(e) * 10)
+    ]
     assert select_expiry(rows, "NIFTY", "next_week", TODAY) == date(2026, 8, 4)
 
 
 # ── select_expiry: Sensex weekly, BFO exchange ─────────────────────────────────
+
 
 def test_select_expiry_this_week_sensex_bfo():
     weekly_expiries = [date(2026, 7, 31), date(2026, 8, 7)]
     rows = []
     token = 2000
     for e in weekly_expiries:
-        rows.append(_opt_row(token, "BFO", f"SENSEX{e:%y%b%d}80000CE".upper(), "SENSEX", e, Decimal(80000), "CE"))
+        rows.append(
+            _opt_row(
+                token, "BFO", f"SENSEX{e:%y%b%d}80000CE".upper(), "SENSEX", e, Decimal(80000), "CE"
+            )
+        )
         token += 1
     resolved = select_expiry(rows, "SENSEX", "this_week", TODAY)
     assert resolved == date(2026, 7, 31)
@@ -82,12 +106,23 @@ def test_select_expiry_this_week_sensex_bfo():
 
 # ── select_expiry: BankNifty monthly-only ──────────────────────────────────────
 
+
 def test_select_expiry_this_month_banknifty_monthly_only():
     monthly_expiries = [date(2026, 7, 30), date(2026, 8, 27)]
     rows = []
     token = 3000
     for e in monthly_expiries:
-        rows.append(_opt_row(token, "NFO", f"BANKNIFTY{e:%y%b%d}52000CE".upper(), "BANKNIFTY", e, Decimal(52000), "CE"))
+        rows.append(
+            _opt_row(
+                token,
+                "NFO",
+                f"BANKNIFTY{e:%y%b%d}52000CE".upper(),
+                "BANKNIFTY",
+                e,
+                Decimal(52000),
+                "CE",
+            )
+        )
         token += 1
     assert select_expiry(rows, "BANKNIFTY", "this_month", TODAY) == date(2026, 7, 30)
     assert select_expiry(rows, "BANKNIFTY", "next_month", TODAY) == date(2026, 8, 27)
@@ -97,7 +132,17 @@ def test_select_expiry_this_week_raises_for_monthly_only_underlying():
     """The ambiguous case: 'this_week' requested for an underlying that only
     has monthly expiries far out -- must raise, not silently misresolve."""
     monthly_expiries = [date(2026, 8, 27)]
-    rows = [_opt_row(4000, "NFO", "BANKNIFTY26AUG52000CE", "BANKNIFTY", monthly_expiries[0], Decimal(52000), "CE")]
+    rows = [
+        _opt_row(
+            4000,
+            "NFO",
+            "BANKNIFTY26AUG52000CE",
+            "BANKNIFTY",
+            monthly_expiries[0],
+            Decimal(52000),
+            "CE",
+        )
+    ]
     with pytest.raises(ExpirySelectionError, match="looks monthly-only"):
         select_expiry(rows, "BANKNIFTY", "this_week", TODAY)
 
@@ -114,6 +159,7 @@ def test_select_expiry_unknown_selector_raises():
 
 
 # ── nearest_strike ──────────────────────────────────────────────────────────────
+
 
 def test_nearest_strike_atm_exact_match():
     strikes = [Decimal(s) for s in (24900, 24950, 25000, 25050, 25100)]
@@ -151,12 +197,18 @@ def test_nearest_strike_empty_raises():
 
 # ── resolve_option (end to end) ─────────────────────────────────────────────────
 
+
 def test_resolve_option_atm_call_this_week():
     expiry = date(2026, 7, 28)
     rows = _nifty_chain_for_expiry(expiry, [24900, 24950, 25000, 25050, 25100], 6000)
     resolved = resolve_option(
-        rows, "NIFTY", "this_week", strike_offset=0, option_type="CE",
-        spot_price=Decimal(25010), as_of=TODAY,
+        rows,
+        "NIFTY",
+        "this_week",
+        strike_offset=0,
+        option_type="CE",
+        spot_price=Decimal(25010),
+        as_of=TODAY,
     )
     assert resolved.strike == Decimal(25000)
     assert resolved.option_type == "CE"
@@ -169,8 +221,13 @@ def test_resolve_option_otm_put():
     expiry = date(2026, 7, 28)
     rows = _nifty_chain_for_expiry(expiry, [24900, 24950, 25000, 25050, 25100], 7000)
     resolved = resolve_option(
-        rows, "NIFTY", "this_week", strike_offset=-2, option_type="PE",
-        spot_price=Decimal(25000), as_of=TODAY,
+        rows,
+        "NIFTY",
+        "this_week",
+        strike_offset=-2,
+        option_type="PE",
+        spot_price=Decimal(25000),
+        as_of=TODAY,
     )
     assert resolved.strike == Decimal(24900)
     assert resolved.option_type == "PE"

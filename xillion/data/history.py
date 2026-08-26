@@ -2,8 +2,8 @@
 Historical data manager: fetches bars from the DB or broker and caches them.
 In backtest mode, the data is loaded upfront. In live mode, it's fetched on demand.
 """
+
 from datetime import datetime, timedelta
-from typing import Optional
 
 import structlog
 
@@ -42,7 +42,7 @@ class HistoryManager:
         symbol: str,
         timeframe: str,
         lookback: int,
-        as_of: Optional[datetime] = None,
+        as_of: datetime | None = None,
     ) -> list[Bar]:
         """
         Return up to `lookback` bars for (symbol, timeframe) ending at `as_of`.
@@ -64,7 +64,8 @@ class HistoryManager:
 
         earliest = bars[0].ts if bars else (as_of or datetime.utcnow())
         db_bars = await self._repo.get_bars(
-            symbol, timeframe,
+            symbol,
+            timeframe,
             from_ts=datetime.min,
             to_ts=earliest - timedelta(microseconds=1),
             exchange=self._exchange,

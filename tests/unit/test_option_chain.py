@@ -5,6 +5,7 @@ verification for options -- same shape as test_bar_warehouse.py's CP2 test
 the NSE bhavcopy row parser against the real column names confirmed live
 (2026-08-24), and the InstrumentRow conversion resolve_option() consumes.
 """
+
 from datetime import date
 from decimal import Decimal
 
@@ -12,9 +13,12 @@ import pytest
 
 from data_providers.nse_bhavcopy import NSEBhavcopyProvider
 from xillion.core.instruments import resolve_option
-from xillion.data.option_chain import HistoricalOptionRow, OptionChainRepository, OptionChainWarehouse
+from xillion.data.option_chain import (
+    HistoricalOptionRow,
+    OptionChainRepository,
+    OptionChainWarehouse,
+)
 from xillion.db.session import get_session_factory, init_db
-
 
 # Real header + two rows, shaped exactly like a live bhavcopy file fetched
 # and inspected directly against nsearchives.nseindia.com on 2026-08-24.
@@ -40,6 +44,7 @@ class _FakeBhavcopyProvider:
         real = NSEBhavcopyProvider()
         import csv
         import io
+
         reader = csv.DictReader(io.StringIO(_REAL_HEADER + "\n" + _REAL_ROW))
         self._canned_rows = [real._row_to_option_row(r) for r in reader]
 
@@ -54,6 +59,7 @@ def test_row_parser_reads_real_column_names():
     provider = NSEBhavcopyProvider()
     import csv
     import io
+
     reader = csv.DictReader(io.StringIO(_REAL_HEADER + "\n" + _REAL_ROW))
     row = provider._row_to_option_row(next(reader))
 
@@ -76,13 +82,24 @@ def test_row_parser_returns_none_on_malformed_row():
 
 def test_as_instrument_row_is_consumable_by_resolve_option():
     row = HistoricalOptionRow(
-        tradingsymbol="NIFTY26AUG24200PE", exchange="NFO", underlying="NIFTY",
-        expiry=date(2026, 8, 25), strike=Decimal("24200"), option_type="PE",
-        lot_size=65, close=Decimal("105.5"), underlying_price=Decimal("24219.05"),
+        tradingsymbol="NIFTY26AUG24200PE",
+        exchange="NFO",
+        underlying="NIFTY",
+        expiry=date(2026, 8, 25),
+        strike=Decimal("24200"),
+        option_type="PE",
+        lot_size=65,
+        close=Decimal("105.5"),
+        underlying_price=Decimal("24219.05"),
     )
     instrument_row = row.as_instrument_row()
     resolved = resolve_option(
-        [instrument_row], "NIFTY", "this_week", 0, "PE", Decimal("24219.05"),
+        [instrument_row],
+        "NIFTY",
+        "this_week",
+        0,
+        "PE",
+        Decimal("24219.05"),
         as_of=date(2026, 8, 24),
     )
     assert resolved.tradingsymbol == "NIFTY26AUG24200PE"
@@ -139,14 +156,26 @@ async def test_a_different_underlying_on_an_already_fetched_day_is_free():
             self.calls.append(day)
             return [
                 HistoricalOptionRow(
-                    tradingsymbol="NIFTY26AUG24200PE", exchange="NFO", underlying="NIFTY",
-                    expiry=date(2026, 8, 25), strike=Decimal("24200"), option_type="PE",
-                    lot_size=65, close=Decimal("105.5"), underlying_price=Decimal("24219.05"),
+                    tradingsymbol="NIFTY26AUG24200PE",
+                    exchange="NFO",
+                    underlying="NIFTY",
+                    expiry=date(2026, 8, 25),
+                    strike=Decimal("24200"),
+                    option_type="PE",
+                    lot_size=65,
+                    close=Decimal("105.5"),
+                    underlying_price=Decimal("24219.05"),
                 ),
                 HistoricalOptionRow(
-                    tradingsymbol="BANKNIFTY26AUG51000PE", exchange="NFO", underlying="BANKNIFTY",
-                    expiry=date(2026, 8, 25), strike=Decimal("51000"), option_type="PE",
-                    lot_size=30, close=Decimal("210.0"), underlying_price=Decimal("51042.10"),
+                    tradingsymbol="BANKNIFTY26AUG51000PE",
+                    exchange="NFO",
+                    underlying="BANKNIFTY",
+                    expiry=date(2026, 8, 25),
+                    strike=Decimal("51000"),
+                    option_type="PE",
+                    lot_size=30,
+                    close=Decimal("210.0"),
+                    underlying_price=Decimal("51042.10"),
                 ),
             ]
 

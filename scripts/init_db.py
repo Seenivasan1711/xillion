@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Create the data directory and initialise the database."""
+
 import asyncio
 import sys
 from pathlib import Path
@@ -18,8 +19,11 @@ async def main() -> None:
         # alembic_version from the real schema (this bit a real deploy:
         # a later `alembic upgrade head` saw an old revision and crashed
         # trying to recreate tables create_all() had already made).
-        print("production DATABASE_URL detected -- refusing to run create_all(). "
-              "Use `alembic upgrade head` instead.", file=sys.stderr)
+        print(
+            "production DATABASE_URL detected -- refusing to run create_all(). "
+            "Use `alembic upgrade head` instead.",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
 
     await init_db()

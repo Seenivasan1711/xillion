@@ -4,6 +4,9 @@ storage as Zerodha/Dhan (reusing BrokerCredential -- see the note on
 NOTIFICATIONS_NAME in xillion/api/settings.py). Also proves the save path
 applies immediately to the running TelegramNotifier without a restart.
 """
+
+from datetime import UTC
+
 import pytest
 from fastapi import FastAPI
 
@@ -19,10 +22,13 @@ class _FakeRequest:
 
 
 def _user():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from xillion.db.models import AppUser
-    return AppUser(id=1, username="test-user", password_hash="x", created_at=datetime.now(timezone.utc).isoformat())
+
+    return AppUser(
+        id=1, username="test-user", password_hash="x", created_at=datetime.now(UTC).isoformat()
+    )
 
 
 @pytest.mark.asyncio
@@ -39,7 +45,9 @@ async def test_notification_settings_round_trip_and_apply_to_live_notifier():
         assert before.telegram_bot_token == ""
 
     async with factory() as db:
-        body = NotificationSettings(telegram_bot_token="123:ABC", telegram_chat_id="-100999", on_kill_switch=False)
+        body = NotificationSettings(
+            telegram_bot_token="123:ABC", telegram_chat_id="-100999", on_kill_switch=False
+        )
         result = await put_notifications(body, request, db, user)
         assert result["saved"] is True
 

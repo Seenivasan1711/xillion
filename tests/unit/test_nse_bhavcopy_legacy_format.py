@@ -9,6 +9,7 @@ docstring for the exact real column names and the two approximations
 (underlying_price via nearest-future-close proxy, lot_size=0) the option-
 chain path carries that the new-format path doesn't need.
 """
+
 import io
 import zipfile
 from datetime import date
@@ -62,11 +63,19 @@ async def test_bars_fall_back_to_legacy_format_on_a_new_format_404(monkeypatch):
     provider = NSEBhavcopyProvider()
 
     bars = await provider.fetch_all_bars_for_day(
-        "NFO", "1d", date(2021, 6, 15), underlying_filter={"BANKNIFTY"},
+        "NFO",
+        "1d",
+        date(2021, 6, 15),
+        underlying_filter={"BANKNIFTY"},
     )
 
     symbols = {b.symbol for b in bars}
-    assert symbols == {"BANKNIFTY24JUN21FUT", "BANKNIFTY29JUL21FUT", "BANKNIFTY17JUN2128100CE", "BANKNIFTY17JUN2128100PE"}
+    assert symbols == {
+        "BANKNIFTY24JUN21FUT",
+        "BANKNIFTY29JUL21FUT",
+        "BANKNIFTY17JUN2128100CE",
+        "BANKNIFTY17JUN2128100PE",
+    }
     assert "RELIANCE24JUN21FUT" not in symbols  # filtered out
 
 
@@ -75,7 +84,9 @@ async def test_legacy_bar_values_are_parsed_correctly(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get_new_404_legacy_200)
     provider = NSEBhavcopyProvider()
 
-    bars = await provider.fetch_all_bars_for_day("NFO", "1d", date(2021, 6, 15), underlying_filter={"BANKNIFTY"})
+    bars = await provider.fetch_all_bars_for_day(
+        "NFO", "1d", date(2021, 6, 15), underlying_filter={"BANKNIFTY"}
+    )
     fut = next(b for b in bars if b.symbol == "BANKNIFTY24JUN21FUT")
 
     assert fut.open == 35035
@@ -86,7 +97,9 @@ async def test_legacy_bar_values_are_parsed_correctly(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_option_chain_falls_back_to_legacy_and_approximates_spot_from_nearest_future(monkeypatch):
+async def test_option_chain_falls_back_to_legacy_and_approximates_spot_from_nearest_future(
+    monkeypatch,
+):
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get_new_404_legacy_200)
     provider = NSEBhavcopyProvider()
 
@@ -120,6 +133,7 @@ async def test_legacy_futures_row_has_no_strike_or_option_type(monkeypatch):
 async def test_a_genuine_holiday_returns_empty_even_after_legacy_fallback(monkeypatch):
     """Both the new AND legacy URLs 404 for a real holiday -- must not
     fabricate data, and must not raise."""
+
     async def _both_404(self, url):
         return _FakeResponse(b"", status_code=404)
 
@@ -134,6 +148,27 @@ async def test_a_genuine_holiday_returns_empty_even_after_legacy_fallback(monkey
 
 
 def test_legacy_tradingsymbol_rejects_a_malformed_row():
-    assert NSEBhavcopyProvider._legacy_tradingsymbol_from_row({"INSTRUMENT": "FUTIDX", "SYMBOL": "", "EXPIRY_DT": "24-Jun-2021"}) is None
-    assert NSEBhavcopyProvider._legacy_tradingsymbol_from_row({"INSTRUMENT": "EQ", "SYMBOL": "RELIANCE", "EXPIRY_DT": "24-Jun-2021"}) is None
-    assert NSEBhavcopyProvider._legacy_tradingsymbol_from_row({"INSTRUMENT": "OPTIDX", "SYMBOL": "NIFTY", "EXPIRY_DT": "not-a-date", "STRIKE_PR": "15000", "OPTION_TYP": "CE"}) is None
+    assert (
+        NSEBhavcopyProvider._legacy_tradingsymbol_from_row(
+            {"INSTRUMENT": "FUTIDX", "SYMBOL": "", "EXPIRY_DT": "24-Jun-2021"}
+        )
+        is None
+    )
+    assert (
+        NSEBhavcopyProvider._legacy_tradingsymbol_from_row(
+            {"INSTRUMENT": "EQ", "SYMBOL": "RELIANCE", "EXPIRY_DT": "24-Jun-2021"}
+        )
+        is None
+    )
+    assert (
+        NSEBhavcopyProvider._legacy_tradingsymbol_from_row(
+            {
+                "INSTRUMENT": "OPTIDX",
+                "SYMBOL": "NIFTY",
+                "EXPIRY_DT": "not-a-date",
+                "STRIKE_PR": "15000",
+                "OPTION_TYP": "CE",
+            }
+        )
+        is None
+    )

@@ -1,12 +1,12 @@
 """
 Database access layer for historical bar data (read/write).
 """
+
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.core.events import Bar
 from xillion.db.models import BarRecord
@@ -27,7 +27,7 @@ _BATCH_SIZE = 100
 
 def _chunks(items: list, size: int):
     for i in range(0, len(items), size):
-        yield items[i:i + size]
+        yield items[i : i + size]
 
 
 class BarRepository:

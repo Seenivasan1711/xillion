@@ -2,11 +2,11 @@
 Strategy instance CRUD and lifecycle management (Phase 4).
 Instances are persisted in DB; the strategy engine manages the running tasks.
 """
+
 import json
 import pickle
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 from uuid import uuid4
 
 import structlog
@@ -16,14 +16,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.api.deps import db_dep, get_current_user
-from xillion.db.models import AppUser, BrokerClass, BrokerConnection, StrategyClass, StrategyInstance
+from xillion.db.models import (
+    AppUser,
+    BrokerClass,
+    BrokerConnection,
+    StrategyClass,
+    StrategyInstance,
+)
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/instances", tags=["instances"])
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -65,7 +71,9 @@ def _inst_to_dict(inst: StrategyInstance, strategy_name: str, runner=None) -> di
 
 
 async def _strategy_name_for(inst: StrategyInstance, db: AsyncSession) -> str:
-    result = await db.execute(select(StrategyClass).where(StrategyClass.id == inst.strategy_class_id))
+    result = await db.execute(
+        select(StrategyClass).where(StrategyClass.id == inst.strategy_class_id)
+    )
     sc = result.scalar_one_or_none()
     return sc.name if sc else str(inst.strategy_class_id)
 
@@ -96,7 +104,9 @@ async def _ensure_broker_connection(db: AsyncSession, mode: str, request: Reques
         existing = result.scalar_one_or_none()
         if existing is not None:
             return existing.id
-        bc_result = await db.execute(select(BrokerClass).where(BrokerClass.name == info["broker_name"]))
+        bc_result = await db.execute(
+            select(BrokerClass).where(BrokerClass.name == info["broker_name"])
+        )
         bc = bc_result.scalar_one_or_none()
         if bc is None:
             continue  # plugin not synced to DB yet -- try the next broker / fall through
@@ -115,31 +125,38 @@ async def _ensure_broker_connection(db: AsyncSession, mode: str, request: Reques
         await db.refresh(conn)
         return conn.id
 
-    # Nothing connected — reuse or create the paper placeholder (original behaviour).
-    result = await db.execute(select(BrokerConnection).where(BrokerConnection.name == "Default Paper"))
-    existing = result.scalar_one_or_none()
-    if existing is not None:
-        return existing.id
+    # Nothing connected — reuse or create the paper placeholder (original
+    # behaviour). Distinct variable names from the for-loop above (reusing
+    # result/bc/conn there confused mypy's type inference into thinking
+    # bcs[0] below was a BrokerConnection, not a BrokerClass -- a static-
+    # analysis artifact of name reuse across a function, not a real bug,
+    # but the rename is clearer regardless).
+    paper_result = await db.execute(
+        select(BrokerConnection).where(BrokerConnection.name == "Default Paper")
+    )
+    existing_paper = paper_result.scalar_one_or_none()
+    if existing_paper is not None:
+        return existing_paper.id
 
-    result = await db.execute(select(BrokerClass))
-    bcs = result.scalars().all()
+    bc_list_result = await db.execute(select(BrokerClass))
+    bcs = bc_list_result.scalars().all()
     if not bcs:
         raise HTTPException(503, "No broker classes in DB. Reload plugins first.")
 
-    bc = bcs[0]
+    default_bc = bcs[0]
     now = _now()
-    conn = BrokerConnection(
-        broker_class_id=bc.id,
+    default_conn = BrokerConnection(
+        broker_class_id=default_bc.id,
         name="Default Paper",
         credentials_ref="PAPER",
         is_active=True,
         created_at=now,
         updated_at=now,
     )
-    db.add(conn)
+    db.add(default_conn)
     await db.commit()
-    await db.refresh(conn)
-    return conn.id
+    await db.refresh(default_conn)
+    return default_conn.id
 
 
 # ── CRUD endpoints ─────────────────────────────────────────────────────────────
@@ -241,11 +258,11 @@ async def get_instance(
 
 
 class UpdateInstanceRequest(BaseModel):
-    name: Optional[str] = None
-    params: Optional[dict] = None
-    capital_allocation: Optional[float] = None
-    risk_limits: Optional[dict] = None
-    auto_start: Optional[bool] = None
+    name: str | None = None
+    params: dict | None = None
+    capital_allocation: float | None = None
+    risk_limits: dict | None = None
+    auto_start: bool | None = None
 
 
 @router.patch("/{instance_id}")
@@ -272,8 +289,12 @@ async def update_instance(
     # safe to hot-reload on a live instance (and genuinely useful to: you
     # can tighten a limit without losing the position tracking a restart
     # would cost until CP9's reconciliation-on-startup work lands).
-    if is_running and (body.name is not None or body.params is not None or body.capital_allocation is not None):
-        raise HTTPException(400, "Stop the instance before changing name, params, or capital allocation")
+    if is_running and (
+        body.name is not None or body.params is not None or body.capital_allocation is not None
+    ):
+        raise HTTPException(
+            400, "Stop the instance before changing name, params, or capital allocation"
+        )
 
     if body.name is not None:
         inst.name = body.name
@@ -366,7 +387,8 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
                 tick_source = connection_name
                 logger.info(
                     "subscribed instruments to live ticks",
-                    source=connection_name, instruments=instruments,
+                    source=connection_name,
+                    instruments=instruments,
                 )
                 # Paper mode's broker is a fresh PaperBroker (see
                 # _resolve_broker) -- it isn't the data_broker just
@@ -387,7 +409,10 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
                             bus.subscribe_ticks(sym, _on_bus_tick)
                         if not hasattr(app.state, "paper_tick_handlers"):
                             app.state.paper_tick_handlers = {}
-                        app.state.paper_tick_handlers[instance_id] = (_on_bus_tick, list(instruments))
+                        app.state.paper_tick_handlers[instance_id] = (
+                            _on_bus_tick,
+                            list(instruments),
+                        )
             except Exception as exc:
                 logger.warning("tick subscription failed (non-fatal)", error=str(exc))
         else:
@@ -404,17 +429,19 @@ async def start_instance_core(app: FastAPI, db: AsyncSession, instance_id: str) 
     # persist). A malformed/incompatible blob (e.g. the strategy's state
     # shape changed between versions) must not block starting -- log and
     # start flat rather than refuse to start at all.
-    restored_state: Optional[dict] = None
+    restored_state: dict | None = None
     if inst.state_blob:
         try:
             restored_state = pickle.loads(inst.state_blob)
         except Exception as exc:
             logger.warning(
                 "failed to restore strategy state, starting flat",
-                instance_id=instance_id, error=str(exc),
+                instance_id=instance_id,
+                error=str(exc),
             )
 
     from xillion.api.ws import broadcast as ws_broadcast
+
     runner = await engine.spawn(
         instance_id=instance_id,
         strategy_name=sc.name,
@@ -478,8 +505,10 @@ async def _resolve_broker(mode: str, app: FastAPI, db: AsyncSession, inst: Strat
         # Wire MarketDataBus ticks to update PaperBroker's last prices
         bus = getattr(app.state, "bus", None)
         if bus:
+
             async def _on_bus_tick(tick):
                 broker.on_tick(tick)
+
             # We'll register the handler without knowing the symbols yet;
             # register for all bus symbols by adding a wildcard handler at the bus level
             # (not implemented in bus — handled at subscribe_ticks call instead)
@@ -517,7 +546,9 @@ async def stop_instance(
     return await stop_instance_core(request.app, db, instance_id, reason="user_stopped")
 
 
-async def stop_instance_core(app: FastAPI, db: AsyncSession, instance_id: str, reason: str = "stopped") -> dict:
+async def stop_instance_core(
+    app: FastAPI, db: AsyncSession, instance_id: str, reason: str = "stopped"
+) -> dict:
     """Core stop logic, shared by the API route and the market-hours
     auto-stop scheduler."""
     result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == instance_id))

@@ -6,10 +6,11 @@ or strike interval, since SEBI's 2024-25 rationalization already changed
 weekly-expiry rules once (Nifty/Sensex weekly only, everything else monthly)
 and could again. Pure logic, no I/O -- callers supply the dump as data.
 """
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Optional, Sequence
 
 
 class ExpirySelectionError(ValueError):
@@ -25,13 +26,14 @@ class StrikeResolutionError(ValueError):
 @dataclass(frozen=True)
 class InstrumentRow:
     """One row from a broker's instrument dump."""
+
     instrument_token: int
     exchange: str
     tradingsymbol: str
     name: str  # underlying, e.g. "NIFTY"
-    expiry: Optional[date]
-    strike: Optional[Decimal]
-    option_type: Optional[str]  # "CE" | "PE"
+    expiry: date | None
+    strike: Decimal | None
+    option_type: str | None  # "CE" | "PE"
     segment: str
     lot_size: int
     tick_size: Decimal
@@ -66,10 +68,13 @@ def select_expiry(
     if selector not in _WEEKLY_SELECTORS | _MONTHLY_SELECTORS:
         raise ValueError(f"unknown expiry selector: {selector!r}")
 
-    expiries = sorted({
-        r.expiry for r in rows
-        if r.name == underlying and r.expiry is not None and r.expiry >= as_of
-    })
+    expiries = sorted(
+        {
+            r.expiry
+            for r in rows
+            if r.name == underlying and r.expiry is not None and r.expiry >= as_of
+        }
+    )
     if not expiries:
         raise ExpirySelectionError(
             f"no future expiries found for {underlying!r} in the instrument dump"
@@ -140,7 +145,7 @@ def resolve_option(
     strike_offset: int,
     option_type: str,
     spot_price: Decimal,
-    as_of: Optional[date] = None,
+    as_of: date | None = None,
 ) -> ResolvedInstrument:
     """Resolve an "N-strikes-from-ATM call/put, this week's/month's expiry"
     request into a concrete, currently-listed instrument."""
@@ -151,7 +156,8 @@ def resolve_option(
     expiry = select_expiry(rows, underlying, selector, as_of)
 
     candidates = [
-        r for r in rows
+        r
+        for r in rows
         if r.name == underlying and r.expiry == expiry and r.option_type == option_type
     ]
     if not candidates:

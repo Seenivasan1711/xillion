@@ -4,7 +4,8 @@ crosses a level -> Telegram notify + SignalLog row -- with zero order
 execution. Validates Phases 4 + 6 together, independent of the options
 instrument resolver (Phases 1-3).
 """
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -31,7 +32,7 @@ class _FakeNotifier:
 
 
 def _tick(symbol: str, ltp: float) -> Tick:
-    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(timezone.utc))
+    return Tick(symbol=symbol, ltp=Decimal(str(ltp)), ltt=datetime.now(UTC))
 
 
 @pytest.mark.asyncio
@@ -81,12 +82,24 @@ async def test_alert_mode_notifies_and_logs_without_placing_orders(monkeypatch):
 
     # A SignalLog row was written; no OrderRecord (alert mode persists no orders/fills).
     async with get_session_factory()() as session:
-        signals = (await session.execute(
-            select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
-        )).scalars().all()
-        orders = (await session.execute(
-            select(OrderRecord).where(OrderRecord.strategy_instance_id == instance_id)
-        )).scalars().all()
+        signals = (
+            (
+                await session.execute(
+                    select(SignalLog).where(SignalLog.strategy_instance_id == instance_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        orders = (
+            (
+                await session.execute(
+                    select(OrderRecord).where(OrderRecord.strategy_instance_id == instance_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     assert len(signals) == 1
     assert signals[0].notified is True

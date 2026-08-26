@@ -3,8 +3,9 @@ M01 broker reconciliation (CP14). Positions-only scope -- see
 xillion/engine/reconciliation.py's module docstring for what's honestly
 NOT covered (orders/fills/funds reconciliation).
 """
+
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -12,26 +13,37 @@ from sqlalchemy import select
 
 from brokers._dummy import DummyBroker
 from xillion.core.events import Position
-from xillion.db.models import PositionRecord, ReconciliationReport as ReconciliationReportRecord
+from xillion.db.models import PositionRecord
+from xillion.db.models import ReconciliationReport as ReconciliationReportRecord
 from xillion.db.session import get_session_factory, init_db
 from xillion.engine.reconciliation import run_reconciliation
 
 
 def _pos(symbol: str, qty: int) -> Position:
     return Position(
-        symbol=symbol, quantity=qty, avg_price=Decimal("100"),
-        realised_pnl=Decimal("0"), unrealised_pnl=Decimal("0"), last_price=Decimal("100"),
+        symbol=symbol,
+        quantity=qty,
+        avg_price=Decimal("100"),
+        realised_pnl=Decimal("0"),
+        unrealised_pnl=Decimal("0"),
+        last_price=Decimal("100"),
     )
 
 
 async def _seed_position_record(instance_id: str, symbol: str, qty: int) -> None:
     factory = get_session_factory()
     async with factory() as session:
-        session.add(PositionRecord(
-            strategy_instance_id=instance_id, symbol=symbol, quantity=qty,
-            avg_price=100.0, realised_pnl=0.0, last_price=100.0,
-            updated_at=datetime.now(timezone.utc).isoformat(),
-        ))
+        session.add(
+            PositionRecord(
+                strategy_instance_id=instance_id,
+                symbol=symbol,
+                quantity=qty,
+                avg_price=100.0,
+                realised_pnl=0.0,
+                last_price=100.0,
+                updated_at=datetime.now(UTC).isoformat(),
+            )
+        )
         await session.commit()
 
 
@@ -52,11 +64,14 @@ async def test_broker_position_we_have_no_record_of_is_a_discrepancy():
 
     async def get_positions():
         return [_pos("RECON_SYM_1", 65)]
+
     broker.get_positions = get_positions
 
     result = await run_reconciliation(broker, "Test Broker", get_session_factory)
     assert result.status == "DISCREPANCY"
-    assert any(m.symbol == "RECON_SYM_1" and m.issue == "broker_only" for m in result.position_mismatches)
+    assert any(
+        m.symbol == "RECON_SYM_1" and m.issue == "broker_only" for m in result.position_mismatches
+    )
     assert "RECON_SYM_1" in result.eod_open_positions
 
 
@@ -68,7 +83,9 @@ async def test_our_open_position_the_broker_does_not_have_is_a_discrepancy():
 
     result = await run_reconciliation(broker, "Test Broker", get_session_factory)
     assert result.status == "DISCREPANCY"
-    assert any(m.symbol == "RECON_SYM_2" and m.issue == "internal_only" for m in result.position_mismatches)
+    assert any(
+        m.symbol == "RECON_SYM_2" and m.issue == "internal_only" for m in result.position_mismatches
+    )
 
 
 @pytest.mark.asyncio
@@ -82,6 +99,7 @@ async def test_matching_but_still_open_position_is_still_a_discrepancy_at_eod():
 
     async def get_positions():
         return [_pos("RECON_SYM_3", 65)]
+
     broker.get_positions = get_positions
 
     result = await run_reconciliation(broker, "Test Broker", get_session_factory)
@@ -102,6 +120,7 @@ async def test_quantity_mismatch_is_flagged():
 
     async def get_positions():
         return [_pos("RECON_SYM_4", 130)]  # broker shows double our quantity
+
     broker.get_positions = get_positions
 
     result = await run_reconciliation(broker, "Test Broker", get_session_factory)
@@ -119,6 +138,7 @@ async def test_broker_fetch_failure_is_a_failed_report_not_a_crash():
 
     async def failing_get_positions():
         raise RuntimeError("broker down")
+
     broker.get_positions = failing_get_positions
 
     result = await run_reconciliation(broker, "Test Broker", get_session_factory)
@@ -133,9 +153,11 @@ async def test_discrepancy_triggers_a_critical_alert():
 
     async def get_positions():
         return [_pos("RECON_SYM_5", 65)]
+
     broker.get_positions = get_positions
 
     alerts = []
+
     async def notify(title, body, severity):
         alerts.append((title, severity))
 

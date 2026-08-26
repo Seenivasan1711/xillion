@@ -1,8 +1,6 @@
 """
 Strategy plugin and instance API endpoints.
 """
-import json
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession

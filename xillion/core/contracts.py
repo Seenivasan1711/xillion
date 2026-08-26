@@ -10,9 +10,10 @@ FX (lot size, typically 100_000 units of base currency).
 Cash equity is the only asset class where multiplier == 1, which is why this
 went unnoticed while only spot strategies were being tested.
 """
+
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable, Optional
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class ContractSpec:
     symbol: str
     multiplier: int = 1
     tick_size: Decimal = Decimal("0.05")
-    instrument_type: str = "equity"   # equity | future | option | forex | crypto
+    instrument_type: str = "equity"  # equity | future | option | forex | crypto
     currency: str = "INR"
 
 
@@ -54,7 +55,7 @@ def spec_from_instrument_row(row) -> ContractSpec:
 
 def resolve_specs(
     symbols: Iterable[str],
-    instrument_rows: Optional[Iterable] = None,
+    instrument_rows: Iterable | None = None,
 ) -> dict[str, ContractSpec]:
     """Map symbols → ContractSpec using cached instrument rows where available.
 
@@ -71,7 +72,4 @@ def resolve_specs(
                 continue
             by_symbol[spec.symbol] = spec
 
-    return {
-        sym: by_symbol.get(sym, ContractSpec(symbol=sym, multiplier=1))
-        for sym in symbols
-    }
+    return {sym: by_symbol.get(sym, ContractSpec(symbol=sym, multiplier=1)) for sym in symbols}

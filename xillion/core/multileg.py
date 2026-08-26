@@ -8,24 +8,25 @@ E04/E05 for the spec this implements, and docs/strategies/knowledge-base/
 
 Pure data + arithmetic, no I/O -- execution lives in multileg_execution.py.
 """
+
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from xillion.core.events import OrderType, Side
 
 
-class LegRole(str, Enum):
+class LegRole(StrEnum):
     """LONG = the protective/risk-defining leg (bought). SHORT = the
     premium-collecting leg (sold), which is only ever acceptable to hold
     while its protecting LONG leg is also held."""
+
     LONG = "LONG"
     SHORT = "SHORT"
 
 
-class StructureType(str, Enum):
+class StructureType(StrEnum):
     CREDIT_SPREAD = "CREDIT_SPREAD"
     IRON_CONDOR = "IRON_CONDOR"
     IRON_FLY = "IRON_FLY"
@@ -50,15 +51,16 @@ class Leg:
     only) points at the LONG leg index that caps this leg's risk, so the
     leg-failure protocol (multileg_execution.py) can tell a "naked short"
     apart from "fully hedged" without hardcoding a 2-leg assumption."""
+
     symbol: str
     exchange: str
     role: LegRole
     side: Side
-    quantity: int              # contracts = lots * lot_size
+    quantity: int  # contracts = lots * lot_size
     order_type: OrderType = OrderType.MARKET
-    price: Optional[Decimal] = None
+    price: Decimal | None = None
     index: int = 0
-    protects_leg_index: Optional[int] = None
+    protects_leg_index: int | None = None
 
 
 @dataclass
@@ -67,20 +69,21 @@ class MultiLegSpec:
     a credit structure); `width` is the strike distance between the short
     and its protecting long, in the underlying's points -- both are per-lot,
     lot_size already applied by the caller when comparing to rupee amounts."""
+
     structure_type: StructureType
     underlying: str
     legs: list[Leg]
     lot_size: int
-    width: Optional[Decimal] = None
-    credit: Optional[Decimal] = None
-    debit: Optional[Decimal] = None
-    expiry: Optional[str] = None  # ISO date, for time-stop checks
+    width: Decimal | None = None
+    credit: Decimal | None = None
+    debit: Decimal | None = None
+    expiry: str | None = None  # ISO date, for time-stop checks
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for i, leg in enumerate(self.legs):
             leg.index = i
-        long_indices = {l.index for l in self.legs if l.role == LegRole.LONG}
+        long_indices = {leg.index for leg in self.legs if leg.role == LegRole.LONG}
         for leg in self.legs:
             if leg.role == LegRole.SHORT and leg.protects_leg_index is not None:
                 if leg.protects_leg_index not in long_indices:
@@ -94,7 +97,7 @@ def order_entry_sequence(spec: MultiLegSpec) -> list[Leg]:
     """Longs first on entry -- the long leg caps the risk, so it must exist
     before the short leg that creates exposure. Stable within each role so a
     caller's own leg ordering (e.g. put side before call side) is preserved."""
-    return sorted(spec.legs, key=lambda l: 0 if l.role == LegRole.LONG else 1)
+    return sorted(spec.legs, key=lambda leg: 0 if leg.role == LegRole.LONG else 1)
 
 
 def order_exit_sequence(spec: MultiLegSpec) -> list[Leg]:
@@ -102,27 +105,35 @@ def order_exit_sequence(spec: MultiLegSpec) -> list[Leg]:
     unbounded-risk side immediately; the long leg can safely close last
     since holding it alone is never dangerous (bounded loss, if anything
     extra optionality)."""
-    return sorted(spec.legs, key=lambda l: 0 if l.role == LegRole.SHORT else 1)
+    return sorted(spec.legs, key=lambda leg: 0 if leg.role == LegRole.SHORT else 1)
 
 
 def max_loss_per_lot(
     structure_type: StructureType,
     lot_size: int,
     *,
-    width: Optional[Decimal] = None,
-    credit: Optional[Decimal] = None,
-    debit: Optional[Decimal] = None,
+    width: Decimal | None = None,
+    credit: Decimal | None = None,
+    debit: Decimal | None = None,
 ) -> Decimal:
     """docs/strategies/knowledge-base/10-FIRST-STRATEGY-SPEC.md §7 /
     automation-platform-spec/06-JOBS-ENTRY.md E03. DEFINED risk only --
     UNDEFINED-risk structures (naked options) have no max loss and are out
     of scope for this sizing function by design (see 07-RANKED-LOW-RISK-
     HIGH-WIN.md's excluded-by-risk-gate list)."""
-    if structure_type in (StructureType.CREDIT_SPREAD, StructureType.IRON_CONDOR, StructureType.IRON_FLY):
+    if structure_type in (
+        StructureType.CREDIT_SPREAD,
+        StructureType.IRON_CONDOR,
+        StructureType.IRON_FLY,
+    ):
         if width is None or credit is None:
             raise ValueError(f"{structure_type} requires width and credit")
         return (width - credit) * lot_size
-    if structure_type in (StructureType.LONG_OPTION, StructureType.BUTTERFLY, StructureType.CALENDAR):
+    if structure_type in (
+        StructureType.LONG_OPTION,
+        StructureType.BUTTERFLY,
+        StructureType.CALENDAR,
+    ):
         if debit is None:
             raise ValueError(f"{structure_type} requires debit")
         return debit * lot_size
@@ -133,7 +144,7 @@ def max_loss_per_lot(
 class SizeDecision:
     lots: int
     max_loss_rupees: Decimal
-    reason: Optional[str] = None  # set when lots == 0
+    reason: str | None = None  # set when lots == 0
 
 
 def size_defined_risk_position(
@@ -141,7 +152,7 @@ def size_defined_risk_position(
     risk_pct: Decimal,
     loss_per_lot: Decimal,
     *,
-    max_lots_cap: Optional[int] = None,
+    max_lots_cap: int | None = None,
 ) -> SizeDecision:
     """lots = floor(risk_pct * capital / max_loss_per_lot); lots < 1 -> skip,
     never round up (KB 10 §7 -- this exact rule is why most Nifty spreads

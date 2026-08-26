@@ -3,6 +3,7 @@ X02 square-off enforcer (CP14). Driven ONLY by a Broker -- per the spec,
 this job "must work when everything else is broken," so these tests never
 touch StrategyEngine/StrategyContext at all.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -18,8 +19,12 @@ async def _async_list(items):
 
 def _pos(symbol: str, qty: int) -> Position:
     return Position(
-        symbol=symbol, quantity=qty, avg_price=Decimal("100"),
-        realised_pnl=Decimal("0"), unrealised_pnl=Decimal("0"), last_price=Decimal("100"),
+        symbol=symbol,
+        quantity=qty,
+        avg_price=Decimal("100"),
+        realised_pnl=Decimal("0"),
+        unrealised_pnl=Decimal("0"),
+        last_price=Decimal("100"),
     )
 
 
@@ -37,6 +42,7 @@ async def test_zero_quantity_positions_are_not_flattened():
 
     async def get_positions():
         return [_pos("NIFTY", 0)]
+
     broker.get_positions = get_positions
 
     report = await run_square_off(broker)
@@ -52,6 +58,7 @@ async def test_long_position_flattened_with_a_sell_market_order():
         call_count["n"] += 1
         # First call finds the open long; verification call (2nd) finds flat.
         return [_pos("NIFTY", 65)] if call_count["n"] == 1 else []
+
     broker.get_positions = get_positions
 
     report = await run_square_off(broker)
@@ -73,6 +80,7 @@ async def test_short_position_flattened_with_a_buy_market_order():
     async def get_positions():
         call_count["n"] += 1
         return [_pos("NIFTY", -65)] if call_count["n"] == 1 else []
+
     broker.get_positions = get_positions
 
     report = await run_square_off(broker)
@@ -88,6 +96,7 @@ async def test_broker_fetch_failure_is_reported_not_raised():
 
     async def failing_get_positions():
         raise RuntimeError("broker unreachable")
+
     broker.get_positions = failing_get_positions
 
     report = await run_square_off(broker)  # must not raise
@@ -103,13 +112,16 @@ async def test_order_placement_failure_is_reported_and_alerted():
     async def get_positions():
         call_count["n"] += 1
         return [_pos("NIFTY", 65)] if call_count["n"] == 1 else [_pos("NIFTY", 65)]  # still open
+
     broker.get_positions = get_positions
 
     async def failing_place_order(request):
         raise RuntimeError("order rejected")
+
     broker.place_order = failing_place_order
 
     alerts = []
+
     async def notify(title, body, severity):
         alerts.append((title, severity))
 
@@ -128,9 +140,11 @@ async def test_still_open_after_verify_is_reported_and_alerted():
 
     async def get_positions():
         return [_pos("NIFTY", 65)]  # ALWAYS open, even on the verify pass
+
     broker.get_positions = get_positions
 
     alerts = []
+
     async def notify(title, body, severity):
         alerts.append((title, severity))
 
@@ -151,9 +165,11 @@ async def test_verification_fetch_failure_is_reported_and_alerted():
         if call_count["n"] == 1:
             return [_pos("NIFTY", 65)]
         raise RuntimeError("broker dropped mid-flatten")
+
     broker.get_positions = get_positions
 
     alerts = []
+
     async def notify(title, body, severity):
         alerts.append((title, severity))
 

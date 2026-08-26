@@ -2,7 +2,6 @@
 Historical data provider API endpoints — list discovered providers, manage
 credentials for the ones that need their own API key.
 """
-import json
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request

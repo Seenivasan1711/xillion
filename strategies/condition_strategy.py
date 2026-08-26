@@ -9,6 +9,7 @@ VWAP, Bollinger, MACD, Supertrend).
 Works identically in backtest, paper, live, and alert modes -- same pattern
 as every other strategy file here. No broker imports, no mode-checking code.
 """
+
 from xillion.core.events import Bar
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
 from xillion.engine.condition import evaluate_all
@@ -25,20 +26,40 @@ class ConditionStrategy(Strategy):
     timeframe = "15m"
 
     params_schema = [
-        ParamSpec("entry_conditions", "condition_list", default=[],
-                  description="ALL must be true to enter (AND)"),
-        ParamSpec("exit_conditions", "condition_list", default=[],
-                  description="ALL must be true to exit (AND) -- only checked while in a position"),
-        ParamSpec("direction", "choice", default="long", choices=["long", "short"],
-                  description="long: buy to enter, sell to exit. short: sell to enter, buy to exit"),
+        ParamSpec(
+            "entry_conditions",
+            "condition_list",
+            default=[],
+            description="ALL must be true to enter (AND)",
+        ),
+        ParamSpec(
+            "exit_conditions",
+            "condition_list",
+            default=[],
+            description="ALL must be true to exit (AND) -- only checked while in a position",
+        ),
+        ParamSpec(
+            "direction",
+            "choice",
+            default="long",
+            choices=["long", "short"],
+            description="long: buy to enter, sell to exit. short: sell to enter, buy to exit",
+        ),
         ParamSpec("qty", "int", default=1, min=1, description="Quantity per trade"),
-        ParamSpec("lookback", "int", default=100, min=10, max=1000,
-                  description="Bars of history fetched per evaluation -- must cover the largest indicator period used"),
+        ParamSpec(
+            "lookback",
+            "int",
+            default=100,
+            min=10,
+            max=1000,
+            description="Bars of history fetched per evaluation -- must cover the largest indicator period used",
+        ),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
         ctx.log(
-            "info", "Condition Strategy started",
+            "info",
+            "Condition Strategy started",
             direction=ctx.params["direction"],
             entry_conditions=len(ctx.params["entry_conditions"]),
             exit_conditions=len(ctx.params["exit_conditions"]),

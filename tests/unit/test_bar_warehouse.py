@@ -3,6 +3,7 @@ BarWarehouse: the CP2 "own the data" verification criterion --
 run the same backtest twice, second run makes zero provider calls -- plus
 the whole-file-bulk lever (one bhavcopy fetch covers every symbol that day).
 """
+
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -23,34 +24,73 @@ class _CountingProvider(HistoricalDataProvider):
     def __init__(self) -> None:
         self.fetch_calls: list[tuple] = []
 
-    async def fetch_bars(self, symbol, exchange, timeframe, from_date, to_date, *, instrument_type="option", credentials=None, broker=None):
+    async def fetch_bars(
+        self,
+        symbol,
+        exchange,
+        timeframe,
+        from_date,
+        to_date,
+        *,
+        instrument_type="option",
+        credentials=None,
+        broker=None,
+    ):
         self.fetch_calls.append((symbol, from_date, to_date))
         bars = []
         day = from_date
         while day <= to_date:
             if day.weekday() < 5:
-                bars.append(Bar(
-                    symbol=symbol, timeframe=timeframe, ts=datetime.combine(day, datetime.min.time()),
-                    open=Decimal(100), high=Decimal(101), low=Decimal(99), close=Decimal(100), volume=10,
-                ))
+                bars.append(
+                    Bar(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        ts=datetime.combine(day, datetime.min.time()),
+                        open=Decimal(100),
+                        high=Decimal(101),
+                        low=Decimal(99),
+                        close=Decimal(100),
+                        volume=10,
+                    )
+                )
             day += timedelta(days=1)
         return bars
 
 
 class _CountingBulkProvider(HistoricalDataProvider):
     name = "Counting Bulk Fake"
-    capabilities = DataProviderCapabilities(requires_credentials=False, supports_whole_file_bulk=True)
+    capabilities = DataProviderCapabilities(
+        requires_credentials=False, supports_whole_file_bulk=True
+    )
 
     def __init__(self) -> None:
         self.bulk_calls: list[date] = []
 
-    async def fetch_all_bars_for_day(self, exchange, timeframe, day, *, credentials=None, broker=None, underlying_filter=None):
+    async def fetch_all_bars_for_day(
+        self, exchange, timeframe, day, *, credentials=None, broker=None, underlying_filter=None
+    ):
         self.bulk_calls.append(day)
         return [
-            Bar(symbol="SYM_A", timeframe=timeframe, ts=datetime.combine(day, datetime.min.time()),
-                open=Decimal(1), high=Decimal(1), low=Decimal(1), close=Decimal(1), volume=1),
-            Bar(symbol="SYM_B", timeframe=timeframe, ts=datetime.combine(day, datetime.min.time()),
-                open=Decimal(2), high=Decimal(2), low=Decimal(2), close=Decimal(2), volume=1),
+            Bar(
+                symbol="SYM_A",
+                timeframe=timeframe,
+                ts=datetime.combine(day, datetime.min.time()),
+                open=Decimal(1),
+                high=Decimal(1),
+                low=Decimal(1),
+                close=Decimal(1),
+                volume=1,
+            ),
+            Bar(
+                symbol="SYM_B",
+                timeframe=timeframe,
+                ts=datetime.combine(day, datetime.min.time()),
+                open=Decimal(2),
+                high=Decimal(2),
+                low=Decimal(2),
+                close=Decimal(2),
+                volume=1,
+            ),
         ]
 
 
@@ -65,11 +105,15 @@ async def test_second_request_for_same_range_makes_zero_provider_calls():
     provider = _CountingProvider()
     warehouse = _warehouse()
 
-    first = await warehouse.get_bars(provider, "WAREHOUSE_SYM_1", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7))
+    first = await warehouse.get_bars(
+        provider, "WAREHOUSE_SYM_1", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7)
+    )
     assert len(first) > 0
     assert len(provider.fetch_calls) == 1
 
-    second = await warehouse.get_bars(provider, "WAREHOUSE_SYM_1", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7))
+    second = await warehouse.get_bars(
+        provider, "WAREHOUSE_SYM_1", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7)
+    )
     assert second == first
     assert len(provider.fetch_calls) == 1  # no new fetch on the second, identical request
 
@@ -80,11 +124,15 @@ async def test_only_the_gap_is_fetched_on_a_widened_range():
     provider = _CountingProvider()
     warehouse = _warehouse()
 
-    await warehouse.get_bars(provider, "WAREHOUSE_SYM_2", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5))
+    await warehouse.get_bars(
+        provider, "WAREHOUSE_SYM_2", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5)
+    )
     assert len(provider.fetch_calls) == 1
 
     # Widen only at the tail -- the already-covered head must not be re-fetched.
-    bars = await warehouse.get_bars(provider, "WAREHOUSE_SYM_2", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7))
+    bars = await warehouse.get_bars(
+        provider, "WAREHOUSE_SYM_2", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 7)
+    )
     assert len(provider.fetch_calls) == 2
     gap_call = provider.fetch_calls[1]
     assert gap_call[1] == date(2026, 8, 6)  # only the new tail was requested
@@ -98,12 +146,16 @@ async def test_whole_file_bulk_covers_every_symbol_from_one_fetch():
     provider = _CountingBulkProvider()
     warehouse = _warehouse()
 
-    a_bars = await warehouse.get_bars(provider, "SYM_A", "NFO", "1d", date(2026, 8, 10), date(2026, 8, 10))
+    a_bars = await warehouse.get_bars(
+        provider, "SYM_A", "NFO", "1d", date(2026, 8, 10), date(2026, 8, 10)
+    )
     assert len(a_bars) == 1
     assert len(provider.bulk_calls) == 1
 
     # A different symbol, same day: already persisted by the first bulk fetch.
-    b_bars = await warehouse.get_bars(provider, "SYM_B", "NFO", "1d", date(2026, 8, 10), date(2026, 8, 10))
+    b_bars = await warehouse.get_bars(
+        provider, "SYM_B", "NFO", "1d", date(2026, 8, 10), date(2026, 8, 10)
+    )
     assert len(b_bars) == 1
     assert b_bars[0].close == Decimal(2)
     assert len(provider.bulk_calls) == 1  # no second network call
@@ -121,7 +173,12 @@ async def test_filtered_bulk_fetch_uses_a_separate_coverage_key_from_unfiltered(
     warehouse = _warehouse()
 
     filtered = await warehouse.get_bars(
-        provider, "SYM_A", "NFO", "1d", date(2026, 8, 11), date(2026, 8, 11),
+        provider,
+        "SYM_A",
+        "NFO",
+        "1d",
+        date(2026, 8, 11),
+        date(2026, 8, 11),
         underlying_filter={"SYM_A"},
     )
     assert len(filtered) == 1
@@ -130,7 +187,12 @@ async def test_filtered_bulk_fetch_uses_a_separate_coverage_key_from_unfiltered(
     # Same day, no filter this time -- must NOT be considered already
     # covered by the filtered fetch above, so it triggers its own bulk call.
     unfiltered = await warehouse.get_bars(
-        provider, "SYM_B", "NFO", "1d", date(2026, 8, 11), date(2026, 8, 11),
+        provider,
+        "SYM_B",
+        "NFO",
+        "1d",
+        date(2026, 8, 11),
+        date(2026, 8, 11),
     )
     assert len(unfiltered) == 1
     assert len(provider.bulk_calls) == 2  # a genuinely new fetch, not skipped
@@ -157,7 +219,11 @@ async def test_gap_covering_a_holiday_is_not_refetched():
     provider = _HolidayProvider()
     warehouse = _warehouse()
 
-    await warehouse.get_bars(provider, "HOLIDAY_SYM", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5))
-    await warehouse.get_bars(provider, "HOLIDAY_SYM", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5))
+    await warehouse.get_bars(
+        provider, "HOLIDAY_SYM", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5)
+    )
+    await warehouse.get_bars(
+        provider, "HOLIDAY_SYM", "NFO", "1d", date(2026, 8, 3), date(2026, 8, 5)
+    )
 
     assert len(provider.fetch_calls) == 1

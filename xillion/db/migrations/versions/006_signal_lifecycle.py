@@ -19,24 +19,28 @@ they are, readable as `signal_type="SIGNAL"`-shaped history from before this
 migration. Nothing currently reads signal_log outside this migration (no
 API, no UI existed before CP4), so there are no consumers to break.
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "006"
-down_revision: Union[str, None] = "005"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "005"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     op.add_column("signal_log", sa.Column("tag", sa.Text))
-    op.add_column("signal_log", sa.Column("parent_signal_id", sa.Integer, sa.ForeignKey("signal_log.id")))
+    op.add_column(
+        "signal_log", sa.Column("parent_signal_id", sa.Integer, sa.ForeignKey("signal_log.id"))
+    )
     op.add_column("signal_log", sa.Column("target_price", sa.Numeric))
     op.add_column("signal_log", sa.Column("stop_loss_price", sa.Numeric))
     op.create_index(
-        "idx_signal_log_open_entry", "signal_log",
+        "idx_signal_log_open_entry",
+        "signal_log",
         ["strategy_instance_id", "underlying_symbol", "tag", "signal_type"],
     )
 

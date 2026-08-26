@@ -1,4 +1,5 @@
 """Tests for the instrument dump cache: DB round-trip of InstrumentRow data."""
+
 from datetime import date
 from decimal import Decimal
 
@@ -17,8 +18,15 @@ class _FakeBroker:
         return self._rows
 
 
-def _row(token: int, name: str, exchange: str, tradingsymbol: str,
-         expiry=None, strike=None, option_type=None) -> InstrumentRow:
+def _row(
+    token: int,
+    name: str,
+    exchange: str,
+    tradingsymbol: str,
+    expiry=None,
+    strike=None,
+    option_type=None,
+) -> InstrumentRow:
     return InstrumentRow(
         instrument_token=token,
         exchange=exchange,
@@ -38,12 +46,33 @@ async def test_refresh_and_load_round_trip():
     await init_db()
 
     rows = [
-        _row(1, "NIFTY", "NFO", "NIFTY26JUL2925000CE",
-             expiry=date(2026, 7, 29), strike=Decimal(25000), option_type="CE"),
-        _row(2, "NIFTY", "NFO", "NIFTY26JUL2925000PE",
-             expiry=date(2026, 7, 29), strike=Decimal(25000), option_type="PE"),
-        _row(3, "SENSEX", "BFO", "SENSEX26JUL3080000CE",
-             expiry=date(2026, 7, 30), strike=Decimal(80000), option_type="CE"),
+        _row(
+            1,
+            "NIFTY",
+            "NFO",
+            "NIFTY26JUL2925000CE",
+            expiry=date(2026, 7, 29),
+            strike=Decimal(25000),
+            option_type="CE",
+        ),
+        _row(
+            2,
+            "NIFTY",
+            "NFO",
+            "NIFTY26JUL2925000PE",
+            expiry=date(2026, 7, 29),
+            strike=Decimal(25000),
+            option_type="PE",
+        ),
+        _row(
+            3,
+            "SENSEX",
+            "BFO",
+            "SENSEX26JUL3080000CE",
+            expiry=date(2026, 7, 30),
+            strike=Decimal(80000),
+            option_type="CE",
+        ),
     ]
     broker = _FakeBroker(rows)
 
@@ -72,10 +101,12 @@ async def test_refresh_truncates_previous_rows():
     await refresh_instrument_cache(broker_v1, get_session_factory)
     assert len(await load_instrument_rows(get_session_factory)) == 1
 
-    broker_v2 = _FakeBroker([
-        _row(11, "NIFTY", "NFO", "NIFTY_NEW_A"),
-        _row(12, "NIFTY", "NFO", "NIFTY_NEW_B"),
-    ])
+    broker_v2 = _FakeBroker(
+        [
+            _row(11, "NIFTY", "NFO", "NIFTY_NEW_A"),
+            _row(12, "NIFTY", "NFO", "NIFTY_NEW_B"),
+        ]
+    )
     count = await refresh_instrument_cache(broker_v2, get_session_factory)
     assert count == 2
 

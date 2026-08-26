@@ -4,6 +4,7 @@ every plugin sync, which would silently lose a strategy's prior versions
 the moment its code changes -- sync_registry_to_db must log each real
 change to strategy_version_history before overwriting.
 """
+
 import pytest
 from sqlalchemy import select
 
@@ -68,8 +69,14 @@ async def test_code_change_appends_a_new_version_row_not_overwrite():
         await sync_registry_to_db(registry, session)
 
     async with factory() as session:
-        rows = (await session.execute(
-            select(StrategyVersionHistory).order_by(StrategyVersionHistory.id)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(StrategyVersionHistory).order_by(StrategyVersionHistory.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert len(rows) == 2
     assert [r.code_hash for r in rows] == ["hash-v1", "hash-v2"]

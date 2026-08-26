@@ -5,15 +5,16 @@ Revises: 001
 Create Date: 2026-07-27 00:00:00.000000
 
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "002"
-down_revision: Union[str, None] = "001"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "001"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -31,13 +32,17 @@ def upgrade() -> None:
         sa.Column("tick_size", sa.Numeric, nullable=False),
         sa.Column("last_updated", sa.Text, nullable=False),
     )
-    op.create_index("idx_instrument_resolve", "instrument", ["name", "expiry", "option_type", "strike"])
+    op.create_index(
+        "idx_instrument_resolve", "instrument", ["name", "expiry", "option_type", "strike"]
+    )
     op.create_index("idx_instrument_symbol", "instrument", ["tradingsymbol", "exchange"])
 
     op.create_table(
         "signal_log",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), nullable=False),
+        sa.Column(
+            "strategy_instance_id", sa.Text, sa.ForeignKey("strategy_instance.id"), nullable=False
+        ),
         sa.Column("ts", sa.Text, nullable=False),
         sa.Column("underlying_symbol", sa.Text, nullable=False),
         sa.Column("resolved_tradingsymbol", sa.Text),

@@ -6,6 +6,7 @@ gates for every real order regardless of what was configured -- RiskManager
 itself was already correctly tested (test_risk_manager.py), the bug was
 entirely in this wiring layer, which had no tests of its own before this.
 """
+
 from decimal import Decimal
 
 import pytest
@@ -62,7 +63,9 @@ async def test_submit_enforces_max_open_positions_when_current_positions_passed(
 @pytest.mark.asyncio
 async def test_submit_approves_when_under_the_configured_limits():
     risk = RiskManager()
-    config = StrategyRiskConfig(capital_allocation=Decimal("100000"), max_open_positions=5, daily_loss_pct=5.0)
+    config = StrategyRiskConfig(
+        capital_allocation=Decimal("100000"), max_open_positions=5, daily_loss_pct=5.0
+    )
     router = ExecutionRouter(DummyBroker(), risk, risk_config=config)
 
     order = await router.submit(_order(), current_positions=1)

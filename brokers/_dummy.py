@@ -2,9 +2,10 @@
 DummyBroker — records all calls for testing. Not discovered by the plugin loader
 (underscore prefix). Import directly in tests.
 """
-from datetime import datetime, timezone
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import AsyncIterator
 from uuid import uuid4
 
 from xillion.core.broker_base import Broker, BrokerCapabilities
@@ -50,7 +51,7 @@ class DummyBroker(Broker):
 
     async def place_order(self, request: OrderRequest) -> Order:
         self._record("place_order", request=request)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         order = Order(
             client_order_id=request.client_order_id,
             broker_order_id=str(uuid4()),
@@ -100,8 +101,5 @@ class DummyBroker(Broker):
         return []
 
     async def get_quote(self, symbols: list[str]) -> dict[str, Tick]:
-        now = datetime.now(timezone.utc)
-        return {
-            sym: Tick(symbol=sym, ltp=self._fill_price, ltt=now)
-            for sym in symbols
-        }
+        now = datetime.now(UTC)
+        return {sym: Tick(symbol=sym, ltp=self._fill_price, ltt=now) for sym in symbols}

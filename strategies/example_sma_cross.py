@@ -7,7 +7,6 @@ Sell when fast SMA crosses below slow SMA.
 Works identically in backtest, paper, and live modes.
 No broker imports. No mode-checking code. Just signal logic.
 """
-from decimal import Decimal
 
 from xillion.core.events import Bar
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
@@ -21,18 +20,16 @@ class SMACrossStrategy(Strategy):
     timeframe = "15m"
 
     params_schema = [
-        ParamSpec("fast", "int", default=10, min=2, max=200,
-                  description="Fast SMA period"),
-        ParamSpec("slow", "int", default=30, min=5, max=500,
-                  description="Slow SMA period"),
-        ParamSpec("qty", "int", default=1, min=1,
-                  description="Quantity per trade"),
+        ParamSpec("fast", "int", default=10, min=2, max=200, description="Fast SMA period"),
+        ParamSpec("slow", "int", default=30, min=5, max=500, description="Slow SMA period"),
+        ParamSpec("qty", "int", default=1, min=1, description="Quantity per trade"),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
         ctx.state.setdefault("position", "flat")
         ctx.log(
-            "info", "SMA Cross started",
+            "info",
+            "SMA Cross started",
             fast=ctx.params["fast"],
             slow=ctx.params["slow"],
         )
@@ -49,8 +46,8 @@ class SMACrossStrategy(Strategy):
         closes = [float(b.close) for b in bars]
         fast_now = sum(closes[-fast:]) / fast
         slow_now = sum(closes[-slow:]) / slow
-        fast_prev = sum(closes[-fast - 1:-1]) / fast
-        slow_prev = sum(closes[-slow - 1:-1]) / slow
+        fast_prev = sum(closes[-fast - 1 : -1]) / fast
+        slow_prev = sum(closes[-slow - 1 : -1]) / slow
 
         crossed_up = fast_prev <= slow_prev and fast_now > slow_now
         crossed_down = fast_prev >= slow_prev and fast_now < slow_now
