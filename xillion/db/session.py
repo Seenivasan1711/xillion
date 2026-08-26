@@ -50,6 +50,17 @@ def _make_engine():
         url,
         echo=not settings.is_production,
         connect_args=async_connect_args_for(url),
+        # Supabase's pooler (PgBouncer/Supavisor) silently drops or recycles
+        # idle connections server-side; without pre_ping, SQLAlchemy hands
+        # out the stale connection from its pool and the next query fails
+        # with "connection was closed in the middle of operation" -- hit for
+        # real 2026-08-26 a few minutes into a long-running backfill script.
+        # pre_ping validates (and transparently replaces) a connection before
+        # each checkout; recycle proactively retires connections before the
+        # pooler does it out from under us. Only meaningful for Postgres --
+        # sqlite has no pooler and no such failure mode.
+        pool_pre_ping=url.startswith("postgresql"),
+        pool_recycle=300 if url.startswith("postgresql") else -1,
     )
 
 
