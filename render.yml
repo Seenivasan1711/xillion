@@ -72,7 +72,7 @@ services:
                                  #   plan. Free sleeps after 15 min idle.
     region: singapore            # Closest Render region to NSE/BSE
                                  # Alternatives: oregon, frankfurt, ohio, virginia
-    branch: feat/options-alert-engine
+    branch: feat/track-b-pipelines
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     dockerContext: .
