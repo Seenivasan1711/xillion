@@ -79,6 +79,10 @@ Whole-file snapshot, so it automatically covers any table added later —
 upload the `.gz` to Drive (or wherever) since there's no cloud copy by
 design.
 
+See [docs/product/user-guide.md](docs/product/user-guide.md) for the full
+walkthrough of every page in the app (Journal, Alerts, MCP server, going
+live, etc.), not just the backtest flow.
+
 ---
 
 ## With Docker Compose (alternative — requires Docker)
