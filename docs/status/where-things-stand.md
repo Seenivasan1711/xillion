@@ -98,7 +98,15 @@ exists. None of it is started.
   filters (trend alignment, minimum credit) also pass. Zero trades before
   then is expected, not broken.
 - Next concrete step: run the real pass/fail backtest (§2) so we know
-  whether this strategy is worth the paper-soak time at all.
+  whether this strategy is worth the paper-soak time at all. First needs a
+  15m-vs-daily decision on the strategy's own trend filter (real multi-year
+  15m NIFTY spot data isn't obtainable for free) — flagged 2026-08-26, still
+  awaiting your call.
+- **Supabase free-tier fix, 2026-08-26:** the DB hit 1.6GB against the
+  500MB free limit — almost entirely `bar`/`option_chain_snapshot` (the
+  backtest cache, 100% regenerable, never live state). Moved to a local-
+  only SQLite warehouse DB; Supabase now holds only the actual live app
+  state (~1MB) going forward. See `task-tracker.md`'s 2026-08-26 entry.
 
 ---
 

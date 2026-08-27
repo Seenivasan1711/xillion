@@ -34,22 +34,16 @@ def main(
     """Import OHLCV bars from a CSV file into the database."""
 
     async def _run() -> None:
-        from xillion.config import get_settings
         from xillion.core.events import Bar
         from xillion.data.repository import BarRepository
-        from xillion.db.session import get_session_factory, init_db
+        from xillion.db.session import get_warehouse_session_factory, init_warehouse_db
 
-        if get_settings().is_production:
-            # See scripts/backfill.py's identical guard: create_all() against
-            # a production-pointed DB desyncs Alembic's version tracking from
-            # the real schema, which crashed a later real deploy.
-            print(
-                "production DATABASE_URL detected -- skipping create_all(), schema is Alembic-managed",
-                file=sys.stderr,
-            )
-        else:
-            await init_db()
-        factory = get_session_factory()
+        # bar lives in the warehouse DB (always a plain local SQLite file,
+        # never Alembic-managed, even in production) -- see
+        # Settings.backtest_database_url. No is_production guard needed
+        # here unlike the main DB, since this schema is never Alembic's.
+        await init_warehouse_db()
+        factory = get_warehouse_session_factory()
         repo = BarRepository(factory)
 
         bars: list[Bar] = []

@@ -73,7 +73,18 @@ def main(
         from xillion.data.coverage import BarCoverageRepository
         from xillion.data.repository import BarRepository
         from xillion.data.warehouse import BarWarehouse
-        from xillion.db.session import get_session_factory, init_db
+        from xillion.db.session import (
+            get_session_factory,
+            get_warehouse_session_factory,
+            init_db,
+            init_warehouse_db,
+        )
+
+        # Warehouse DB (bar/bar_coverage) is always a plain local SQLite
+        # file, never Alembic-managed even in production -- see
+        # Settings.backtest_database_url -- so its schema always needs
+        # create_all(), unlike the main DB's is_production guard below.
+        await init_warehouse_db()
 
         if get_settings().is_production:
             # Same guard as xillion/main.py's lifespan: production schema is
@@ -115,8 +126,10 @@ def main(
                 )
                 raise typer.Exit(1)
 
-        factory = get_session_factory()
-        warehouse = BarWarehouse(BarRepository(factory), BarCoverageRepository(factory))
+        warehouse_factory = get_warehouse_session_factory()
+        warehouse = BarWarehouse(
+            BarRepository(warehouse_factory), BarCoverageRepository(warehouse_factory)
+        )
 
         f = date.fromisoformat(from_date)
         t = date.fromisoformat(to_date)

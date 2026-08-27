@@ -45,8 +45,7 @@ def sync_connect_args_for(url: str) -> dict:
     return {}
 
 
-def _make_engine():
-    url = settings.get_async_database_url()
+def _make_engine(url: str):
     return create_async_engine(
         url,
         echo=not settings.is_production,
@@ -67,12 +66,14 @@ def _make_engine():
 
 _engine = None
 _session_factory = None
+_warehouse_engine = None
+_warehouse_session_factory = None
 
 
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = _make_engine()
+        _engine = _make_engine(settings.get_async_database_url())
     return _engine
 
 
@@ -91,9 +92,39 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+def get_warehouse_engine():
+    """Separate engine for the backtest/historical warehouse (bar,
+    bar_coverage, option_chain_snapshot) -- see Settings.backtest_database_url
+    for why this is deliberately not the same DB as get_engine()."""
+    global _warehouse_engine
+    if _warehouse_engine is None:
+        _warehouse_engine = _make_engine(settings.get_async_warehouse_database_url())
+    return _warehouse_engine
+
+
+def get_warehouse_session_factory() -> async_sessionmaker[AsyncSession]:
+    global _warehouse_session_factory
+    if _warehouse_session_factory is None:
+        _warehouse_session_factory = async_sessionmaker(
+            get_warehouse_engine(), class_=AsyncSession, expire_on_commit=False
+        )
+    return _warehouse_session_factory
+
+
 async def init_db() -> None:
     """Create all tables (dev convenience). Production uses Alembic migrations."""
     from xillion.db.models import Base
 
     async with get_engine().begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def init_warehouse_db() -> None:
+    """Create the warehouse tables (bar, bar_coverage, option_chain_snapshot)
+    on whatever get_warehouse_engine() points at -- needed because a fresh
+    local SQLite warehouse file has no schema until this runs, unlike
+    database_url's tables which Alembic manages in production."""
+    from xillion.db.models import Base
+
+    async with get_warehouse_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

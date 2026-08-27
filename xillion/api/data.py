@@ -23,7 +23,7 @@ from xillion.data.coverage import BarCoverageRepository
 from xillion.data.repository import BarRepository
 from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser, BarCoverage
-from xillion.db.session import get_session_factory
+from xillion.db.session import get_warehouse_session_factory
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/data", tags=["data"])
@@ -31,12 +31,14 @@ router = APIRouter(prefix="/data", tags=["data"])
 
 @router.get("/coverage")
 async def get_coverage(
-    db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
-    """What's already cached, per (symbol, exchange, timeframe, provider)."""
-    result = await db.execute(select(BarCoverage).order_by(BarCoverage.updated_at.desc()))
-    rows = result.scalars().all()
+    """What's already cached, per (symbol, exchange, timeframe, provider).
+    BarCoverage lives in the warehouse DB (see get_warehouse_session_factory),
+    not the main app DB db_dep provides -- hence its own session here."""
+    async with get_warehouse_session_factory()() as db:
+        result = await db.execute(select(BarCoverage).order_by(BarCoverage.updated_at.desc()))
+        rows = result.scalars().all()
     return {
         "coverage": [
             {
@@ -68,7 +70,7 @@ async def _run_backfill_job(
 ) -> None:
     job = app_state.backfill_jobs[job_id]
     job["status"] = "running"
-    session_factory = get_session_factory()
+    session_factory = get_warehouse_session_factory()
     warehouse = BarWarehouse(BarRepository(session_factory), BarCoverageRepository(session_factory))
     provider_cls = app_state.plugin_loader.registry.data_providers[body.provider_name]
     try:

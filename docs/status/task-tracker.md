@@ -4,7 +4,7 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-26
+**Last updated:** 2026-08-27
 **Current position:** **`feat/options-alert-engine` was merged to `main`
 2026-08-26 (fast-forward, 259 files, all of Track A + Track A extension +
 CP15 + a full frontend UX overhaul) and pushed.** `main` is now the current
@@ -104,6 +104,54 @@ backtest run, paper-soak monitoring, Zerodha/Dhan product-type decision,
 static-IP research) first, then Track B asset pipelines (Gold/MT5, MCX,
 stocks, crypto) as they come up. `main` itself stays the stable baseline —
 `feat/options-alert-engine` is fully merged into it and can be deleted.
+
+> **2026-08-26 — Supabase free-tier overage, root-caused and fixed.**
+> Supabase emailed that the DB hit 1611MB against the 500MB free limit.
+> `bar` (1056MB) + `option_chain_snapshot` (519MB) turned out to be 98% of
+> that — both 100% regenerable backtest/historical cache, never live app
+> state, and never needed to share a cloud DB with the ~1MB of actual live
+> state (users, sessions, instances, credentials, journal) at all. Split
+> them onto a separate local-only SQLite warehouse DB (`Settings.
+> backtest_database_url`, defaults to `./data/backtest_warehouse.db`,
+> `get_warehouse_session_factory()` in `xillion/db/session.py`) — see
+> `CLAUDE.md`'s Deploy workflow section for the full picture, including the
+> Render-ephemeral-disk implication. Existing data was copied across via
+> `scripts/migrate_warehouse_to_local.py` (keyset-paginated, not OFFSET —
+> `bar` alone is 4.5M+ rows) rather than re-fetched from scratch, then
+> reclaimed from Supabase via `scripts/truncate_supabase_warehouse.py`.
+> Also found in passing: a genuine correctness gap where
+> `xillion/api/backtest.py`'s in-progress option-chain backfill for the
+> real credit-spread pass/fail run (see the 2026-08-26 crash-loop entry
+> above) was about to make the Supabase overage significantly worse —
+> stopped mid-run once the email surfaced this.
+>
+> **2026-08-27 — truncation completed, confirmed via direct query.**
+> Supabase auto-flips a project into DB-level read-only mode once it
+> exceeds its free-tier disk quota — this blocks even the `TRUNCATE`
+> that would free the space, a genuine chicken-and-egg the project was
+> stuck in. Supabase's documented fix
+> (`SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE`) only affects
+> *subsequent* transactions in the same session, not the one already open
+> — and the SQL Editor's "Run" wraps a pasted multi-statement block in one
+> implicit transaction, so the naive combined-script version still hit
+> `cannot execute TRUNCATE TABLE in a read-only transaction`. Fixed by
+> adding an explicit `commit;` between the `SET` and the `TRUNCATE`s in
+> one single Editor run, forcing a new transaction that picks up the
+> just-changed session default:
+> ```sql
+> set session characteristics as transaction read write;
+> commit;
+> TRUNCATE TABLE "bar";
+> TRUNCATE TABLE "bar_coverage";
+> TRUNCATE TABLE "option_chain_snapshot";
+> commit;
+> set default_transaction_read_only = 'off';
+> ```
+> Confirmed via `pg_database_size(current_database())`: **1611MB → 40MB.**
+> Local warehouse (`data/backtest_warehouse.db`, 1.1GB) holds the full
+> migrated dataset — 4,498,851 `bar` rows, 2,208,349
+> `option_chain_snapshot` rows, verified matching source counts before
+> truncation.
 
 > 2026-08-24 infra note: docs restructured from flat numbering into
 > `status/ process/ architecture/ product/ strategies/ archive/` folders (all

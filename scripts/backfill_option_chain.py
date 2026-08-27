@@ -53,11 +53,15 @@ def main(
 
         from data_providers.nse_bhavcopy import NSEBhavcopyProvider
         from xillion.data.option_chain import OptionChainRepository, OptionChainWarehouse
-        from xillion.db.session import get_session_factory, init_db
+        from xillion.db.session import get_warehouse_session_factory, init_warehouse_db
 
         logger = structlog.get_logger(__name__)
-        await init_db()
-        factory = get_session_factory()
+        # option_chain_snapshot lives in the warehouse DB (a plain local
+        # SQLite file, never Alembic-managed) -- see
+        # Settings.backtest_database_url and scripts/backfill.py's identical
+        # note.
+        await init_warehouse_db()
+        factory = get_warehouse_session_factory()
         repo = OptionChainRepository(factory)
         base_provider = NSEBhavcopyProvider()
 
@@ -86,40 +90,46 @@ def main(
             if day.weekday() >= 5:
                 day += timedelta(days=1)
                 continue
-            already = await repo.has_any_for_day("NFO", day)
-            if already:
-                skipped += 1
-            else:
-                # A ~1450-day loop is long enough to outlast a single flaky
-                # connection or transient fetch failure (hit for real
-                # 2026-08-26, ~8 days in: Supabase's pooler dropped an idle
-                # connection mid-query -- session.py now sets pool_pre_ping
-                # for that specific case, but this retries anything else
-                # transient too rather than dying at 4am with 1400 days left).
-                for attempt in range(3):
-                    try:
+            # A ~1450-day loop run over hours is long enough to outlast more
+            # than one kind of transient failure -- hit twice for real
+            # 2026-08-26: a stale pooled connection (session.py's
+            # pool_pre_ping now covers that specific case) and separately a
+            # bare ConnectionResetError during a *fresh* connection's SSL
+            # handshake, from has_any_for_day (outside the old retry's
+            # scope, so it crashed the whole run uncaught). Both the
+            # has_any_for_day check and the fetch are inside the retry now,
+            # with more attempts and longer backoff given how long this run
+            # needs to survive.
+            rows: list = []
+            for attempt in range(5):
+                try:
+                    already = await repo.has_any_for_day("NFO", day)
+                    if already:
+                        skipped += 1
+                        rows = []
+                    else:
                         rows = await warehouse.get_chain("NIFTY", "NFO", day)
-                        break
-                    except Exception as exc:
-                        if attempt == 2:
-                            logger.error(
-                                "option chain backfill: day failed, skipping",
-                                day=str(day),
-                                error=str(exc),
-                            )
-                            rows = []
-                            break
-                        logger.warning(
-                            "option chain backfill: retrying day",
+                        if rows:
+                            fetched += 1
+                        else:
+                            empty += 1
+                    break
+                except Exception as exc:
+                    if attempt == 4:
+                        logger.error(
+                            "option chain backfill: day failed after retries, skipping",
                             day=str(day),
-                            attempt=attempt + 1,
                             error=str(exc),
                         )
-                        await asyncio.sleep(3)
-                if rows:
-                    fetched += 1
-                else:
-                    empty += 1
+                        empty += 1
+                        break
+                    logger.warning(
+                        "option chain backfill: retrying day",
+                        day=str(day),
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                    await asyncio.sleep(5 * (attempt + 1))
             if i % 50 == 0 or day == end:
                 logger.info(
                     "option chain backfill progress",

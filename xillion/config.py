@@ -11,6 +11,17 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/xillion.db"
+    # Backtest/historical warehouse (bar, bar_coverage, option_chain_snapshot)
+    # -- deliberately SEPARATE from database_url. This data is bulk (years of
+    # F&O contracts, 1.5GB+ once backfilled) and 100% regenerable for free
+    # from NSE Bhavcopy; it never needed to share a paid-tier-adjacent cloud
+    # Postgres with the actually-small live app state (users, sessions,
+    # instances, credentials). Found 2026-08-26 when Supabase's free 500MB
+    # limit was blown past almost entirely by these two tables. Empty means
+    # "use a local SQLite file" (see get_async_warehouse_database_url) --
+    # free, no size cap that matters, and backtests run faster with no
+    # network round-trip either way.
+    backtest_database_url: str = ""
 
     # Auth
     app_secret_key: str = "change-me-in-production"
@@ -95,7 +106,18 @@ class Settings(BaseSettings):
 
     def get_async_database_url(self) -> str:
         """Return an async-driver URL for the running app."""
-        url = self.database_url
+        return self._normalize_async_url(self.database_url)
+
+    def get_async_warehouse_database_url(self) -> str:
+        """Async-driver URL for the backtest/historical warehouse DB.
+        Defaults to a local SQLite file, independent of database_url --
+        deliberately never falls back to the main DB, since the whole point
+        is keeping this bulk data off whatever database_url points at."""
+        url = self.backtest_database_url or "sqlite+aiosqlite:///./data/backtest_warehouse.db"
+        return self._normalize_async_url(url)
+
+    @staticmethod
+    def _normalize_async_url(url: str) -> str:
         if url.startswith("sqlite://") and "+aiosqlite" not in url:
             url = url.replace("sqlite://", "sqlite+aiosqlite://")
         elif url.startswith("postgresql://") and "+asyncpg" not in url:

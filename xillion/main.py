@@ -41,7 +41,7 @@ from xillion.core.risk import RiskManager
 from xillion.data.bar_aggregator import BarAggregator
 from xillion.data.bus import MarketDataBus
 from xillion.db.plugin_sync import sync_registry_to_db
-from xillion.db.session import get_session_factory, init_db
+from xillion.db.session import get_session_factory, init_db, init_warehouse_db
 from xillion.engine.digest_scheduler import run_daily_digest, run_weekly_digest
 from xillion.engine.eod_scheduler import run_reconciliation_scheduler, run_square_off_scheduler
 from xillion.engine.market_scheduler import run_market_hours_scheduler
@@ -420,6 +420,11 @@ async def lifespan(app: FastAPI):
         logger.info("skipping create_all() in production — using Alembic-managed schema")
     else:
         await init_db()
+    # The warehouse DB (bar/bar_coverage/option_chain_snapshot) is always a
+    # plain local SQLite file, never Alembic-managed even in production --
+    # see Settings.backtest_database_url -- so create_all() always runs for
+    # it, unconditionally, unlike the main DB above.
+    await init_warehouse_db()
 
     plugin_loader = PluginLoader()
     registry = await plugin_loader.discover_all()

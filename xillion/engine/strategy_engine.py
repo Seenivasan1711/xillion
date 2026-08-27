@@ -876,7 +876,7 @@ class StrategyEngine:
         if cls is None:
             raise ValueError(f"Strategy '{strategy_name}' not found in registry")
 
-        from xillion.db.session import get_session_factory
+        from xillion.db.session import get_session_factory, get_warehouse_session_factory
 
         db_factory = get_session_factory
 
@@ -893,7 +893,9 @@ class StrategyEngine:
             broker_connection_id=broker_connection_id,
             risk_config=risk_config,
         )
-        history = HistoryManager(repository=BarRepository(db_factory()))
+        # Warmup history reads from the warehouse DB (bar table), not the
+        # main app DB db_factory points at -- see Settings.backtest_database_url.
+        history = HistoryManager(repository=BarRepository(get_warehouse_session_factory()))
         ctx = _StrategyContextImpl(
             instance_id=instance_id,
             instance_name=instance_name or instance_id,

@@ -21,7 +21,7 @@ from xillion.data.option_chain import OptionChainRepository, OptionChainWarehous
 from xillion.data.repository import BarRepository
 from xillion.data.warehouse import BarWarehouse
 from xillion.db.models import AppUser
-from xillion.db.session import get_session_factory
+from xillion.db.session import get_session_factory, get_warehouse_session_factory
 from xillion.engine.backtest_engine import BacktestEngine
 from xillion.engine.optimization import grid_search, walk_forward
 
@@ -35,7 +35,7 @@ def _option_chain_warehouse() -> OptionChainWarehouse:
     Cheap and stateless if a strategy never calls get_spot/resolve_strike."""
     from data_providers.nse_bhavcopy import NSEBhavcopyProvider
 
-    factory = get_session_factory()
+    factory = get_warehouse_session_factory()
     return OptionChainWarehouse(NSEBhavcopyProvider(), OptionChainRepository(factory))
 
 
@@ -263,10 +263,10 @@ async def _resolve_strategy_and_bars(
             )
         broker = connected
 
-    session_factory = get_session_factory()
+    warehouse_factory = get_warehouse_session_factory()
     warehouse = BarWarehouse(
-        BarRepository(session_factory),
-        BarCoverageRepository(session_factory),
+        BarRepository(warehouse_factory),
+        BarCoverageRepository(warehouse_factory),
     )
     try:
         bars = await warehouse.get_bars(

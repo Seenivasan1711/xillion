@@ -66,7 +66,28 @@ mechanism that makes cold starts work.
 ## Deploy workflow
 
 Local dev and Render share the **same Supabase Postgres** database (same
-`DATABASE_URL`). Workflow:
+`DATABASE_URL`) for live app state -- but NOT for backtest/historical data
+(`bar`, `bar_coverage`, `option_chain_snapshot`) as of 2026-08-26. Those
+three tables alone had grown to ~1.5GB, blowing past Supabase's 500MB free
+tier almost entirely, despite being 100% regenerable for free from NSE
+Bhavcopy. They now live in a separate local-only SQLite file
+(`data/backtest_warehouse.db`, `Settings.backtest_database_url`,
+`get_warehouse_session_factory()` in `xillion/db/session.py`) that never
+touches Supabase. On Render specifically (no persistent disk on the free
+plan) this file resets on every redeploy/restart, same as the ENCRYPTION_KEY
+fallback file -- backtests run on Render will simply re-fetch/re-cache from
+NSE Bhavcopy as needed rather than losing anything irreplaceable.
+
+Since this file took hours to (re)build from NSE Bhavcopy, back it up with
+`make backup-warehouse` (writes a gzipped snapshot to
+`data/backups/warehouse/`) before anything risky (a fresh machine, wiping
+`data/`, etc), and restore with `make restore-warehouse
+FILE=path/to/warehouse_*.db.gz`. Whole-file snapshot, not per-table --
+covers every table in the warehouse DB automatically, nothing to update
+here as the schema grows. Upload the `.gz` file wherever you keep backups
+(Drive, etc) — there's no cloud copy of this data by design.
+
+Workflow:
 
 1. Develop and test locally against Supabase (`make dev`; local `.env` has
    `APP_ENV=production` intentionally — see the comment in `.env` for why).

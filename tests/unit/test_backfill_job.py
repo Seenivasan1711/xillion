@@ -13,7 +13,7 @@ import pytest
 from xillion.api.data import BackfillRequest, _run_backfill_job
 from xillion.core.data_provider_base import DataProviderCapabilities, HistoricalDataProvider
 from xillion.core.events import Bar
-from xillion.db.session import init_db
+from xillion.db.session import init_db, init_warehouse_db
 
 
 class _FakeProvider(HistoricalDataProvider):
@@ -55,6 +55,7 @@ def _app_state(provider_cls):
 @pytest.mark.asyncio
 async def test_successful_backfill_job_reports_done_with_bar_count():
     await init_db()
+    await init_warehouse_db()
     body = BackfillRequest(
         provider_name=_FakeProvider.name,
         symbol="BACKFILL_JOB_SYM",
@@ -76,6 +77,7 @@ async def test_successful_backfill_job_reports_done_with_bar_count():
 @pytest.mark.asyncio
 async def test_failing_provider_reports_failed_status_not_an_unhandled_exception():
     await init_db()
+    await init_warehouse_db()
     body = BackfillRequest(
         provider_name=_FailingProvider.name,
         symbol="BACKFILL_JOB_SYM_2",

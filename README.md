@@ -30,6 +30,57 @@ That's it. Both processes start in one terminal. **Ctrl+C** stops everything cle
 
 ---
 
+## Local backtest quick start
+
+Backtest history (`bar`, `bar_coverage`, `option_chain_snapshot` — NIFTY +
+BANKNIFTY, 2021-01-01 → present) lives in a **local-only** SQLite warehouse
+at `data/backtest_warehouse.db`, separate from the main app DB. This keeps
+Supabase's free tier from filling up with regenerable historical cache — see
+`CLAUDE.md`'s Deploy workflow section for the full story. It means real
+backtests only work **locally** for now; Render doesn't carry this file.
+
+```bash
+# 1. Start the app (creates the warehouse DB on first boot if missing)
+make dev
+
+# 2. Open http://localhost:5174, complete Setup (first run only) → log in
+```
+
+Then, in the UI:
+
+3. **Settings → Data Providers** — confirm coverage shows a NIFTY/BANKNIFTY
+   range (already backfilled if you've pulled this repo's `data/` folder;
+   otherwise trigger a backfill from this same panel — it fetches free NSE
+   Bhavcopy data day by day).
+4. **Backtest page** — pick a strategy (e.g. `Credit Spread Weekly` or `SMA
+   Cross`), pick the `NSE Bhavcopy` provider, set symbol (`NIFTY` /
+   `BANKNIFTY`) and a date range inside the covered window, click **Run
+   Backtest**. Equity curve, metrics, and the trade list render in place;
+   every run is also saved to **Run history** on the same page.
+
+Prefer the API directly (e.g. for scripting a sweep)? The same thing is
+`POST /api/backtest/run-provider` — see `http://localhost:8001/api/docs`
+for the full request shape, or `POST /api/backtest/optimize` /
+`/walk-forward` for parameter sweeps over the same warehouse-backed bars.
+
+**Once a strategy is proven out here**, promote it the normal way: commit
+the strategy file, open a PR, merge to `main`. The strategy code itself has
+no dependency on the local warehouse — live/paper trading on Render (or
+Zerodha/Dhan paper mode) uses real-time broker ticks, not this cache; the
+warehouse only matters for *backtesting* history.
+
+**Back up the warehouse before anything risky** (wiping `data/`, a fresh
+machine) — it took hours to build from NSE Bhavcopy:
+```bash
+make backup-warehouse                       # → data/backups/warehouse/warehouse_<ts>.db.gz
+make restore-warehouse FILE=data/backups/warehouse/warehouse_<ts>.db.gz
+```
+Whole-file snapshot, so it automatically covers any table added later —
+upload the `.gz` to Drive (or wherever) since there's no cloud copy by
+design.
+
+---
+
 ## With Docker Compose (alternative — requires Docker)
 
 ```bash

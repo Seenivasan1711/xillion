@@ -46,9 +46,10 @@ def _tick(symbol: str, ltp: str, ts: datetime) -> Tick:
 @pytest.mark.asyncio
 async def test_on_bar_fires_for_a_live_instance_via_real_ticks(monkeypatch):
     monkeypatch.setattr("xillion.engine.strategy_engine.is_market_open", lambda *a, **k: True)
-    from xillion.db.session import init_db
+    from xillion.db.session import init_db, init_warehouse_db
 
     await init_db()
+    await init_warehouse_db()
 
     registry = PluginRegistry()
     registry.strategies[_RecordingOnBarStrategy.name] = _RecordingOnBarStrategy

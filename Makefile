@@ -1,5 +1,6 @@
 .PHONY: setup install dev dev-backend dev-frontend lint format type-check test \
-        db-init db-upgrade render-build render-start docker-build docker-run backup clean
+        db-init db-upgrade render-build render-start docker-build docker-run backup \
+        backup-warehouse restore-warehouse clean
 
 # ── First-time setup ───────────────────────────────────────────────────────────
 
@@ -90,6 +91,12 @@ docker-run: ## Run production image (set PORT, DATABASE_URL, APP_SECRET_KEY in e
 
 backup: ## Snapshot SQLite to data/backups/ (keep 30 days)
 	./scripts/backup_db.sh
+
+backup-warehouse: ## Snapshot+gzip the backtest warehouse DB (bar/option chain) for offline storage (e.g. Drive)
+	./scripts/backup_warehouse.sh
+
+restore-warehouse: ## Restore the warehouse DB from a backup: make restore-warehouse FILE=path/to/warehouse_*.db.gz
+	./scripts/restore_warehouse.sh "$(FILE)"
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 
