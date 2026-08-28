@@ -8,7 +8,7 @@
 > **Deferred ≠ rejected.** Each entry has a trigger that would make it worth
 > revisiting.
 
-**Last reviewed:** 2026-08-24
+**Last reviewed:** 2026-08-28
 
 ---
 
@@ -41,6 +41,12 @@
 | Portfolio-level position sizing (Kelly, risk parity) | Single strategy, fixed sizing. Premature | Running 3+ uncorrelated strategies simultaneously |
 | Multi-timeframe strategies | Current strategies use one timeframe | A strategy needs e.g. daily trend + 5m entry |
 | Backtest custom date-range picker (UI) | Largely covered — provider mode already takes explicit from/to dates | The UI gap actually bites |
+
+## Gold Lane B1 (XAUUSD/Funding Pips MT5) specifics
+
+| Item | Why deferred | Revisit when |
+|---|---|---|
+| Historical Gold (XAUUSD) data source for backtesting | Lane B1's broker+bridge (`brokers/mt5_funding_pips.py`, `mt5_bridge/`) only covers live/paper — it streams real-time ticks from the Wine MT5 terminal, nothing historical. Building this needs its own design pass, not a quick add-on. Candidate approaches to weigh when this is picked up: **(a)** extend `mt5_bridge/bridge.py` to also call MT5's own `copy_rates_range()` once, on demand, against the terminal's built-in history (same terminal already required for live trading, likely the least-new-infra option, but ties backtesting to the Mac+Wine bridge being up) — **(b)** a free external source (e.g. Dukascopy historical tick/bar export, or a free-tier API like Alpha Vantage/Twelve Data for daily XAUUSD) cached the same way NSE Bhavcopy is cached today (`BarWarehouse`, local SQLite) — **(c)** paid data vendor (last resort, costs money, avoid per the low-budget constraint). None of these are started; this is a research+build task for whenever Gold backtesting is actually wanted. | Rakesh wants to backtest the Gold strategy before/alongside running it live via the bridge |
 
 ## Crypto specifics
 

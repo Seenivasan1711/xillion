@@ -13,13 +13,25 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-26 (Dhan + Telegram both connected live on Render;
-a real crash-loop bug in the Dhan feed found and fixed same day — see
-`task-tracker.md`)
+**Last updated:** 2026-08-28 (added: Gold backtest data-source decision,
+flagged after Gold Lane B1's live/paper broker+bridge shipped same day —
+see `task-tracker.md`)
 
 ---
 
 ## Open
+
+- [ ] **Decide how Gold (XAUUSD) backtesting should work — no historical
+      data source exists yet.** The MT5/Funding Pips broker+bridge built
+      2026-08-28 only covers live/paper trading (real-time ticks from your
+      Wine terminal); there's no way to backtest the Gold strategy today.
+      Three candidate approaches are written up in
+      `docs/status/deferred-backlog.md` ("Gold Lane B1 specifics") — take a
+      look when you're ready to think about this, no rush since it's just
+      a design/build task, not blocked on anything external.
+      **Blocks:** backtesting Gold before/alongside running it live.
+      **Cost:** none to decide; possibly a small one depending which
+      approach you pick.
 
 - [ ] **Kite Connect developer app — LOW PRIORITY, LATER.** Register at
       developers.kite.trade, get API key + secret. Needs a Zerodha account
