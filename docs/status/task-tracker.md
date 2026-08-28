@@ -5,9 +5,11 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-28
-**Current position:** **2026-08-28: Gold Lane B1's broker+bridge plumbing
+**Current position:** **2026-08-28: M01-gates-tomorrow's-trading wired up
+(migration 015) — the one honest gap CP14 flagged when it shipped.** See
+"CP14 follow-up" below. Before that, Gold Lane B1's broker+bridge plumbing
 built (see the Track B section below) — code-complete but unverified, no
-real MT5 account/Wine environment in this sandbox.** Before that,
+real MT5 account/Wine environment in this sandbox. Before that,
 `feat/options-alert-engine` was merged to `main`
 2026-08-26 (fast-forward, 259 files, all of Track A + Track A extension +
 CP15 + a full frontend UX overhaul) and pushed.** `main` is now the current
@@ -1100,9 +1102,9 @@ before it reaches the broker adapter (`test_risk_audit_log.py`'s
       strategies" rule. Persisted to a new `reconciliation_report` table
       (migration 012) — not just logged, so a `DISCREPANCY`/`FAILED` day is
       a durable, queryable fact per the spec's own "block tomorrow's
-      trading if not CLEAN" design (that blocking behaviour itself isn't
-      wired to anything yet — the report exists and is queryable, nothing
-      reads it to gate a new trading day). **Scope note:** positions only —
+      trading if not CLEAN" design (that blocking behaviour itself wasn't
+      wired to anything at the time — see "CP14 follow-up, 2026-08-28"
+      below, where it was closed). **Scope note:** positions only —
       orders/fills reconciliation and funds (broker P&L vs computed P&L)
       reconciliation are NOT implemented; funds specifically needs a
       "today's realised P&L" broker capability the `Broker` ABC doesn't
@@ -1122,6 +1124,72 @@ X02 flattens it and M01 independently confirms CLEAN; bad path
 is rejected, and M01 still shows the position as an EOD `DISCREPANCY` with
 a critical alert fired — never silently carried forward. 367/367 tests
 passing, no regressions.
+
+**CP14 follow-up, 2026-08-28: the "block tomorrow's trading" gate itself,
+closed.** Picked up as the next well-scoped Track A item after Gold Lane
+B1's plumbing shipped, per Rakesh's "complete all planned code
+implementation" redirect — this needed no external hardware/account,
+unlike Gold Lane B1, so it was a natural next piece.
+- **Migration 015** adds `acknowledged` / `acknowledged_at` /
+  `acknowledged_by` to `reconciliation_report` — the durable "a human
+  reviewed this" record the spec's "manual sign-off to resume" line needs.
+  Applied to the real Supabase DB this session (013→015), not just
+  written — confirmed via `alembic current`.
+- **The gate itself:**
+  [xillion/engine/reconciliation.py](../../xillion/engine/reconciliation.py)'s
+  new `unresolved_blocker_exists()` looks at the MOST RECENT trading date
+  that has any report and returns true if anything on it is non-CLEAN and
+  unacknowledged — deliberately "most recent day", not "every day ever",
+  so a stale unsigned-off day from weeks ago can't block forever once a
+  later clean day exists.
+  [xillion/engine/eod_scheduler.py](../../xillion/engine/eod_scheduler.py)'s
+  M01 tick (`run_reconciliation_tick`, split out from the scheduler loop
+  so it's directly testable) calls `risk.pause_trading()` when any
+  broker's report isn't CLEAN.
+  [xillion/main.py](../../xillion/main.py) startup re-derives the same
+  gate from the DB on every boot — the pause is otherwise only an
+  in-memory `RiskManager` flag, which a Render redeploy/restart would
+  otherwise silently clear even with a genuinely unresolved DISCREPANCY
+  still on the books.
+- **Manual sign-off:** new
+  [xillion/api/reconciliation.py](../../xillion/api/reconciliation.py) —
+  `GET /reconciliation/reports` (list) and
+  `POST /reconciliation/reports/{id}/acknowledge` (sign off; resumes
+  trading only if nothing else unresolved remains for that trading day —
+  a second broker's still-open DISCREPANCY on the same day correctly
+  keeps the gate up).
+- **Frontend:** `Layout.tsx` now shows a distinct "TRADING PAUSED" banner
+  (separate from the kill-switch banner) when `risk.status().trading_enabled`
+  is false, linking to a new "Reconciliation (M01)" panel added to
+  Configuration → Risk tab — lists recent reports and lets you acknowledge
+  an unresolved one.
+- **Honest limitation, not silently glossed over:**
+  `RiskManager.pause_trading()`/`resume_trading()` is a single global
+  boolean with no "who/what paused it" tracking. As of this writing M01's
+  gate is its only caller, so the acknowledge endpoint resuming trading is
+  safe — but if any other feature is ever wired to the same flag (a
+  maintenance pause, say), this needs to become a reason-aware gate
+  instead of a bare boolean, or two unrelated pause reasons could clear
+  each other.
+- **Verify:** 9 new tests (5 in `test_reconciliation.py` covering
+  `unresolved_blocker_exists()` — unacknowledged/acknowledged/CLEAN/
+  same-day-partial-signoff/only-latest-day-matters; 4 in new
+  `test_eod_scheduler.py` covering `run_reconciliation_tick()` — CLEAN
+  leaves trading enabled, DISCREPANCY and FAILED both pause it, and a
+  paused gate genuinely rejects a real `RiskManager.check()` call, not
+  just a status flag). 462/462 tests passing, no regressions (caught and
+  fixed a self-inflicted mistake along the way: an early draft of
+  `test_eod_scheduler.py` was written with `Write` instead of `Edit` and
+  silently clobbered that file's pre-existing CP14 timing/broker-discovery
+  tests -- restored by merging both sets into one file before committing).
+  Migration
+  applied and confirmed against the real Supabase DB
+  (`alembic current` → 015). ruff/black/mypy all clean; frontend `tsc
+  --noEmit` and `vite build` both clean. **Not verified: the actual
+  logged-in UI** (banner + Reconciliation panel rendering, acknowledge
+  button working end-to-end) — entering the dev login password is outside
+  what Claude will do itself even for a local app, so this needs Rakesh's
+  own look once he's testing.
 
 ---
 

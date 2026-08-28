@@ -263,6 +263,12 @@ class ReconciliationReport(Base):
     position_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     eod_open_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # Manual sign-off (migration 015) -- a non-CLEAN report pauses trading
+    # (see eod_scheduler.py); acknowledging it here is what resumes trading,
+    # not a blind timer or an automatic retry.
+    acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    acknowledged_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (Index("idx_reconciliation_date", "trading_date"),)
 

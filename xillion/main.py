@@ -33,6 +33,7 @@ from xillion.api import logs as logs_router
 from xillion.api import mt5_bridge as mt5_bridge_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import positions as positions_router
+from xillion.api import reconciliation as reconciliation_router
 from xillion.api import risk as risk_router
 from xillion.api import settings as settings_router
 from xillion.api import trades as trades_router
@@ -46,6 +47,7 @@ from xillion.db.session import get_session_factory, init_db, init_warehouse_db
 from xillion.engine.digest_scheduler import run_daily_digest, run_weekly_digest
 from xillion.engine.eod_scheduler import run_reconciliation_scheduler, run_square_off_scheduler
 from xillion.engine.market_scheduler import run_market_hours_scheduler
+from xillion.engine.reconciliation import unresolved_blocker_exists
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
 from xillion.observability.log_capture import capture_processor, run_log_persistence
@@ -482,6 +484,18 @@ async def lifespan(app: FastAPI):
     app.state.telegram = telegram
     risk.set_notify(telegram.alert)
 
+    # M01's own rule: a non-CLEAN reconciliation blocks trading until a
+    # human signs off. That pause lives only in RiskManager's in-memory
+    # flag, which a restart would otherwise silently clear -- re-derive it
+    # from the DB on every boot instead of trusting a fresh in-memory
+    # default. See xillion/engine/reconciliation.py:unresolved_blocker_exists.
+    if await unresolved_blocker_exists(get_session_factory):
+        risk.pause_trading()
+        logger.critical(
+            "startup: unresolved M01 discrepancy from a previous session -- "
+            "trading remains paused until acknowledged"
+        )
+
     engine = StrategyEngine(bus=bus, risk_manager=risk)
     engine.set_registry(registry)
     app.state.strategy_engine = engine
@@ -580,6 +594,7 @@ app.include_router(journal_router.router, prefix="/api")
 app.include_router(logs_router.router, prefix="/api")
 app.include_router(mt5_bridge_router.router, prefix="/api")
 app.include_router(positions_router.router, prefix="/api")
+app.include_router(reconciliation_router.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(trades_router.router, prefix="/api")

@@ -207,6 +207,7 @@ export default function Layout() {
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [killActive, setKillActive] = useState(false)
+  const [tradingPaused, setTradingPaused] = useState(false)
   const [brokerStatus, setBrokerStatus] = useState<{ label: string; ok: boolean } | null>(null)
   const [feedLatency, setFeedLatency] = useState<number | null>(null)
   const [runnerCount, setRunnerCount] = useState(0)
@@ -249,7 +250,10 @@ export default function Layout() {
           api.health().catch(() => null),
           api.instances.list().catch(() => null),
         ])
-        if (riskRes) setKillActive(riskRes.kill_switch_active)
+        if (riskRes) {
+          setKillActive(riskRes.kill_switch_active)
+          setTradingPaused(riskRes.trading_enabled === false)
+        }
         if (healthRes?.brokers?.length) {
           const b = healthRes.brokers[0]
           setBrokerStatus({ label: `${b.broker_name} · ${b.status}`, ok: b.status === 'connected' })
@@ -359,6 +363,20 @@ export default function Layout() {
               </span>
               <div style={{ flex: 1 }} />
               <button className="btn ghost sm" onClick={handleReset}>Reset</button>
+            </div>
+          )}
+
+          {!killActive && tradingPaused && (
+            <div className="kill-banner">
+              <Pause size={14} />
+              <strong>TRADING PAUSED</strong>
+              <span style={{ color: 'color-mix(in srgb, var(--neg) 70%, var(--text-dim))' }}>
+                — reconciliation found a discrepancy, new orders are blocked until reviewed
+              </span>
+              <div style={{ flex: 1 }} />
+              <button className="btn ghost sm" onClick={() => navigate('/configuration?tab=risk')}>
+                Review
+              </button>
             </div>
           )}
 

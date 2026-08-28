@@ -161,6 +161,32 @@ async def _persist(db_factory, broker_name: str, result: ReconciliationResult) -
         logger.error("M01: failed to persist reconciliation report", error=str(exc))
 
 
+async def unresolved_blocker_exists(db_factory) -> bool:
+    """True if the most recent trading day that has any reconciliation
+    report includes a non-CLEAN, not-yet-acknowledged one. Used at process
+    startup (main.py) so a restart can't silently clear an unresolved M01
+    DISCREPANCY -- the in-memory RiskManager.pause_trading() from
+    eod_scheduler.py doesn't survive a restart on its own, but the DB
+    record does, and the gate must survive until someone actually signs
+    off (xillion/api/reconciliation.py)."""
+    async with db_factory()() as session:
+        latest_date_result = await session.execute(
+            select(ReconciliationReportRecord.trading_date)
+            .order_by(ReconciliationReportRecord.trading_date.desc())
+            .limit(1)
+        )
+        latest_date = latest_date_result.scalar_one_or_none()
+        if latest_date is None:
+            return False
+        reports_result = await session.execute(
+            select(ReconciliationReportRecord).where(
+                ReconciliationReportRecord.trading_date == latest_date
+            )
+        )
+        reports = reports_result.scalars().all()
+        return any(r.status != "CLEAN" and not r.acknowledged for r in reports)
+
+
 async def _alert(notify, title: str, body: str, severity: str) -> None:
     if notify is None:
         return

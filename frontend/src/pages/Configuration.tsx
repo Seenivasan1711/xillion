@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Bell, CheckCircle, Database, Shield, Wifi } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { AlertTriangle, Bell, CheckCircle, Database, Shield, Wifi } from 'lucide-react'
 import { api } from '../lib/api'
-import type { ZerodhaCredentials, DhanCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob } from '../lib/api'
+import type { ZerodhaCredentials, DhanCredentials, NotificationSettings, RiskLimits, BrokerStatus, DataProviderClass, BarCoverage, BackfillJob, ReconciliationReport } from '../lib/api'
 import { Badge } from '../components/ui'
 import { useToast } from '../components/Toast'
 
@@ -14,8 +15,13 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
 ]
 
+const TAB_IDS = TABS.map(t => t.id)
+
 export default function Configuration() {
-  const [tab, setTab] = useState<Tab>('brokers')
+  const [searchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const initialTab = TAB_IDS.includes(requestedTab as Tab) ? (requestedTab as Tab) : 'brokers'
+  const [tab, setTab] = useState<Tab>(initialTab)
 
   return (
     <div className="stack">
@@ -909,6 +915,86 @@ function RiskTab() {
         <button className="btn primary" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save risk limits'}
         </button>
+      </div>
+
+      <ReconciliationPanel />
+    </div>
+  )
+}
+
+// M01 (automation-platform-spec/08-JOBS-POSTMARKET.md): a non-CLEAN report
+// blocks trading until acknowledged here -- see xillion/api/reconciliation.py.
+function ReconciliationPanel() {
+  const toast = useToast()
+  const [reports, setReports] = useState<ReconciliationReport[]>([])
+  const [loading, setLoading] = useState(true)
+  const [acking, setAcking] = useState<number | null>(null)
+
+  const load = () => {
+    api.reconciliation.reports(20)
+      .then(r => setReports(r.reports))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const acknowledge = async (id: number) => {
+    setAcking(id)
+    try {
+      const res = await api.reconciliation.acknowledge(id)
+      toast('ok', res.trading_resumed ? 'Acknowledged — trading resumed' : 'Acknowledged')
+      load()
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Acknowledge failed')
+    } finally {
+      setAcking(null)
+    }
+  }
+
+  const unresolved = reports.filter(r => r.status !== 'CLEAN' && !r.acknowledged)
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="title">Reconciliation (M01)</span>
+        <span className="faint" style={{ fontSize: 11 }}>daily broker-vs-internal position check</span>
+      </div>
+      <div className="card-pad stack" style={{ gap: 10 }}>
+        {loading && <span className="faint" style={{ fontSize: 12 }}>Loading…</span>}
+        {!loading && reports.length === 0 && (
+          <span className="faint" style={{ fontSize: 12 }}>No reconciliation reports yet — M01 runs at 15:45 IST on trading days.</span>
+        )}
+        {unresolved.length > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+            padding: '8px 12px', borderRadius: 7, background: 'var(--neg-dim)', color: 'var(--neg)',
+          }}>
+            <AlertTriangle size={14} />
+            {unresolved.length} unresolved discrepanc{unresolved.length === 1 ? 'y' : 'ies'} — trading is paused until acknowledged
+          </div>
+        )}
+        {reports.slice(0, 10).map(r => (
+          <div key={r.id} className="row" style={{ justifyContent: 'space-between', fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+            <div className="stack" style={{ gap: 2 }}>
+              <span>
+                <strong>{r.trading_date}</strong> · {r.broker_name} ·{' '}
+                <span style={{ color: r.status === 'CLEAN' ? 'var(--pos)' : 'var(--neg)' }}>{r.status}</span>
+              </span>
+              {r.status !== 'CLEAN' && (
+                <span className="faint" style={{ fontSize: 11 }}>
+                  {r.position_mismatches.length} mismatch(es), {r.eod_open_positions.length} open at EOD
+                  {r.acknowledged && ` — acknowledged by ${r.acknowledged_by ?? 'unknown'} at ${r.acknowledged_at}`}
+                </span>
+              )}
+            </div>
+            {r.status !== 'CLEAN' && !r.acknowledged && (
+              <button className="btn ghost sm" disabled={acking === r.id} onClick={() => acknowledge(r.id)}>
+                {acking === r.id ? 'Acknowledging…' : 'Acknowledge'}
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

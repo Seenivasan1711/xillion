@@ -72,6 +72,40 @@ async def run_square_off_scheduler(app) -> None:
             logger.error("X02 scheduler tick failed", error=str(exc))
 
 
+async def run_reconciliation_tick(app) -> None:
+    """One M01 run across every connected broker, plus the trading gate
+    (08-JOBS-POSTMARKET.md M01: a non-CLEAN day "blocks tomorrow's trading,
+    require manual sign-off to resume"). Split out from the scheduler loop
+    below so it's directly testable without the sleep-until-clock-time
+    wrapper -- see tests/unit/test_eod_scheduler.py."""
+    from xillion.db.session import get_session_factory
+
+    notifier = getattr(app.state, "telegram", None)
+    risk = getattr(app.state, "risk", None)
+    any_not_clean = False
+    for name, broker in await _connected_brokers(app):
+        result = await run_reconciliation(
+            broker,
+            broker_name=name,
+            db_factory=get_session_factory,
+            notify=notifier.alert if notifier else None,
+        )
+        logger.info("M01 reconciliation ran", broker=name, status=result.status)
+        if result.status != "CLEAN":
+            any_not_clean = True
+    # pause_trading() is idempotent -- safe to call again if already paused.
+    if any_not_clean and risk is not None:
+        risk.pause_trading()
+        logger.critical("M01: trading paused pending manual reconciliation sign-off")
+        if notifier:
+            await notifier.alert(
+                "Trading paused",
+                "M01 reconciliation was not CLEAN -- new orders are blocked until "
+                "you acknowledge the report (Settings -> Risk -> Reconciliation).",
+                "critical",
+            )
+
+
 async def run_reconciliation_scheduler(app) -> None:
     while True:
         now = datetime.now(IST)
@@ -81,16 +115,6 @@ async def run_reconciliation_scheduler(app) -> None:
             logger.info("M01: skipped -- not a trading day")
             continue
         try:
-            from xillion.db.session import get_session_factory
-
-            notifier = getattr(app.state, "telegram", None)
-            for name, broker in await _connected_brokers(app):
-                result = await run_reconciliation(
-                    broker,
-                    broker_name=name,
-                    db_factory=get_session_factory,
-                    notify=notifier.alert if notifier else None,
-                )
-                logger.info("M01 reconciliation ran", broker=name, status=result.status)
+            await run_reconciliation_tick(app)
         except Exception as exc:
             logger.error("M01 scheduler tick failed", error=str(exc))

@@ -16,7 +16,7 @@ from xillion.core.events import Position
 from xillion.db.models import PositionRecord
 from xillion.db.models import ReconciliationReport as ReconciliationReportRecord
 from xillion.db.session import get_session_factory, init_db
-from xillion.engine.reconciliation import run_reconciliation
+from xillion.engine.reconciliation import run_reconciliation, unresolved_blocker_exists
 
 
 def _pos(symbol: str, qty: int) -> Position:
@@ -186,3 +186,81 @@ async def test_result_is_persisted_to_the_database_matching_what_was_returned():
     assert row is not None
     assert row.status == result.status
     assert json.loads(row.eod_open_positions_json) == result.eod_open_positions
+
+
+# ── Trading gate (migration 015) ────────────────────────────────────────────
+# CP14/M01's own design: a non-CLEAN day "blocks tomorrow's trading, require
+# manual sign-off to resume". unresolved_blocker_exists() is what both the
+# startup gate (main.py) and the acknowledge endpoint
+# (xillion/api/reconciliation.py) check. Reports here use far-future dates
+# so they're unambiguously "the latest trading day" regardless of what
+# other tests in this shared in-memory DB have already inserted for today.
+
+
+async def _seed_report(
+    trading_date: str,
+    broker_name: str,
+    status: str,
+    acknowledged: bool = False,
+) -> None:
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add(
+            ReconciliationReportRecord(
+                trading_date=trading_date,
+                broker_name=broker_name,
+                checked_at=datetime.now(UTC).isoformat(),
+                status=status,
+                position_mismatches_json="[]",
+                eod_open_positions_json="[]",
+                notes_json="[]",
+                acknowledged=acknowledged,
+                acknowledged_at=datetime.now(UTC).isoformat() if acknowledged else None,
+                acknowledged_by="tester" if acknowledged else None,
+            )
+        )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_unresolved_blocker_exists_for_an_unacknowledged_discrepancy():
+    await init_db()
+    await _seed_report("2099-01-01", "Gate Test Broker 1", "DISCREPANCY")
+    assert await unresolved_blocker_exists(get_session_factory) is True
+
+
+@pytest.mark.asyncio
+async def test_no_blocker_once_the_discrepancy_is_acknowledged():
+    await init_db()
+    await _seed_report("2099-01-02", "Gate Test Broker 2", "DISCREPANCY", acknowledged=True)
+    assert await unresolved_blocker_exists(get_session_factory) is False
+
+
+@pytest.mark.asyncio
+async def test_no_blocker_for_a_clean_report():
+    await init_db()
+    await _seed_report("2099-01-03", "Gate Test Broker 3", "CLEAN")
+    assert await unresolved_blocker_exists(get_session_factory) is False
+
+
+@pytest.mark.asyncio
+async def test_second_brokers_unresolved_report_keeps_the_same_day_blocked():
+    """Two brokers reconciled the same trading day -- one signed off, the
+    other not. The day as a whole must stay blocked, matching the
+    acknowledge endpoint's own re-check after a partial sign-off."""
+    await init_db()
+    await _seed_report("2099-01-04", "Gate Test Broker A", "DISCREPANCY", acknowledged=True)
+    await _seed_report("2099-01-04", "Gate Test Broker B", "FAILED", acknowledged=False)
+    assert await unresolved_blocker_exists(get_session_factory) is True
+
+
+@pytest.mark.asyncio
+async def test_only_the_latest_trading_day_is_considered():
+    """An old, still-unacknowledged DISCREPANCY from a stale/backfilled date
+    must not block trading forever once a later, clean day exists -- the
+    gate tracks 'is the most recent day okay', not 'has every day ever been
+    signed off'."""
+    await init_db()
+    await _seed_report("2099-02-01", "Gate Test Broker Old", "DISCREPANCY")
+    await _seed_report("2099-02-15", "Gate Test Broker New", "CLEAN")
+    assert await unresolved_blocker_exists(get_session_factory) is False

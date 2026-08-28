@@ -63,6 +63,7 @@ export const api = {
       request<{
         kill_switch_active: boolean
         kill_switch_at: string | null
+        trading_enabled: boolean
         account_daily_loss: string
         ops_limit: number
       }>('/risk/status'),
@@ -76,6 +77,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ totp_code }),
       }),
+  },
+
+  reconciliation: {
+    reports: (limit = 20) =>
+      request<{ reports: ReconciliationReport[] }>(`/reconciliation/reports?limit=${limit}`),
+    acknowledge: (id: number) =>
+      request<{ acknowledged: boolean; trading_resumed: boolean }>(
+        `/reconciliation/reports/${id}/acknowledge`,
+        { method: 'POST' }
+      ),
   },
 
   instances: {
@@ -424,6 +435,20 @@ export interface RiskLimits {
   position_size_cap: number
   ops_limit: number
   burst_window: number
+}
+
+export interface ReconciliationReport {
+  id: number
+  trading_date: string
+  broker_name: string
+  checked_at: string
+  status: 'CLEAN' | 'DISCREPANCY' | 'FAILED'
+  position_mismatches: { symbol: string; issue: string; broker_qty: number | null; internal_qty: number | null }[]
+  eod_open_positions: string[]
+  notes: string[]
+  acknowledged: boolean
+  acknowledged_at: string | null
+  acknowledged_by: string | null
 }
 
 export interface BacktestCsvConfig {
