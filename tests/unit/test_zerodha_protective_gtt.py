@@ -21,10 +21,11 @@ class _StubKite:
     GTT_TYPE_SINGLE = "single"
     GTT_TYPE_OCO = "two-leg"
 
-    def __init__(self, gtt_response=None):
+    def __init__(self, gtt_response=None, positions_response=None):
         self.place_gtt_calls: list[dict] = []
         self.delete_gtt_calls: list = []
         self._gtt_response = gtt_response if gtt_response is not None else {"trigger_id": 123}
+        self._positions_response = positions_response if positions_response is not None else {}
 
     def place_gtt(self, **kwargs):
         self.place_gtt_calls.append(kwargs)
@@ -32,6 +33,9 @@ class _StubKite:
 
     def delete_gtt(self, trigger_id):
         self.delete_gtt_calls.append(trigger_id)
+
+    def positions(self):
+        return self._positions_response
 
 
 def _broker(stub: _StubKite) -> ZerodhaBroker:
@@ -129,3 +133,38 @@ async def test_cancel_gtt_calls_delete_gtt_with_the_trigger_id():
     await broker.cancel_gtt("123")
 
     assert stub.delete_gtt_calls == ["123"]
+
+
+# ── get_realised_pnl_today (M01 funds-reconciliation follow-up, 2026-08-29) ─
+
+
+def test_capabilities_declare_realised_pnl_support():
+    assert ZerodhaBroker.capabilities.supports_realised_pnl_query is True
+
+
+@pytest.mark.asyncio
+async def test_realised_pnl_sums_the_day_array_not_net():
+    """Kite's own docs describe "day" specifically as the array for
+    computing intraday P&L -- "net" mixes in carried-forward multi-day
+    positions' historical realised total, not just today's activity."""
+    stub = _StubKite(
+        positions_response={
+            "day": [{"realised": 120.5}, {"realised": -20.0}],
+            "net": [{"realised": 9999.0}],
+        }
+    )
+    broker = _broker(stub)
+
+    result = await broker.get_realised_pnl_today()
+
+    assert result == Decimal("100.5")
+
+
+@pytest.mark.asyncio
+async def test_realised_pnl_is_zero_when_day_array_is_empty():
+    stub = _StubKite(positions_response={"day": [], "net": []})
+    broker = _broker(stub)
+
+    result = await broker.get_realised_pnl_today()
+
+    assert result == Decimal("0")

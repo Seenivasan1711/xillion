@@ -26,6 +26,13 @@ class BrokerCapabilities:
     # which is what this flag maps to; supports_bracket_orders staying
     # False for Zerodha reflects that real deprecation, not an oversight.
     supports_gtt_orders: bool = False
+    # M01 funds-reconciliation follow-up, 2026-08-29: whether
+    # get_realised_pnl_today() below is actually implemented. Neither
+    # get_positions() (only currently-open positions, and its own
+    # realised_pnl isn't scoped to "since midnight today" for a multi-day
+    # carried position) nor get_margins() (account balances, not P&L) is
+    # the same thing -- this is its own broker capability.
+    supports_realised_pnl_query: bool = False
     supports_modify_order: bool = True
     supports_partial_fills: bool = True
     supported_timeframes: list[str] = field(
@@ -150,4 +157,20 @@ class Broker(ABC):
         called when the software path closes the position through the
         normal exit route, so the broker-side trigger can't fire later
         against a position that no longer exists."""
+        raise NotImplementedError
+
+    # ── Funds reconciliation (optional) ───────────────────────────────────────
+    # Not @abstractmethod, same reasoning as the GTT pair above: only
+    # brokers with capabilities.supports_realised_pnl_query True are ever
+    # called here (xillion/engine/reconciliation.py's _reconcile_funds).
+
+    async def get_realised_pnl_today(self) -> Decimal:
+        """Today's realised P&L as the broker itself reports it, for
+        comparison against xillion's own internally-computed figure (see
+        reconciliation.py's _reconcile_funds -- this is the "broker P&L vs
+        computed P&L" check M01's spec calls for). NOT the same as
+        summing Position.realised_pnl from get_positions(): that list is
+        scoped to currently-open positions, so a position fully closed out
+        earlier today would already be missing from it, along with the P&L
+        it booked."""
         raise NotImplementedError

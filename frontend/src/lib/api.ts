@@ -473,6 +473,11 @@ export interface ReconciliationReport {
     broker_avg_price: string | null
     internal_avg_price: string | null
   }[]
+  funds_mismatch: {
+    broker_realised_pnl: string
+    internal_realised_pnl: string
+    diff: string
+  } | null
   notes: string[]
   acknowledged: boolean
   acknowledged_at: string | null

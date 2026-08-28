@@ -24,10 +24,11 @@ from xillion.core.events import Side
 
 
 class _StubDhan:
-    def __init__(self, forever_response=None):
+    def __init__(self, forever_response=None, positions_response=None):
         self.place_forever_calls: list[dict] = []
         self.cancel_forever_calls: list = []
         self._response = forever_response if forever_response is not None else {"orderId": "F-123"}
+        self._positions_response = positions_response if positions_response is not None else []
 
     def place_forever(self, **kwargs):
         self.place_forever_calls.append(kwargs)
@@ -36,6 +37,9 @@ class _StubDhan:
     def cancel_forever(self, order_id):
         self.cancel_forever_calls.append(order_id)
         return {"orderId": order_id, "orderStatus": "CANCELLED"}
+
+    def get_positions(self):
+        return self._positions_response
 
 
 def _resolved(**overrides):
@@ -174,3 +178,51 @@ async def test_cancel_gtt_swallows_errors_rather_than_raising(monkeypatch):
     broker = _broker(stub, monkeypatch)
 
     await broker.cancel_gtt("F-123")  # must not raise
+
+
+# ── get_realised_pnl_today (M01 funds-reconciliation follow-up, 2026-08-29) ─
+
+
+def test_capabilities_declare_realised_pnl_support():
+    assert DhanBroker.capabilities.supports_realised_pnl_query is True
+
+
+@pytest.mark.asyncio
+async def test_realised_pnl_sums_realized_profit_across_all_positions(monkeypatch):
+    """Includes CLOSED rows (Dhan's docs show a positionType: "CLOSED"
+    value) -- not just the currently-open ones get_positions() itself
+    keeps, which drops a position's row (and its booked P&L) the moment
+    it's fully closed."""
+    stub = _StubDhan(
+        positions_response=[
+            {"netQty": 0, "positionType": "CLOSED", "realizedProfit": 500.0},
+            {"netQty": 65, "positionType": "OPEN", "realizedProfit": -50.0},
+        ]
+    )
+    broker = _broker(stub, monkeypatch)
+
+    result = await broker.get_realised_pnl_today()
+
+    assert result == Decimal("450.0")
+
+
+@pytest.mark.asyncio
+async def test_realised_pnl_is_zero_when_no_positions(monkeypatch):
+    stub = _StubDhan(positions_response=[])
+    broker = _broker(stub, monkeypatch)
+
+    result = await broker.get_realised_pnl_today()
+
+    assert result == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_realised_pnl_unwraps_the_data_envelope(monkeypatch):
+    """Dhan's SDK sometimes wraps list responses as {"data": [...]}, same
+    envelope get_positions() itself already unwraps."""
+    stub = _StubDhan(positions_response={"data": [{"realizedProfit": 200.0}]})
+    broker = _broker(stub, monkeypatch)
+
+    result = await broker.get_realised_pnl_today()
+
+    assert result == Decimal("200.0")

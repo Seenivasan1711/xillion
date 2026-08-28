@@ -1048,6 +1048,7 @@ function ReconciliationPanel() {
                 <span className="faint" style={{ fontSize: 11 }}>
                   {r.position_mismatches.length} position mismatch(es), {r.eod_open_positions.length} open at EOD,{' '}
                   {r.order_mismatches.length} order mismatch(es)
+                  {r.funds_mismatch && `, funds off by ${r.funds_mismatch.diff}`}
                   {r.acknowledged && ` — acknowledged by ${r.acknowledged_by ?? 'unknown'} at ${r.acknowledged_at}`}
                 </span>
               )}

@@ -19,22 +19,36 @@ partial fills making up one order aren't compared individually -- only the
 order's own aggregate filled_quantity/avg_fill_price are, since neither the
 Broker ABC nor FillRecord's own writer (ExecutionRouter._persist_order)
 tracks partial fills as separate rows today; see execution.py, which only
-writes a FillRecord when an order reaches FILLED). And funds reconciliation
-(broker P&L vs computed P&L) still isn't done -- needs a "today's realised
-P&L" broker capability the Broker ABC doesn't expose (get_margins() isn't
-that). Both left for a follow-up, not silently skipped.
+writes a FillRecord when an order reaches FILLED).
+
+Funds reconciliation (broker P&L vs computed P&L) closed 2026-08-29 --
+see _reconcile_funds below. It needed a "today's realised P&L" broker
+capability the Broker ABC didn't expose (get_margins() is account
+balances, not P&L; get_positions() only covers currently-open positions,
+so a position closed earlier today would already be missing from it) --
+Broker.get_realised_pnl_today() / BrokerCapabilities.
+supports_realised_pnl_query now exist, implemented for both Zerodha (Kite's
+"day" positions array) and Dhan (summing realizedProfit across every
+returned position, closed ones included).
 """
 
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import structlog
 from sqlalchemy import select
 
 from xillion.core.broker_base import Broker
-from xillion.db.models import BrokerConnection, OrderRecord, PositionRecord
+from xillion.db.models import (
+    BrokerConnection,
+    DailyStrategyPnl,
+    OrderRecord,
+    PositionRecord,
+    StrategyInstance,
+)
 from xillion.db.models import ReconciliationReport as ReconciliationReportRecord
 
 logger = structlog.get_logger(__name__)
@@ -62,6 +76,13 @@ class OrderMismatch:
 
 
 @dataclass
+class FundsMismatch:
+    broker_realised_pnl: str
+    internal_realised_pnl: str
+    diff: str
+
+
+@dataclass
 class ReconciliationResult:
     status: str  # CLEAN | DISCREPANCY | FAILED
     trading_date: date
@@ -69,6 +90,7 @@ class ReconciliationResult:
     position_mismatches: list[PositionMismatch] = field(default_factory=list)
     eod_open_positions: list[str] = field(default_factory=list)
     order_mismatches: list[OrderMismatch] = field(default_factory=list)
+    funds_mismatch: FundsMismatch | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -135,10 +157,18 @@ async def run_reconciliation(
     order_mismatches, order_notes, orders_fetch_failed = await _reconcile_orders(
         broker, broker_name, db_factory
     )
+    funds_mismatch, funds_notes, funds_fetch_failed = await _reconcile_funds(
+        broker, broker_name, db_factory
+    )
 
     status = (
         "CLEAN"
-        if not mismatches and not eod_open and not order_mismatches and not orders_fetch_failed
+        if not mismatches
+        and not eod_open
+        and not order_mismatches
+        and not orders_fetch_failed
+        and funds_mismatch is None
+        and not funds_fetch_failed
         else "DISCREPANCY"
     )
     result = ReconciliationResult(
@@ -148,15 +178,17 @@ async def run_reconciliation(
         position_mismatches=mismatches,
         eod_open_positions=eod_open,
         order_mismatches=order_mismatches,
-        notes=order_notes,
+        funds_mismatch=funds_mismatch,
+        notes=order_notes + funds_notes,
     )
 
     await _persist(db_factory, broker_name, result)
 
     if status != "CLEAN":
+        funds_detail = f", funds mismatch: {funds_mismatch.diff}" if funds_mismatch else ""
         detail = (
             f"{len(mismatches)} position mismatch(es), {len(eod_open)} position(s) open at EOD, "
-            f"{len(order_mismatches)} order mismatch(es): {eod_open}"
+            f"{len(order_mismatches)} order mismatch(es){funds_detail}: {eod_open}"
         )
         logger.critical("M01: reconciliation DISCREPANCY", detail=detail)
         await _alert(notify, "M01 RECONCILIATION: DISCREPANCY", detail, "critical")
@@ -271,6 +303,73 @@ async def _reconcile_orders(
     return mismatches, [], False
 
 
+_FUNDS_TOLERANCE = Decimal("1.00")  # absorbs paisa-level rounding noise, not a real discrepancy
+
+
+async def _reconcile_funds(
+    broker: Broker, broker_name: str, db_factory
+) -> tuple[FundsMismatch | None, list[str], bool]:
+    """Broker-reported today's realised P&L (Broker.get_realised_pnl_today())
+    vs. xillion's own internally computed figure -- DailyStrategyPnl,
+    populated from actual fill prices when a position closes
+    (strategy_engine.py's persist_trade_close), genuinely independent of
+    what the broker reports, not a comparison against itself. Scoped per
+    broker connection via StrategyInstance.broker_connection_id, the same
+    join every other check in this module already uses.
+
+    Returns (mismatch, notes, fetch_failed). A broker without
+    supports_realised_pnl_query is a clean skip, same stance as a missing
+    BrokerConnection row below -- a capability that was never promised
+    isn't evidence of anything wrong. A fetch failure forces DISCREPANCY,
+    same "uncertainty isn't safe" stance _reconcile_orders takes."""
+    if not broker.capabilities.supports_realised_pnl_query:
+        return None, [f"{broker_name}: funds check skipped -- broker doesn't support it"], False
+
+    trading_date_str = _now().date().isoformat()
+
+    try:
+        broker_pnl = await broker.get_realised_pnl_today()
+    except Exception as exc:
+        logger.error("M01: broker realised P&L fetch failed", error=str(exc))
+        return None, [f"funds fetch failed: {exc}"], True
+
+    async with db_factory()() as session:
+        conn_result = await session.execute(
+            select(BrokerConnection).where(BrokerConnection.name == broker_name)
+        )
+        connection = conn_result.scalars().first()
+        if connection is None:
+            return (
+                None,
+                [f"no BrokerConnection row named {broker_name!r} -- funds check skipped"],
+                False,
+            )
+
+        pnl_result = await session.execute(
+            select(DailyStrategyPnl.realised_pnl)
+            .join(StrategyInstance, StrategyInstance.id == DailyStrategyPnl.strategy_instance_id)
+            .where(
+                StrategyInstance.broker_connection_id == connection.id,
+                DailyStrategyPnl.trading_date == trading_date_str,
+            )
+        )
+        internal_pnl = sum((Decimal(str(v)) for v in pnl_result.scalars().all()), Decimal("0"))
+
+    diff = broker_pnl - internal_pnl
+    if abs(diff) <= _FUNDS_TOLERANCE:
+        return None, [], False
+
+    return (
+        FundsMismatch(
+            broker_realised_pnl=str(broker_pnl),
+            internal_realised_pnl=str(internal_pnl),
+            diff=str(diff),
+        ),
+        [],
+        False,
+    )
+
+
 async def _persist(db_factory, broker_name: str, result: ReconciliationResult) -> None:
     try:
         async with db_factory()() as session:
@@ -307,6 +406,17 @@ async def _persist(db_factory, broker_name: str, result: ReconciliationResult) -
                             }
                             for m in result.order_mismatches
                         ]
+                    ),
+                    funds_mismatch_json=(
+                        json.dumps(
+                            {
+                                "broker_realised_pnl": result.funds_mismatch.broker_realised_pnl,
+                                "internal_realised_pnl": result.funds_mismatch.internal_realised_pnl,
+                                "diff": result.funds_mismatch.diff,
+                            }
+                        )
+                        if result.funds_mismatch is not None
+                        else None
                     ),
                     notes_json=json.dumps(result.notes),
                 )

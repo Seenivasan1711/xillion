@@ -65,6 +65,7 @@ class ZerodhaBroker(Broker):
         # place_protective_gtt below.
         supports_bracket_orders=False,
         supports_gtt_orders=True,
+        supports_realised_pnl_query=True,
         supports_cover_orders=True,
         supports_modify_order=True,
         supports_partial_fills=True,
@@ -614,6 +615,21 @@ class ZerodhaBroker(Broker):
 
     async def cancel_gtt(self, gtt_id: str) -> None:
         await asyncio.get_event_loop().run_in_executor(None, lambda: self._kite.delete_gtt(gtt_id))
+
+    # ── Funds reconciliation (M01 follow-up, 2026-08-29) ────────────────────────
+
+    async def get_realised_pnl_today(self) -> Decimal:
+        """Sums the "day" positions array's own `realised` field -- Kite's
+        docs describe "day" specifically as "useful for computing intraday
+        profits and losses for trading strategies" (unlike "net", which
+        mixes in carried-forward multi-day positions' historical P&L, not
+        just today's). "day" resets every trading day, so this genuinely
+        is "today's" figure, not a running total."""
+        data = await asyncio.get_event_loop().run_in_executor(None, self._kite.positions)
+        return sum(
+            (Decimal(str(item.get("realised") or 0)) for item in data.get("day", [])),
+            Decimal("0"),
+        )
 
     # ── Instrument master (options resolution) ──────────────────────────────────
 

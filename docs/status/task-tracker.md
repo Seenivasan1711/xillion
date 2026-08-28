@@ -5,9 +5,15 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: the four unauthenticated
-`brokers.py` routes (flagged in passing during the broker-failover work)
-fixed** — `GET /connections`, `POST .../reconnect`, `GET .../status`,
+**Current position:** **2026-08-29: M01's funds reconciliation — the last
+open piece of CP14's own scope note, flagged twice before today — closed.**
+`Broker.get_realised_pnl_today()` implemented for both Zerodha (Kite's
+"day" positions array) and Dhan (summing realizedProfit, closed positions
+included), compared against xillion's own internally-computed
+`DailyStrategyPnl` figure. Migration 018. See "CP14 follow-up: funds
+reconciliation" under CP14 below. Before that, same day: **the four
+unauthenticated `brokers.py` routes** (flagged in passing during the
+broker-failover work) fixed — `GET /connections`, `POST .../reconnect`, `GET .../status`,
 `POST /refresh-instruments` all now require a session, matching every
 other route in the file. See "API" under "Broker failover" below. Before
 that, same day: **Dhan's Forever-Order (bracket/GTT)
@@ -1261,7 +1267,9 @@ before it reaches the broker adapter (`test_risk_audit_log.py`'s
       specifically needs a "today's realised P&L" broker capability the
       `Broker` ABC doesn't expose today, honestly left as a gap rather
       than faked. **Orders/fills closed 2026-08-29 — see "CP14 follow-up,
-      2026-08-29" below.** Funds remains the one piece of M01 still open.
+      2026-08-29" below. Funds also closed 2026-08-29 — see "CP14
+      follow-up: funds reconciliation" further below.** M01's original
+      scope note is now fully closed.
 - [x] Both wired as their own supervised background tasks in
       [xillion/main.py](../../xillion/main.py) — X02 at 15:15 IST, M01 at
       15:45 IST, same sleep-until-next-fixed-clock-time pattern as CP10's
@@ -1399,6 +1407,71 @@ the same `order_mismatches` list the status computation already checks.
   explicitly. 473/473 tests passing, no regressions. ruff/black/mypy all
   clean; frontend `tsc --noEmit` and `vite build` both clean. Same
   logged-in-UI caveat as the day before -- not visually verified.
+
+**CP14 follow-up, 2026-08-29: funds reconciliation, M01's last open piece,
+closed.** Same day as the auth fix and the two broker-capability items
+above -- the "needs a 'today's realised P&L' broker capability the Broker
+ABC doesn't expose" gap this scope note flagged twice now (2026-08-25 and
+2026-08-29) is closed, not deferred a third time.
+- **`Broker.get_realised_pnl_today()`** (optional, same NotImplementedError-
+  by-default pattern as `place_protective_gtt`/`cancel_gtt`) +
+  `BrokerCapabilities.supports_realised_pnl_query` in
+  [xillion/core/broker_base.py](../../xillion/core/broker_base.py). This is
+  deliberately its own method, not a reuse of `get_positions()`'s own
+  `realised_pnl` field -- that list only covers currently-open positions,
+  so a position fully closed out earlier today would already be missing
+  from it, along with the P&L it booked.
+- **Zerodha:** sums Kite's `"day"` positions array's `realised` field --
+  verified against Kite's own docs (fetched directly, not assumed), which
+  describe `"day"` specifically as "useful for computing intraday profits
+  and losses for trading strategies", unlike `"net"` (mixes in
+  carried-forward multi-day positions' historical realised total, not just
+  today's).
+- **Dhan:** sums `realizedProfit` across every row Dhan's positions
+  endpoint returns, including closed-out ones (Dhan's docs show a
+  `positionType: "CLOSED"` value -- there's no separate day/net split like
+  Kite's, just one list). **Honest caveat, same spirit as the Forever-Order
+  one:** Dhan's docs don't state outright whether `realizedProfit` resets
+  daily (what this method promises) or is cumulative since the position was
+  first opened -- material specifically for a MARGIN-carried multi-day
+  option position, which is exactly what this codebase trades under since
+  2026-08-29's product-type decision. Worth watching against a real account
+  the first time M01's funds check runs on Dhan with a multi-day position
+  open.
+- **The check itself:**
+  [xillion/engine/reconciliation.py](../../xillion/engine/reconciliation.py)'s
+  new `_reconcile_funds()` compares the broker figure against
+  `DailyStrategyPnl.realised_pnl` (xillion's own internally computed
+  figure, from actual fill prices when a position closes --
+  `strategy_engine.py`'s `persist_trade_close` -- genuinely independent of
+  what the broker reports, not a comparison against itself), scoped to the
+  specific broker connection via `StrategyInstance.broker_connection_id`,
+  the same join every other check in this module already uses. A ₹1
+  tolerance absorbs rounding noise. **Same two deliberate design calls as
+  the orders check:** a broker without `supports_realised_pnl_query` is a
+  clean skip (a capability that was never promised isn't evidence of
+  anything wrong); a fetch failure forces DISCREPANCY (uncertainty isn't
+  safe).
+- **Migration 018** adds `reconciliation_report.funds_mismatch_json`
+  (nullable -- null covers both "broker doesn't support this" and "nothing
+  beyond tolerance to report", unlike `order_mismatches_json`'s
+  default-`"[]"` list shape). Applied to the real Supabase DB, confirmed
+  via `alembic current` → 018.
+- **Frontend:** the Reconciliation panel now shows "funds off by ₹X" on a
+  non-CLEAN report alongside the existing position/order mismatch counts.
+- **Verify:** 7 new tests in `tests/unit/test_funds_reconciliation.py`
+  (clean match, mismatch beyond tolerance, within-tolerance not flagged,
+  broker-without-capability clean skip, fetch-failure forcing DISCREPANCY,
+  missing-BrokerConnection clean skip, cross-broker-connection isolation)
+  + 2 in `test_zerodha_protective_gtt.py` (day-array sum, empty-array
+  zero) + 3 in `test_dhan_protective_gtt.py` (sum-across-all-positions
+  including CLOSED, empty list, data-envelope unwrapping). 524/524 tests
+  passing, no regressions. ruff/black/mypy all clean (mypy scoped to
+  `xillion/` per the Makefile's own gate, same as every other checkpoint
+  this session -- `brokers/` has pre-existing, unrelated mypy findings not
+  touched here); frontend `tsc --noEmit` clean. Same logged-in-UI caveat as
+  every other Configuration-panel change this session -- not visually
+  verified.
 
 ---
 

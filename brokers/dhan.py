@@ -108,6 +108,7 @@ class DhanBroker(Broker):
         # honest caveat about the productType restriction being
         # unverified against a real account.
         supports_gtt_orders=True,
+        supports_realised_pnl_query=True,
         supports_modify_order=True,
         supports_partial_fills=True,
         supported_timeframes=["1m", "5m", "15m", "1h", "1d"],
@@ -702,6 +703,29 @@ class DhanBroker(Broker):
                 )
         except Exception as exc:
             logger.error("dhan: cancel_forever failed", gtt_id=gtt_id, error=str(exc))
+
+    # ── Funds reconciliation (M01 follow-up, 2026-08-29) ────────────────────────
+
+    async def get_realised_pnl_today(self) -> Decimal:
+        """Sums `realizedProfit` across every row Dhan's positions endpoint
+        returns, including closed-out ones (Dhan's own docs show a
+        `positionType: "CLOSED"` value, unlike a plain net-quantity-only
+        list). Honest caveat, same spirit as the Forever-Order one in this
+        file's module docstring: Dhan's docs don't state outright whether
+        `realizedProfit` resets daily (matching "today's" P&L, what this
+        method promises) or is cumulative since the position was first
+        opened -- material for a MARGIN-carried multi-day option position
+        specifically, since that's exactly what this codebase now trades
+        under (2026-08-29's product-type decision). Built against what the
+        docs and SDK actually show, not guessed at further; worth watching
+        against a real account the first time M01's funds check runs on
+        Dhan with a multi-day position open."""
+        data = await asyncio.get_event_loop().run_in_executor(None, self._dhan.get_positions)
+        rows = data.get("data", []) if isinstance(data, dict) else (data or [])
+        return sum(
+            (Decimal(str(item.get("realizedProfit") or 0)) for item in rows),
+            Decimal("0"),
+        )
 
     # ── Instrument master (options resolution) ──────────────────────────────────
 

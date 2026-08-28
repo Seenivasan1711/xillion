@@ -273,9 +273,13 @@ class ReconciliationReport(Base):
     position_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     eod_open_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # Migration 016 -- orders/fills reconciliation, M01's other honest gap
-    # alongside the positions check above (funds reconciliation is still
-    # not done -- see reconciliation.py's module docstring).
+    # alongside the positions check above.
     order_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # Migration 018 -- funds reconciliation (broker P&L vs computed P&L),
+    # the last piece of M01's original scope note. Null when the broker
+    # doesn't support Broker.get_realised_pnl_today() (a clean skip, not a
+    # mismatch) or when there was nothing beyond tolerance to report.
+    funds_mismatch_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # Manual sign-off (migration 015) -- a non-CLEAN report pauses trading
     # (see eod_scheduler.py); acknowledging it here is what resumes trading,

@@ -31,6 +31,9 @@ def _serialize(r: ReconciliationReport) -> dict:
         "position_mismatches": json.loads(r.position_mismatches_json),
         "eod_open_positions": json.loads(r.eod_open_positions_json),
         "order_mismatches": json.loads(r.order_mismatches_json),
+        "funds_mismatch": (
+            json.loads(r.funds_mismatch_json) if r.funds_mismatch_json is not None else None
+        ),
         "notes": json.loads(r.notes_json),
         "acknowledged": r.acknowledged,
         "acknowledged_at": r.acknowledged_at,
