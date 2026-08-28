@@ -44,6 +44,7 @@ from xillion.data.bar_aggregator import BarAggregator
 from xillion.data.bus import MarketDataBus
 from xillion.db.plugin_sync import sync_registry_to_db
 from xillion.db.session import get_session_factory, init_db, init_warehouse_db
+from xillion.engine.broker_health import run_broker_health_scheduler
 from xillion.engine.digest_scheduler import run_daily_digest, run_weekly_digest
 from xillion.engine.eod_scheduler import run_reconciliation_scheduler, run_square_off_scheduler
 from xillion.engine.market_scheduler import run_market_hours_scheduler
@@ -538,6 +539,9 @@ async def lifespan(app: FastAPI):
     reconciliation_task = supervise(
         "eod_reconciliation", lambda: run_reconciliation_scheduler(app), notifier=telegram
     )
+    broker_health_task = supervise(
+        "broker_health", lambda: run_broker_health_scheduler(app), notifier=telegram
+    )
 
     logger.info("xillion ready")
     yield
@@ -551,6 +555,7 @@ async def lifespan(app: FastAPI):
     weekly_digest_task.cancel()
     square_off_task.cancel()
     reconciliation_task.cancel()
+    broker_health_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")

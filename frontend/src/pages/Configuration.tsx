@@ -193,6 +193,36 @@ function BrokersTab() {
     }
   }
 
+  const [settingFailoverFor, setSettingFailoverFor] = useState<string | null>(null)
+  const [triggeringFailoverFor, setTriggeringFailoverFor] = useState<string | null>(null)
+
+  const setFailoverTarget = async (name: string, targetName: string) => {
+    setSettingFailoverFor(name)
+    try {
+      await api.brokers.setFailoverTarget(name, targetName || null)
+      const b = await api.brokers.connections()
+      setBrokers(b.connections)
+      toast('ok', targetName ? `${name} will fail over to ${targetName}` : `Failover cleared for ${name}`)
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Failed to set failover target')
+    } finally {
+      setSettingFailoverFor(null)
+    }
+  }
+
+  const triggerFailoverNow = async (name: string) => {
+    if (!confirm(`Exit every open position under ${name} via its configured failover broker right now? This places real orders on the secondary broker.`)) return
+    setTriggeringFailoverFor(name)
+    try {
+      const res = await api.brokers.triggerFailover(name)
+      toast(res.status === 'FAILED' ? 'error' : 'ok', `Failover ${res.status}: exited ${res.exited.length}, failed ${res.failed_to_exit.length}`)
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Failover failed')
+    } finally {
+      setTriggeringFailoverFor(null)
+    }
+  }
+
   return (
     <div className="stack">
       {/* Zerodha credentials */}
@@ -415,6 +445,7 @@ function BrokersTab() {
                 <th>Broker</th>
                 <th>Status</th>
                 <th>Last error</th>
+                <th>Failover target</th>
                 <th></th>
               </tr>
             </thead>
@@ -427,18 +458,50 @@ function BrokersTab() {
                     <Badge tone={b.status === 'connected' ? 'pos' : b.status === 'error' ? 'neg' : undefined}>
                       {b.status}
                     </Badge>
+                    {b.health && b.health.consecutive_failures > 0 && (
+                      <div className="faint" style={{ fontSize: 10, marginTop: 2 }}>
+                        {b.health.consecutive_failures} consecutive healthcheck failure(s)
+                        {b.health.failover_triggered && ' — failed over'}
+                      </div>
+                    )}
                   </td>
                   <td className="faint" style={{ fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {b.last_error ?? '—'}
                   </td>
                   <td>
-                    <button
-                      className="btn ghost sm"
-                      onClick={() => reconnect(b.name)}
-                      disabled={reconnecting === b.name}
+                    <select
+                      className="input"
+                      style={{ fontSize: 12, padding: '4px 6px' }}
+                      value={b.failover_connection_name ?? ''}
+                      disabled={settingFailoverFor === b.name}
+                      onChange={e => setFailoverTarget(b.name, e.target.value)}
                     >
-                      {reconnecting === b.name ? 'Reconnecting…' : 'Reconnect'}
-                    </button>
+                      <option value="">None — exit-only failover disabled</option>
+                      {brokers.filter(other => other.name !== b.name).map(other => (
+                        <option key={other.name} value={other.name}>{other.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button
+                        className="btn ghost sm"
+                        onClick={() => reconnect(b.name)}
+                        disabled={reconnecting === b.name}
+                      >
+                        {reconnecting === b.name ? 'Reconnecting…' : 'Reconnect'}
+                      </button>
+                      {b.failover_connection_name && (
+                        <button
+                          className="btn ghost sm"
+                          onClick={() => triggerFailoverNow(b.name)}
+                          disabled={triggeringFailoverFor === b.name}
+                          title={`Exit all open positions via ${b.failover_connection_name}`}
+                        >
+                          {triggeringFailoverFor === b.name ? 'Failing over…' : 'Failover now'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

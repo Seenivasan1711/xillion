@@ -102,6 +102,16 @@ class BrokerConnection(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    # Migration 017 -- self-referencing: "if I go unhealthy, exit my open
+    # positions through this other connection instead." Null by default;
+    # nothing fails over until this is explicitly set (see
+    # xillion/engine/broker_failover.py). Exit-only, matching automation-
+    # platform-spec 15-RUNBOOK-AND-OBSERVABILITY.md's "switch to secondary
+    # broker for exits only" -- never opens new risk through an unfamiliar
+    # path during an outage.
+    failover_connection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("broker_connection.id"), nullable=True
+    )
 
     broker_class: Mapped[BrokerClass] = relationship(back_populates="connections")
     instances: Mapped[list["StrategyInstance"]] = relationship(back_populates="broker_connection")

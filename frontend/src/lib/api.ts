@@ -132,6 +132,16 @@ export const api = {
       request<{ name: string; broker_name: string; status: string; last_error: string | null; connected_at: string | null }>(
         `/brokers/connections/${encodeURIComponent(name)}/status`
       ),
+    setFailoverTarget: (name: string, targetName: string | null) =>
+      request<{ name: string; failover_connection_name: string | null }>(
+        `/brokers/connections/${encodeURIComponent(name)}/failover-target`,
+        { method: 'PATCH', body: JSON.stringify({ target_name: targetName }) }
+      ),
+    triggerFailover: (name: string) =>
+      request<{ status: string; positions_found: number; exited: string[]; failed_to_exit: string[] }>(
+        `/brokers/connections/${encodeURIComponent(name)}/failover`,
+        { method: 'POST' }
+      ),
   },
 
   settings: {
@@ -295,6 +305,13 @@ export interface BrokerStatus {
   status: 'connected' | 'error' | 'disconnected'
   last_error: string | null
   connected_at: string | null
+  failover_connection_name?: string | null
+  health?: {
+    consecutive_failures: number
+    last_checked_at: string | null
+    last_healthy_at: string | null
+    failover_triggered: boolean
+  } | null
 }
 
 export interface StrategyClass {

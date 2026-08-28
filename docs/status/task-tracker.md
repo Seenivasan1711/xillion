@@ -5,11 +5,14 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: orders/fills reconciliation added to M01**
-(migration 016) — the other honest gap CP14 flagged (positions-only) when
-it shipped, alongside the trading-gate wiring from the day before. See
-"CP14 follow-up" below. Before that, Gold Lane B1's broker+bridge plumbing
-built (see the Track B section below) — code-complete but unverified, no
+**Current position:** **2026-08-29: broker failover (Zerodha ↔ Dhan) built**
+— health monitoring + exit-only cross-broker failover, migration 017. See
+"Broker failover" below. Same day, earlier: orders/fills reconciliation
+added to M01 (migration 016) — the other honest gap CP14 flagged
+(positions-only) when it shipped, alongside the trading-gate wiring from
+the day before. See "CP14 follow-up" entries below. Before that, Gold Lane
+B1's broker+bridge plumbing built (see the Track B section below) —
+code-complete but unverified, no
 real MT5 account/Wine environment in this sandbox. Before that,
 `feat/options-alert-engine` was merged to `main`
 2026-08-26 (fast-forward, 259 files, all of Track A + Track A extension +
@@ -1308,11 +1311,10 @@ the same `order_mismatches` list the status computation already checks.
       token first like Zerodha's does, since `DhanBroker.connect()` already
       validates the cached/provided token itself and only falls through to
       PIN+TOTP auto-refresh if it's genuinely invalid.
-- [ ] Failover semantics — if Zerodha is down, does Dhan take over
-      automatically or does that require a manual switch? **Still not
-      decided** — the spec's Phase 3 treats this as a hardening-phase
-      feature, not P0. Both brokers connect independently today; nothing
-      automatically fails over between them.
+- [x] Failover semantics — **decided and built 2026-08-29, see "Broker
+      failover (Zerodha ↔ Dhan)" below.** Answer: EXIT-ONLY, opt-in per
+      connection (nothing fails over unless explicitly configured), never
+      opens new positions on the secondary broker.
 
 **Verify:** `test_dhan_instruments.py` (10 tests, real scrip-master CSV
 columns) + `test_dhan_broker.py` (9 tests, real order request/response
@@ -1383,6 +1385,71 @@ pattern generalizes cleanly to any future broker (MT5 for Gold Lane B1,
 etc.) — same shape, new router functions. New `test_dhan_settings.py` (2
 tests) proves the round-trip and that saving/deleting one broker's
 credentials never touches another's row. 397/397 tests passing.
+
+**Broker failover (Zerodha ↔ Dhan), 2026-08-29.** Answers the "Failover
+semantics" question left open above: **exit-only, opt-in per connection**
+— matches automation-platform-spec 15-RUNBOOK-AND-OBSERVABILITY.md's own
+runbook line verbatim ("If failover configured → switch to secondary
+broker for exits only"), not a full active-active switch. Nothing fails
+over unless a connection has an explicit failover target configured —
+before this, a broker going down just sat there with no automated
+response at all; there wasn't even periodic health polling.
+- **Migration 017** adds `broker_connection.failover_connection_id`
+  (self-referencing FK, nullable) — applied to the real Supabase DB,
+  confirmed via `alembic current` → 017.
+- **Health monitoring, new:**
+  [xillion/engine/broker_health.py](../../xillion/engine/broker_health.py) —
+  nothing polled `Broker.healthcheck()` on any schedule before this; it
+  only ran on-demand from the Settings page. Now polls every connected
+  broker every 30s, reacting to a state TRANSITION (healthy → 3
+  consecutive failures, ~90s) rather than firing on one slow response.
+  Wired as its own supervised background task in `xillion/main.py`, same
+  pattern as X02/M01.
+- **The exit-only action, new:**
+  [xillion/engine/broker_failover.py](../../xillion/engine/broker_failover.py) —
+  the down broker is unreachable by definition, so unlike X02 (which
+  queries the broker directly), this trusts xillion's own `PositionRecord`
+  (scoped to strategy instances configured on the down connection) for
+  what's open, then places closing orders through the failover broker.
+  Works because `OrderRequest.symbol` is already the canonical NSE
+  tradingsymbol both `brokers/zerodha.py` (uses it directly) and
+  `brokers/dhan.py` (resolves it to a `security_id` via its own scrip
+  master) accept identically — confirmed by reading both adapters'
+  `place_order`, not assumed. Doesn't hand-update `PositionRecord`
+  afterward, matching X02's own precedent — M01 reconciles against
+  whichever broker actually holds the position by its next run.
+- **Trigger paths:** automatic (health monitor, 3 consecutive failures +
+  a configured + healthy target) and manual (`POST
+  /api/brokers/connections/{name}/failover`, the runbook's own documented
+  operator action — "switch to secondary broker" isn't only meant to be
+  automatic).
+- **API:** extended `GET /brokers/connections` with failover config +
+  health fields; new `PATCH .../failover-target` (set/clear, auth-gated)
+  and `POST .../failover` (manual trigger, auth-gated) in
+  `xillion/api/brokers.py`. **Found in passing, not fixed here (spawned
+  as its own follow-up task instead of expanding this one's scope):** the
+  FOUR pre-existing routes in this same file (`GET /connections`, `POST
+  .../reconnect`, `GET .../status`, `POST /refresh-instruments`) have NO
+  auth check at all — confirmed live against the dev server (200, not
+  401, with no session cookie). Predates this work; the two new mutating
+  endpoints added here were built auth-gated from the start.
+- **Frontend:** Configuration → Brokers → Active connections table now has
+  a failover-target dropdown per connection, a "Failover now" button when
+  one's configured, and a consecutive-failure count badge.
+- **Verify:** 7 new tests in `test_broker_failover.py` (empty/clean cases,
+  long vs. short position closing side, cross-connection isolation, a
+  failed exit reported not raised, multiple positions across instances)
+  + 6 in `test_broker_health.py` (healthy never accumulates, below-
+  threshold doesn't trigger, threshold-with-no-target only alerts,
+  threshold-with-healthy-target triggers exactly once — not once per
+  tick, threshold-with-unhealthy-target doesn't trigger, recovery resets
+  all flags). 486/486 tests passing, no regressions. ruff/black/mypy all
+  clean; frontend `tsc --noEmit` and `vite build` both clean. Same
+  logged-in-UI caveat as the reconciliation work — not visually verified.
+  **Genuinely untested against real brokers**, same honesty as everything
+  else built this way this session: the symbol-compatibility reasoning is
+  sound from reading both adapters' code, but has never actually placed a
+  real order through Dhan for a position opened via Zerodha.
 
 ---
 
