@@ -13,9 +13,10 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-29 (Dhan product-type decision made and built —
-MARGIN, Forever Orders wired; the Zerodha half of that question split out
-as its own still-open item)
+**Last updated:** 2026-08-29 (M01 funds reconciliation built, one watch-item
+caveat added; Dhan product-type decision made and built — MARGIN, Forever
+Orders wired; the Zerodha half of that question split out as its own
+still-open item)
 
 ---
 
@@ -80,6 +81,19 @@ as its own still-open item)
 
 ## Done
 
+- [x] **M01 funds reconciliation (broker P&L vs. computed P&L) — built
+      2026-08-29, needs no decision from you, just a watch item.**
+      `Broker.get_realised_pnl_today()` now implemented for both brokers;
+      Dhan's version sums `realizedProfit` across every position the
+      broker returns. Honest caveat, same spirit as the Forever-Order one
+      below: Dhan's own docs don't say whether `realizedProfit` resets
+      daily or is cumulative since a position was first opened — matters
+      now that positions are carried under `MARGIN` across days rather
+      than squared off same-day. Nothing to decide here; just worth a
+      glance the first time M01's Reconciliation panel (Configuration →
+      Risk) shows a funds mismatch on Dhan with a multi-day position open
+      — if the number looks like a running total rather than "today's"
+      figure, that's this caveat showing up for real.
 - [x] **Dhan product type for multi-day option holds — decided 2026-08-29:
       MARGIN, attempt Forever Orders with it.** `brokers/dhan.py` switched
       from `INTRADAY` to `MARGIN` (Dhan's NRML-equivalent F&O carry
