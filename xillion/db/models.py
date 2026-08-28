@@ -614,6 +614,85 @@ class NotificationRule(Base):
     channel: Mapped[NotificationChannel] = relationship(back_populates="rules")
 
 
+# ── MT5 bridge (Gold Lane B1) ────────────────────────────────────────────────
+#
+# The MT5 desktop terminal only exists on the machine it's installed on --
+# xillion's backend (deployed on Render, a Linux container) can never run it
+# directly. brokers/mt5_funding_pips.py runs INSIDE the backend like any
+# other broker plugin, but instead of calling a broker's cloud REST API
+# synchronously, it queues work here; a separate local process
+# (mt5_bridge/bridge.py, run on the machine with the real MT5 terminal)
+# polls GET /api/mt5-bridge/poll for pending orders, executes them against
+# the real terminal via the official MetaTrader5 Python package, and
+# reports back via POST /api/mt5-bridge/report. Same "local process talks
+# to the real backend over its own REST API" shape xillion-mcp already uses,
+# not a new pattern invented for this.
+
+
+class MT5PendingOrder(Base):
+    __tablename__ = "mt5_pending_order"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    broker_connection_name: Mapped[str] = mapped_column(Text, nullable=False)
+    client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    side: Mapped[str] = mapped_column(Text, nullable=False)  # BUY | SELL
+    quantity: Mapped[str] = mapped_column(Text, nullable=False)  # Decimal lots, as str
+    order_type: Mapped[str] = mapped_column(Text, nullable=False)  # MARKET | LIMIT
+    price: Mapped[str | None] = mapped_column(Text)
+    stop_loss: Mapped[str | None] = mapped_column(Text)
+    take_profit: Mapped[str | None] = mapped_column(Text)
+    # PENDING (bridge hasn't picked it up yet) | ACKED (bridge has it, MT5
+    # hasn't confirmed) | FILLED | REJECTED | CANCEL_REQUESTED | CANCELLED
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING")
+    mt5_ticket_id: Mapped[str | None] = mapped_column(Text)
+    avg_fill_price: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index("idx_mt5_pending_order_status", "status"),
+        Index("idx_mt5_pending_order_conn", "broker_connection_name"),
+    )
+
+
+class MT5BridgeState(Base):
+    """Latest account snapshot (positions/margins/holdings) the bridge
+    reports each poll cycle -- one row per broker connection, overwritten in
+    place. Plain JSON blobs rather than relational tables for these:
+    MT5Broker.get_positions()/get_margins()/get_holdings() just need "what
+    did the bridge last see", not a queryable history -- OrderRecord/
+    PositionRecord already cover the durable, queryable side once an order
+    actually executes."""
+
+    __tablename__ = "mt5_bridge_state"
+
+    broker_connection_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    margins_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    holdings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class MT5BridgeTick(Base):
+    """Latest known price per symbol, pushed by the bridge every poll cycle
+    -- MT5Broker.get_quote()/tick_stream() read from this instead of a live
+    socket, since the backend has no direct connection to the terminal.
+    One row per symbol, overwritten in place (not an append-only tick log --
+    system_log/bar already cover history and audit, this is live-state
+    only)."""
+
+    __tablename__ = "mt5_bridge_tick"
+
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+    broker_connection_name: Mapped[str] = mapped_column(Text, nullable=False)
+    ltp: Mapped[str] = mapped_column(Text, nullable=False)
+    bid: Mapped[str | None] = mapped_column(Text)
+    ask: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 # ── System logs ──────────────────────────────────────────────────────────────
 
 

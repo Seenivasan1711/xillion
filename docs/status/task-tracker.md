@@ -4,8 +4,11 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-27
-**Current position:** **`feat/options-alert-engine` was merged to `main`
+**Last updated:** 2026-08-28
+**Current position:** **2026-08-28: Gold Lane B1's broker+bridge plumbing
+built (see the Track B section below) — code-complete but unverified, no
+real MT5 account/Wine environment in this sandbox.** Before that,
+`feat/options-alert-engine` was merged to `main`
 2026-08-26 (fast-forward, 259 files, all of Track A + Track A extension +
 CP15 + a full frontend UX overhaul) and pushed.** `main` is now the current
 baseline; a new branch will be created off it for the next phase (Track B
@@ -1264,7 +1267,7 @@ Each asset runs the same 6 stages — see
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
 | **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
-| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | 🟡 broker+bridge built, unverified | ⬜ | ⬜ | ⬜ | ⬜ | 🟡 |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -1299,11 +1302,31 @@ Infrastructure each asset needs before its pipeline can start:
   CP11's leg-failure protocol and software protective orders are both real,
   tested, and now restart-safe (CP12), just not yet run against live market
   data for the required 2+ weeks
-- **Gold Lane B1 (XAUUSD/Funding Pips)** — ⬜ needs: MT5 broker plugin, 24×5
-  session calendar, currency field, FX lot math, **Funding Pips drawdown
-  rules as hard risk limits** (breaching one instantly fails the account) —
-  see `architecture/risk-and-compliance.md` Part C.3 for the exact
-  internal-vs-firm percentages
+- **Gold Lane B1 (XAUUSD/Funding Pips)** — 🟡 **2026-08-28: MT5 broker
+  plugin + bridge built, structurally correct but unverified end-to-end**
+  (same position CP15/Dhan started from before real credentials existed).
+  `brokers/mt5_funding_pips.py` (migration 014: `mt5_pending_order` /
+  `mt5_bridge_tick` / `mt5_bridge_state`) + `xillion/api/mt5_bridge.py` +
+  `mt5_bridge/bridge.py`. Architecturally different from Zerodha/Dhan on
+  purpose: the official `MetaTrader5` Python package only talks to a real
+  MT5 terminal on the SAME machine, which Render (this backend's host) can
+  never be — so this broker queues orders/reads prices via DB tables a
+  separate local process (the bridge, run on Rakesh's own Mac under Wine
+  per his no-VPS-cost choice) polls against, rather than calling a broker
+  API directly like every other plugin here does. `OrderRequest.quantity`
+  (int, project-wide) is repurposed as MICRO-LOTS (hundredths of a lot) for
+  this broker only, documented in the file rather than changing the shared
+  type. 12 new unit tests (`test_mt5_broker.py`) cover the queue/poll/
+  report mechanics with a real in-memory DB, no real MT5 needed for that
+  part. **Still needed, and genuinely open:** 24×5 session calendar,
+  currency field, real FX lot-size math beyond the micro-lot convention,
+  **Funding Pips drawdown rules as hard risk limits** (breaching one
+  instantly fails the account — see `architecture/risk-and-compliance.md`
+  Part C.3), a historical Gold data source (Stage 2 needs it, this file
+  doesn't provide it), and the actual Wine/Mac bridge setup + a real MT5
+  account to verify any of this against — none of that exists in this
+  sandbox. `mt5_bridge/README.md` has the setup steps but they're
+  unverified against a real Mac+Wine environment.
 - **Gold Lane B2 (MCX)** — ⬜ needs: MCX instrument/expiry resolution
   (monthly, 5th), reuses the Lane A broker adapter (Dhan/Zerodha both
   support MCX) — cheaper to build than B1 since no new broker is needed,

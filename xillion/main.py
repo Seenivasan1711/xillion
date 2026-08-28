@@ -30,6 +30,7 @@ from xillion.api import (
 )
 from xillion.api import journal as journal_router
 from xillion.api import logs as logs_router
+from xillion.api import mt5_bridge as mt5_bridge_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import positions as positions_router
 from xillion.api import risk as risk_router
@@ -267,6 +268,44 @@ async def _try_connect_dhan(app: FastAPI) -> None:
         }
 
 
+async def _try_connect_mt5(app: FastAPI) -> None:
+    """Gold Lane B1. Unlike Zerodha/Dhan, there's no real network call and
+    no real credentials on this side -- see brokers/mt5_funding_pips.py's
+    module docstring for why. "Connected" here just means "ready to serve
+    a bridge's polls"; whether a bridge is actually running and current is
+    what healthcheck() (backed by mt5_bridge_state.updated_at recency)
+    reports separately. Gated on settings.mt5_funding_pips_enabled so this
+    doesn't silently appear as a usable broker for everyone by default."""
+    if not settings.mt5_funding_pips_enabled:
+        app.state.broker_instances.pop("MT5 Funding Pips", None)
+        return
+
+    try:
+        from brokers.mt5_funding_pips import MT5FundingPipsBroker
+
+        broker = MT5FundingPipsBroker(connection_name="MT5 Funding Pips")
+        await broker.connect({})
+        app.state.broker_instances["MT5 Funding Pips"] = {
+            "name": "MT5 Funding Pips",
+            "broker_name": "MT5 Funding Pips",
+            "instance": broker,
+            "status": "connected",
+            "last_error": None,
+            "connected_at": datetime.now(UTC).isoformat(),
+        }
+        logger.info("mt5: registered — waiting for the local bridge to report in")
+    except Exception as exc:
+        logger.error("mt5: failed to register", error=str(exc))
+        app.state.broker_instances["MT5 Funding Pips"] = {
+            "name": "MT5 Funding Pips",
+            "broker_name": "MT5 Funding Pips",
+            "instance": None,
+            "status": "error",
+            "last_error": str(exc),
+            "connected_at": None,
+        }
+
+
 async def _daily_dhan_refresh(app: FastAPI) -> None:
     """CP15: at 6:30 AM IST (15 min after Zerodha's, avoiding a startup
     thundering-herd on both brokers' auth endpoints at once), re-run Dhan
@@ -456,6 +495,7 @@ async def lifespan(app: FastAPI):
     # Connect configured brokers (non-blocking — errors are logged, not raised)
     await _try_connect_zerodha(app)
     await _try_connect_dhan(app)  # CP15 -- no-ops cleanly if not configured
+    await _try_connect_mt5(app)  # Gold Lane B1 -- no-ops cleanly if not enabled
 
     # Schedule daily token + instrument-dump refresh
     refresh_task = supervise(
@@ -538,6 +578,7 @@ app.include_router(data.router, prefix="/api")
 app.include_router(signals.router, prefix="/api")
 app.include_router(journal_router.router, prefix="/api")
 app.include_router(logs_router.router, prefix="/api")
+app.include_router(mt5_bridge_router.router, prefix="/api")
 app.include_router(positions_router.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")

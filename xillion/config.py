@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     dhan_primary_pin: str = ""
     dhan_primary_totp_secret: str = ""
 
+    # Gold Lane B1: MT5 (Funding Pips). No real credentials live here by
+    # design -- the bridge (mt5_bridge/bridge.py) owns the actual MT5
+    # login, on its own machine; this backend only needs to know whether to
+    # register the broker at all. See brokers/mt5_funding_pips.py.
+    mt5_funding_pips_enabled: bool = False
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
