@@ -30,6 +30,17 @@ Honest scope notes (read before trusting a backtest run of this):
   it). This strategy calls `ctx.now()`, not a bare wall-clock read, so its
   entry-window/DTE gates correctly track the backtest's simulated time
   instead of always checking against today's real date.
+- KB 10 §3's trend filter is 15m-chart VWAP+EMA in the live/paper path, but
+  a multi-year backtest can only run on daily bars -- NSE Bhavcopy (the
+  free warehouse data source) is EOD-only, no free 15m spot history exists
+  going back years. When `on_bar` receives a daily bar (`bar.timeframe ==
+  "1d"`), the trend check falls back to EMA-only on daily closes (VWAP has
+  no daily equivalent) and the 09:45-10:30 IST entry window isn't checked
+  (an EOD bar's own timestamp isn't a session time). Live/paper mode is
+  unaffected -- it always runs on real 15m bars, so this branch never
+  triggers there. See docs/strategies/credit-spread-weekly.md for the full
+  writeup and the honest limits this puts on how literally a daily-bar
+  backtest result should be read against the KB's actual 15m-based rule.
 """
 
 from datetime import date, datetime
@@ -94,7 +105,15 @@ class CreditSpreadWeeklyStrategy(Strategy):
             default=4,
             min=1,
             max=6,
-            description="Days-to-expiry to enter at (S3=4 is the primary arm; KB 10 §2)",
+            description=(
+                "Target days-to-expiry to enter at (S3=4 is the primary arm; KB 10 §2). "
+                "Entry fires on the first trading day where DTE <= this value, not an "
+                "exact match -- NIFTY's weekly expiry weekday has changed more than once "
+                "over the years (e.g. Thursday historically, Tuesday currently), which "
+                "shifts which trading days are even reachable at a given DTE. An exact-"
+                "match gate would silently never fire across an expiry-day regime change; "
+                "this is the nearest reachable DTE at or below the target instead."
+            ),
         ),
         ParamSpec(
             "short_offset_strikes",
@@ -196,12 +215,20 @@ class CreditSpreadWeeklyStrategy(Strategy):
             return  # one spread at a time per instance
 
         now_ist = await _now_ist(ctx)
-        if not (
+        # NSE Bhavcopy (the free warehouse data source) is EOD-only -- no
+        # free 15m spot history exists for a multi-year backtest, only for
+        # live/paper (real intraday ticks aggregated by BarAggregator). A
+        # daily-bar backtest run therefore hits this on_bar with
+        # bar.timeframe == "1d", not "15m" -- detect that and relax the two
+        # checks that only make sense on an intraday bar, below.
+        is_daily = bar.timeframe == "1d"
+        if not is_daily and not (
             now_ist.hour == 9
             and now_ist.minute >= 45
             or (now_ist.hour == 10 and now_ist.minute <= 30)
         ):
-            return  # KB 10 §2: 09:45-10:30 IST entry window only
+            return  # KB 10 §2: 09:45-10:30 IST entry window only (intraday bars only --
+            # an EOD daily bar's own timestamp isn't a session time to gate on)
 
         bars = await ctx.history(
             bar.symbol, bar.timeframe, lookback=max(60, ctx.params["vwap_period"] + 1)
@@ -212,18 +239,38 @@ class CreditSpreadWeeklyStrategy(Strategy):
 
         closes = [float(b.close) for b in bars]
         ema20, ema50 = ema(closes, 20), ema(closes, 50)
-        vw = vwap(bars, ctx.params["vwap_period"])
-        if ema20 is None or ema50 is None or vw is None:
-            return
-
         price = float(bar.close)
-        if price > vw and ema20 > ema50:
-            side = "BULL_PUT"
-        elif price < vw and ema20 < ema50:
-            side = "BEAR_CALL"
+
+        if is_daily:
+            # KB 10 §3's VWAP is a session-anchored intraday concept with no
+            # daily equivalent -- approximated here as EMA-only trend on
+            # daily closes. Honest approximation of the spec's literal 15m
+            # rule, not the rule itself -- see
+            # docs/strategies/credit-spread-weekly.md for the full writeup.
+            if ema20 is None or ema50 is None:
+                return
+            if price > ema20 > ema50:
+                side = "BULL_PUT"
+            elif price < ema20 < ema50:
+                side = "BEAR_CALL"
+            else:
+                ctx.log(
+                    "info", "credit spread: no clear trend, skipping entry", underlying=underlying
+                )
+                return
         else:
-            ctx.log("info", "credit spread: no clear trend, skipping entry", underlying=underlying)
-            return
+            vw = vwap(bars, ctx.params["vwap_period"])
+            if ema20 is None or ema50 is None or vw is None:
+                return
+            if price > vw and ema20 > ema50:
+                side = "BULL_PUT"
+            elif price < vw and ema20 < ema50:
+                side = "BEAR_CALL"
+            else:
+                ctx.log(
+                    "info", "credit spread: no clear trend, skipping entry", underlying=underlying
+                )
+                return
 
         try:
             await ctx.get_spot(underlying)
@@ -242,7 +289,15 @@ class CreditSpreadWeeklyStrategy(Strategy):
             return
 
         dte = (short.expiry - now_ist.date()).days
-        if dte != ctx.params["entry_dte"]:
+        # Nearest-reachable-DTE gate, not an exact match -- see the
+        # entry_dte ParamSpec's own description for why. dte only counts
+        # down toward 0 as the week progresses, so "the first trading day
+        # where dte <= target" is a well-defined, causal (no look-ahead)
+        # stand-in for "the closest trading day to the target DTE": it never
+        # enters earlier/further from expiry than asked, and naturally
+        # resets each week once resolve_strike rolls to the next expiry
+        # (dte jumps back up past the target).
+        if dte > ctx.params["entry_dte"]:
             return
 
         long_offset_magnitude = ctx.params["short_offset_strikes"] + ctx.params["width_strikes"]
@@ -273,18 +328,38 @@ class CreditSpreadWeeklyStrategy(Strategy):
                 width=str(width),
             )
             return
-
-        loss_per_lot = max_loss_per_lot(
-            StructureType.CREDIT_SPREAD,
-            short.lot_size,
-            width=width,
-            credit=credit,
-        )
-        size = size_defined_risk_position(
-            ctx.capital_allocated,
-            Decimal(str(ctx.params["risk_pct"])),
-            loss_per_lot,
-        )
+        try:
+            loss_per_lot = max_loss_per_lot(
+                StructureType.CREDIT_SPREAD,
+                short.lot_size,
+                width=width,
+                credit=credit,
+            )
+            size = size_defined_risk_position(
+                ctx.capital_allocated,
+                Decimal(str(ctx.params["risk_pct"])),
+                loss_per_lot,
+            )
+        except ValueError as exc:
+            # (width - credit) rounding to <= 0 -- a defined-risk spread can
+            # never legitimately have zero/negative max loss, so this is a
+            # stale/illiquid EOD close on one or both legs (real on NSE
+            # Bhavcopy backtests -- an EOD print, not a live quote) or a
+            # Decimal-rounding edge case where credit and width are
+            # equal-to-within-epsilon, not a real arbitrage. Skip like any
+            # other bad-data day rather than letting this crash the run --
+            # it would crash a live/paper strategy runner the same way.
+            # size_defined_risk_position raises the same error class for the
+            # same underlying reason (a non-positive loss_per_lot), so both
+            # calls are covered here rather than duplicating this handling.
+            ctx.log(
+                "warning",
+                "credit spread: credit too close to width, likely stale/illiquid leg price, skipping",
+                credit=str(credit),
+                width=str(width),
+                error=str(exc),
+            )
+            return
         if size.lots < 1:
             ctx.log(
                 "info",
