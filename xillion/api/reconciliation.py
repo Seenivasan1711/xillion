@@ -30,6 +30,7 @@ def _serialize(r: ReconciliationReport) -> dict:
         "status": r.status,
         "position_mismatches": json.loads(r.position_mismatches_json),
         "eod_open_positions": json.loads(r.eod_open_positions_json),
+        "order_mismatches": json.loads(r.order_mismatches_json),
         "notes": json.loads(r.notes_json),
         "acknowledged": r.acknowledged,
         "acknowledged_at": r.acknowledged_at,

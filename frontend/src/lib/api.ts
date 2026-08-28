@@ -445,6 +445,17 @@ export interface ReconciliationReport {
   status: 'CLEAN' | 'DISCREPANCY' | 'FAILED'
   position_mismatches: { symbol: string; issue: string; broker_qty: number | null; internal_qty: number | null }[]
   eod_open_positions: string[]
+  order_mismatches: {
+    broker_order_id: string
+    symbol: string
+    issue: string
+    broker_status: string | null
+    internal_status: string | null
+    broker_filled_qty: number | null
+    internal_filled_qty: number | null
+    broker_avg_price: string | null
+    internal_avg_price: string | null
+  }[]
   notes: string[]
   acknowledged: boolean
   acknowledged_at: string | null

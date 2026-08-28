@@ -262,6 +262,10 @@ class ReconciliationReport(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)  # CLEAN | DISCREPANCY | FAILED
     position_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     eod_open_positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    # Migration 016 -- orders/fills reconciliation, M01's other honest gap
+    # alongside the positions check above (funds reconciliation is still
+    # not done -- see reconciliation.py's module docstring).
+    order_mismatches_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     notes_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     # Manual sign-off (migration 015) -- a non-CLEAN report pauses trading
     # (see eod_scheduler.py); acknowledging it here is what resumes trading,

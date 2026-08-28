@@ -4,9 +4,10 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-28
-**Current position:** **2026-08-28: M01-gates-tomorrow's-trading wired up
-(migration 015) — the one honest gap CP14 flagged when it shipped.** See
+**Last updated:** 2026-08-29
+**Current position:** **2026-08-29: orders/fills reconciliation added to M01**
+(migration 016) — the other honest gap CP14 flagged (positions-only) when
+it shipped, alongside the trading-gate wiring from the day before. See
 "CP14 follow-up" below. Before that, Gold Lane B1's broker+bridge plumbing
 built (see the Track B section below) — code-complete but unverified, no
 real MT5 account/Wine environment in this sandbox. Before that,
@@ -1104,11 +1105,13 @@ before it reaches the broker adapter (`test_risk_audit_log.py`'s
       a durable, queryable fact per the spec's own "block tomorrow's
       trading if not CLEAN" design (that blocking behaviour itself wasn't
       wired to anything at the time — see "CP14 follow-up, 2026-08-28"
-      below, where it was closed). **Scope note:** positions only —
-      orders/fills reconciliation and funds (broker P&L vs computed P&L)
-      reconciliation are NOT implemented; funds specifically needs a
-      "today's realised P&L" broker capability the `Broker` ABC doesn't
-      expose today, honestly left as a gap rather than faked.
+      below, where it was closed). **Scope note (original, 2026-08-25):**
+      positions only — orders/fills reconciliation and funds (broker P&L
+      vs computed P&L) reconciliation are NOT implemented; funds
+      specifically needs a "today's realised P&L" broker capability the
+      `Broker` ABC doesn't expose today, honestly left as a gap rather
+      than faked. **Orders/fills closed 2026-08-29 — see "CP14 follow-up,
+      2026-08-29" below.** Funds remains the one piece of M01 still open.
 - [x] Both wired as their own supervised background tasks in
       [xillion/main.py](../../xillion/main.py) — X02 at 15:15 IST, M01 at
       15:45 IST, same sleep-until-next-fixed-clock-time pattern as CP10's
@@ -1190,6 +1193,62 @@ unlike Gold Lane B1, so it was a natural next piece.
   button working end-to-end) — entering the dev login password is outside
   what Claude will do itself even for a local app, so this needs Rakesh's
   own look once he's testing.
+
+**CP14 follow-up, 2026-08-29: orders/fills reconciliation, M01's other
+positions-only gap, closed.** Same M01 job, extended rather than a
+parallel system -- reuses the trading-gate wiring from the day before with
+no new gating logic needed, since "any order mismatch" now just adds to
+the same `order_mismatches` list the status computation already checks.
+- **Migration 016** adds `order_mismatches_json` to `reconciliation_report`.
+  Applied to the real Supabase DB and confirmed (`alembic current` → 016).
+- **The check itself:**
+  [xillion/engine/reconciliation.py](../../xillion/engine/reconciliation.py)'s
+  new `_reconcile_orders()` compares today's `OrderRecord` rows (scoped to
+  the specific `BrokerConnection` being reconciled, and to rows submitted
+  today -- a multi-day option hold's original entry order correctly isn't
+  compared against a "today" list it was never going to be on) against
+  `broker.get_orders_today()`, matched by `broker_order_id` -- deliberately
+  NOT by `client_order_id`/tag, since e.g. `brokers/zerodha.py`'s
+  `_kite_to_order` falls back to the order tag for that field and isn't a
+  reliable round-trip across adapters. Flags `broker_only`, `internal_only`,
+  `status_mismatch` (we think PENDING, broker says FILLED, or the reverse),
+  and `fill_mismatch` (filled quantity or avg fill price disagree beyond a
+  ₹0.01 tolerance).
+- **Deliberate design calls, not obvious in isolation:** a
+  `broker.get_orders_today()` fetch failure forces the run to DISCREPANCY
+  (same "uncertainty isn't safe" stance the existing position-fetch-failure
+  path takes) -- but a broker with genuinely no `BrokerConnection` row
+  (test doubles, a broker never formally registered) does NOT force
+  non-CLEAN, it's a clean skip with a note. Getting this backwards either
+  way would have broken real behaviour: forcing non-CLEAN on a missing
+  connection would have made every existing CLEAN test (and any
+  unregistered-but-harmless broker) permanently block trading; not forcing
+  it on a genuine fetch failure would have silently hidden real broker
+  API outages.
+- **Scope note, stated in the module docstring:** still only order-level
+  aggregate fill data (`filled_quantity`/`avg_fill_price`), not individual
+  `FillRecord` rows -- partial fills aren't tracked as separate rows
+  anywhere yet (`ExecutionRouter._persist_order` only writes a
+  `FillRecord` once an order reaches FILLED), so there's nothing more
+  granular to reconcile against without that being built first. Funds
+  reconciliation (broker P&L vs. computed P&L) is still the one piece of
+  M01 left undone, for the same broker-capability-gap reason as before.
+- **Frontend:** the Reconciliation panel (Configuration → Risk) now shows
+  order-mismatch counts alongside position mismatches per report.
+- **Verify:** 11 new tests in `tests/unit/test_orders_reconciliation.py`
+  covering clean-match, broker_only, internal_only, status_mismatch,
+  fill_mismatch (both quantity and price, plus a within-tolerance case
+  that must NOT flag), cross-broker-connection isolation, prior-day-order
+  exclusion, fetch-failure forcing DISCREPANCY, and the missing-
+  BrokerConnection skip NOT forcing DISCREPANCY. Caught and fixed a real
+  bug while writing these: comparing `OrderRecord.avg_fill_price` (a
+  `Decimal` at runtime despite the model's `float | None` type hint --
+  SQLAlchemy's `Numeric` type doesn't coerce) directly against a broker
+  `Decimal` raised `TypeError` on every single matching-order case,
+  including the plain CLEAN one. Fixed by `float()`-ing both sides
+  explicitly. 473/473 tests passing, no regressions. ruff/black/mypy all
+  clean; frontend `tsc --noEmit` and `vite build` both clean. Same
+  logged-in-UI caveat as the day before -- not visually verified.
 
 ---
 

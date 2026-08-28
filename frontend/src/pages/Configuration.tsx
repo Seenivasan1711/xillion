@@ -983,7 +983,8 @@ function ReconciliationPanel() {
               </span>
               {r.status !== 'CLEAN' && (
                 <span className="faint" style={{ fontSize: 11 }}>
-                  {r.position_mismatches.length} mismatch(es), {r.eod_open_positions.length} open at EOD
+                  {r.position_mismatches.length} position mismatch(es), {r.eod_open_positions.length} open at EOD,{' '}
+                  {r.order_mismatches.length} order mismatch(es)
                   {r.acknowledged && ` — acknowledged by ${r.acknowledged_by ?? 'unknown'} at ${r.acknowledged_at}`}
                 </span>
               )}
