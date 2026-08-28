@@ -110,6 +110,70 @@ def condor_value(
     return spread_value(short_call_ltp, long_call_ltp) + spread_value(short_put_ltp, long_put_ltp)
 
 
+def butterfly_value(
+    short_middle_ltp: Decimal,
+    long_lower_ltp: Decimal,
+    long_upper_ltp: Decimal,
+) -> Decimal:
+    """Current cost to close a long butterfly (KB 06 D1): buy back BOTH
+    middle-strike shorts (2x short_middle_ltp, since a long butterfly's
+    1:2:1 ratio sells the middle strike twice) minus what selling both
+    wings would return. Same Sigma(short)-Sigma(long) "cost to close"
+    convention as spread_value()/condor_value() -- deliberately negative
+    right after entry for a debit structure (closing immediately returns
+    ~the debit just paid, a wash), falling further as the trade earns
+    money (max profit = spot pinned exactly at the middle strike at
+    expiry: the wings are worth their full intrinsic value and the
+    now-ATM middle shorts are worth ~0, so cost_to_close drops toward
+    -width), and rising back toward 0 as it loses (capped there -- unlike
+    a credit spread's spread_value, a long butterfly's worst case is
+    every leg expiring worthless, i.e. cost_to_close = 0, never positive,
+    since you can never owe more than the debit you already paid).
+    check_exit_trigger()'s existing "rising=bad, falling=good" semantics
+    apply unmodified once butterfly_protective_levels() below expresses
+    its thresholds in this same space -- see that function's own
+    docstring for the derivation."""
+    return (short_middle_ltp * 2) - (long_lower_ltp + long_upper_ltp)
+
+
+def butterfly_protective_levels(
+    entry_debit: Decimal,
+    width: Decimal,
+    *,
+    target_pct_of_max_profit: Decimal = Decimal("0.50"),
+    stop_pct_of_debit: Decimal = Decimal("0.75"),
+    time_stop_date: date | None = None,
+) -> ProtectiveOrderSpec:
+    """KB 06 D1: max_profit = width - entry_debit (the worked example: a
+    100-wide fly bought for a 25 debit has a 75 max profit, 3:1 reward:risk).
+    No KB-cited management percentages exist for D1 specifically (unlike
+    A1/A2's explicit 50%-of-credit / 2x-of-credit rules) -- the 50%-of-
+    max-profit target and 75%-of-debit stop defaults here are this
+    codebase's own reasonable choices, not sourced from a specific KB
+    citation; flagged honestly rather than presented as KB-derived.
+
+    Deliberately expressed in the SAME cost-to-close space
+    butterfly_value() computes, by converting profit targets into it:
+    profit_if_closed_now = -cost_to_close - entry_debit (derived from:
+    cash received on close = -cost_to_close; total P&L = cash received -
+    cash paid at entry). Solving for cost_to_close at a target profit p:
+    cost_to_close = -(p + entry_debit)."""
+    if entry_debit <= 0:
+        raise ValueError(f"entry_debit must be positive, got {entry_debit}")
+    if width <= entry_debit:
+        raise ValueError(
+            f"width ({width}) must exceed entry_debit ({entry_debit}) for a valid long butterfly"
+        )
+    max_profit = width - entry_debit
+    target_profit = max_profit * target_pct_of_max_profit
+    stop_profit = -stop_pct_of_debit * entry_debit
+    return ProtectiveOrderSpec(
+        stop_value=-(stop_profit + entry_debit),
+        target_value=-(target_profit + entry_debit),
+        time_stop_date=time_stop_date,
+    )
+
+
 def check_exit_trigger(
     spec: ProtectiveOrderSpec,
     current_value: Decimal,

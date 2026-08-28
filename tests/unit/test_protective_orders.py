@@ -7,6 +7,8 @@ import pytest
 
 from xillion.core.multileg import StructureType
 from xillion.core.protective_orders import (
+    butterfly_protective_levels,
+    butterfly_value,
     check_exit_trigger,
     condor_value,
     credit_spread_protective_levels,
@@ -100,3 +102,63 @@ def test_condor_value_reuses_credit_spread_protective_levels_unchanged():
     assert spec.target_value == Decimal("15")  # 50% of credit captured
     assert check_exit_trigger(spec, Decimal("60"), date(2026, 1, 1)) == "STOP"
     assert check_exit_trigger(spec, Decimal("15"), date(2026, 1, 1)) == "TARGET"
+
+
+# ── Butterfly (KB 06 D1, 2026-08-29) ────────────────────────────────────────
+# Worked example throughout: BUY 22400 CE@115, SELL 2x 22500 CE@55, BUY
+# 22600 CE@20 -- net debit 25, width 100, max profit 75 (3:1 reward:risk).
+
+
+def test_butterfly_value_at_entry_equals_negative_debit():
+    """Right after entry, closing immediately should be ~a wash -- the
+    "cost to close" is the negative of what was just paid, since nothing
+    has moved or decayed yet."""
+    value = butterfly_value(Decimal("55"), Decimal("115"), Decimal("20"))
+    assert value == Decimal("-25")
+
+
+def test_butterfly_value_at_max_profit_equals_negative_width():
+    """Spot pinned exactly at the middle strike at expiry: the wing that's
+    now ITM is worth its full intrinsic (= width), the ATM middle shorts
+    and the other OTM wing are worth ~0."""
+    value = butterfly_value(Decimal("0"), Decimal("100"), Decimal("0"))
+    assert value == Decimal("-100")
+
+
+def test_butterfly_value_at_total_loss_is_zero_never_positive():
+    """Every leg expires worthless -- the worst case for a long butterfly
+    is losing exactly the debit paid, never more, unlike a credit
+    spread's spread_value which can keep rising past the entry credit."""
+    value = butterfly_value(Decimal("0"), Decimal("0"), Decimal("0"))
+    assert value == Decimal("0")
+
+
+def test_butterfly_protective_levels_matches_kb_worked_example():
+    spec = butterfly_protective_levels(Decimal("25"), Decimal("100"))
+    assert spec.target_value == Decimal("-62.5")  # 50% of the 75 max profit captured
+    assert spec.stop_value == Decimal("-6.25")  # 75% of the 25 debit given back
+
+
+def test_butterfly_protective_levels_reuses_check_exit_trigger_unchanged():
+    """Same generic STOP/TARGET/TIME_STOP machinery every other structure
+    uses -- butterfly_value() and butterfly_protective_levels() only had
+    to agree on the same cost-to-close sign convention, nothing about
+    check_exit_trigger() itself needed to change for a debit structure."""
+    spec = butterfly_protective_levels(Decimal("25"), Decimal("100"))
+    assert check_exit_trigger(spec, Decimal("-6.25"), date(2026, 1, 1)) == "STOP"
+    assert check_exit_trigger(spec, Decimal("-62.5"), date(2026, 1, 1)) == "TARGET"
+    assert check_exit_trigger(spec, Decimal("-25"), date(2026, 1, 1)) is None  # fresh entry
+
+
+def test_butterfly_protective_levels_rejects_a_non_positive_debit():
+    with pytest.raises(ValueError):
+        butterfly_protective_levels(Decimal("0"), Decimal("100"))
+
+
+def test_butterfly_protective_levels_rejects_width_not_exceeding_debit():
+    """A width <= debit can't be a valid long butterfly -- max profit
+    (width - debit) would be zero or negative, which should never reach
+    here (max_loss_per_lot's own BUTTERFLY branch doesn't catch this, so
+    this function is the one place that does)."""
+    with pytest.raises(ValueError):
+        butterfly_protective_levels(Decimal("25"), Decimal("25"))

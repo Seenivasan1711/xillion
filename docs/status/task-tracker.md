@@ -5,7 +5,15 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: M01's funds reconciliation — the last
+**Current position:** **2026-08-29: Butterfly Weekly built — the third
+multi-leg strategy and the first DEBIT structure**, closing out
+"Blocked-on-you #7"'s last unbuilt structure (credit spread + condor were
+already done). New split-middle-leg design for a 1:2:1 ratio's shared
+strike, and new debit-structure protective-order math
+(`butterfly_value()`/`butterfly_protective_levels()`) that reuses
+`check_exit_trigger()` completely unmodified. See "Multi-leg beyond 2-leg,
+2026-08-29 continued" under CP11 below. Before that, same day: M01's funds
+reconciliation — the last
 open piece of CP14's own scope note, flagged twice before today — closed.**
 `Broker.get_realised_pnl_today()` implemented for both Zerodha (Kite's
 "day" positions array) and Dhan (summing realizedProfit, closed positions
@@ -455,14 +463,14 @@ actually proven, not just unit-tested.
       shared `rsi()` instead of its own private copy — one RSI formula in
       the codebase, not two that could silently drift apart
 - [x] **Multi-leg option structures — done via CP11 (generic engine,
-      2-leg credit spread) + the 2026-08-29 follow-up (Iron Condor
-      Weekly, 4 legs — see CP11's own section for the full writeup,
-      including two real leg-failure-protocol bugs the 4-leg build
-      surfaced and fixed).** Straddle/strangle (undefined-risk,
-      excluded by this codebase's own defined-risk-only sizing gate) and
-      butterfly (3-leg, 1:2:1 ratio) remain unbuilt but are no longer
-      blocked on "no real strategy to design against" — that was
-      resolved by the condor.
+      2-leg credit spread) + the 2026-08-29 follow-ups (Iron Condor
+      Weekly, 4 legs, and Butterfly Weekly, 1:2:1 debit structure — see
+      CP11's own section for the full writeup, including two real
+      leg-failure-protocol bugs the 4-leg build surfaced and fixed, and
+      the butterfly's own split-middle-leg design and new debit-structure
+      protective-order math).** Straddle/strangle (undefined-risk,
+      excluded by this codebase's own defined-risk-only sizing gate)
+      remains unbuilt by design, not by gap.
 - [x] **Parameter optimisation: grid search + walk-forward**
       (`xillion/engine/optimization.py`) — walk-forward's overfit heuristic
       verified against a deliberately-constructed regime-change scenario
@@ -1108,6 +1116,74 @@ never actually been exercised past 2 legs until now.
   it unmodified, but genuinely hasn't been tried), and everything else
   Stage 3/4 (paper, live) -- see
   [docs/strategies/iron-condor-weekly.md](../strategies/iron-condor-weekly.md).
+
+**Multi-leg beyond 2-leg, 2026-08-29 continued: Butterfly Weekly, the third
+multi-leg strategy and the first DEBIT one.** Same day as the iron condor --
+picked up as the next well-scoped item on the "Blocked on you #7" list
+(credit spread + condor + butterfly, "all fully specced"), now none of
+them unbuilt.
+- [strategies/butterfly_weekly.py](../../strategies/butterfly_weekly.py)
+  (KB 06 D1) -- 1:2:1 ratio, equidistant strikes, one option type. Reuses
+  the SAME weekly-cycle conventions (09:45-10:30 entry window, VWAP+EMA
+  trend check) as the other two, `entry_dte` defaulted to 1 rather than 4
+  (KB D1's own cycle stage is S4-S5, DTE 1-0).
+  **Modeled as 4 orders at 3 distinct strikes, not 3 legs with a 2-lot
+  middle order** -- the middle strike's 2-lot short is split into two
+  independent 1-lot `Leg`s, each with its own `protects_leg_index` (one
+  per wing), rather than a single Leg with quantity=2*lot_size. A
+  butterfly's middle short is protected by BOTH wings at once, which the
+  existing `protects_leg_index` model can't express as a single 1:1
+  pairing -- splitting it into two legs reuses the SAME naked-short
+  isolation logic the condor's independent call/put pairs already proved
+  out, rather than needing a new N:1 pairing concept. Proven correct by
+  its own leg-failure test (below): when one wing is rejected, only the
+  middle-strike short protecting THAT wing is correctly blocked from ever
+  being placed, while the other wing's pair (which succeeded) is placed
+  then cleanly unwound.
+- **New debit-structure protective-order math in
+  [xillion/core/protective_orders.py](../../xillion/core/protective_orders.py):**
+  `butterfly_value()` (`2*short_middle_ltp - (long_lower_ltp +
+  long_upper_ltp)`) and `butterfly_protective_levels()`. The credit spread
+  and condor's `check_exit_trigger()` assumes "value rising = bad, falling
+  = good" -- true for a CREDIT structure's cost-to-close, but a debit
+  butterfly's own value moves the OPPOSITE way with P&L on the surface.
+  The fix wasn't a new trigger function: `butterfly_value()` uses the
+  SAME Sigma(short)-Sigma(long) convention as `spread_value()`/
+  `condor_value()`, which (worked through the actual entry/max-profit/
+  total-loss cases against KB D1's own worked example: 25 debit, 100
+  width) turns out to already fall in the right direction for a debit
+  structure too -- so `check_exit_trigger()` needed ZERO changes, only
+  `butterfly_protective_levels()` converting profit-space targets
+  (% of max profit, % of debit given back) into that same cost-to-close
+  space. No KB-cited management percentages exist for D1 the way A1/A2
+  have explicit ones -- the 50%-of-max-profit target and 75%-of-debit
+  stop defaults are this codebase's own reasonable choices, stated
+  honestly in the function's own docstring, not presented as KB-derived.
+- **Time stop handled differently from the other two strategies, on
+  purpose:** `ProtectiveOrderSpec.time_stop_date` is date-only, and
+  `check_exit_trigger()` fires the instant the calendar date arrives --
+  fine for the credit spread/condor (which want to exit BEFORE expiry-day
+  gamma), wrong for the butterfly (whose whole edge is holding THROUGH
+  expiry day for the pin). Using that field here would force-exit at the
+  first tick of the very day the strategy exists to hold through. Left
+  unset; `on_tick` instead checks its own inline date+time-of-day gate
+  (15:10 IST on the expiry date, ahead of X02's 15:15 IST square-off).
+- **Verify:** 7 new tests in `test_protective_orders.py` (`butterfly_value`
+  at entry/max-profit/total-loss against the KB worked example,
+  `butterfly_protective_levels` matching the worked example's exact
+  numbers, reuse of `check_exit_trigger()` unmodified, both validation
+  errors) + 11 in new `test_butterfly_strategy.py` (correct sizing against
+  KB's own ₹1,625 max-loss-per-lot worked example, wing-then-middle entry
+  ordering, range-bound entry gate, DTE/size/non-positive-debit/reward-
+  risk skip paths, stop/target exit, the expiry-day flatten-time force
+  exit, and the leg-failure test proving the split-middle-leg design
+  actually isolates a single wing's failure). 542/542 tests passing
+  overall, no regressions. ruff/black/mypy all clean (mypy scoped to
+  `xillion/` per the Makefile's own gate -- `strategies/`, like
+  `brokers/`, isn't in it).
+  **Not yet run:** an options-chain backtest, and everything else Stage
+  3/4 (paper, live) -- see
+  [docs/strategies/butterfly-weekly.md](../strategies/butterfly-weekly.md).
 
 ---
 
@@ -1775,7 +1851,7 @@ Infrastructure each asset needs before its pipeline can start:
 | ~~4~~ | ~~Funding Pips account + challenge~~ | ~~Gold Lane B1 S3 onward~~ | ✅ **Resolved 2026-08-25** — already had this |
 | ~~5~~ | ~~Confirm ₹50k starting capital, ₹1,000/mo first milestone~~ | ~~Options S4~~ | ✅ **Resolved 2026-08-25** — confirmed yes |
 | ~~6~~ | ~~Run `python scripts/backfill.py` for real (2-5yr)~~ | ~~CP3 close-out, Options S2~~ | ✅ **Done 2026-08-26** — 2021-2026 NIFTY+BANKNIFTY, one continuous `bar_coverage` span, confirmed via direct DB query |
-| ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25** — the credit spread (2-leg) + condor (4-leg) + butterfly (3-leg, 1:2:1) are all fully specced |
+| ~~7~~ | ~~A real multi-leg options strategy to design multi-leg support against~~ | ~~CP5 close-out, Options S1~~ | ✅ **Resolved 2026-08-25, all three since built** — credit spread (2-leg, CP11), iron condor (4-leg) and butterfly (1:2:1 debit), both 2026-08-29 |
 | ~~8~~ | ~~Confirm free-tier Redis provider choice~~ | ~~CP13 (only if in-memory state turns out insufficient)~~ | ✅ **Resolved 2026-08-25** — decided: Upstash. Not wired in yet, only needed if CP13's in-memory state turns out insufficient |
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking — **explicitly deferred by Rakesh 2026-08-25** |
 | ~~10~~ | ~~**Dhan API access token + client ID**~~ | ~~CP15 live verification~~ | ✅ **Resolved 2026-08-26** — connected live on Render; see the crash-loop bug found+fixed same day, above |
