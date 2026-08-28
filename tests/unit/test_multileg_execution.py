@@ -99,6 +99,56 @@ def _two_leg_spec(short_symbol="SHORT", long_symbol="LONG") -> MultiLegSpec:
     )
 
 
+def _condor_spec() -> MultiLegSpec:
+    """A1 (Iron Condor, KB 03): two independent credit-spread pairs sharing
+    one underlying/expiry. Call side: long_call protects short_call. Put
+    side: long_put protects short_put -- structurally identical to two
+    2-leg credit spreads combined, which is exactly why this is the right
+    shape to prove _execute() generalises past 2 legs, not just claim it."""
+    long_call = Leg(
+        symbol="LONG_CALL",
+        exchange="NFO",
+        role=LegRole.LONG,
+        side=Side.BUY,
+        quantity=65,
+        order_type=OrderType.MARKET,
+    )
+    long_put = Leg(
+        symbol="LONG_PUT",
+        exchange="NFO",
+        role=LegRole.LONG,
+        side=Side.BUY,
+        quantity=65,
+        order_type=OrderType.MARKET,
+    )
+    short_call = Leg(
+        symbol="SHORT_CALL",
+        exchange="NFO",
+        role=LegRole.SHORT,
+        side=Side.SELL,
+        quantity=65,
+        order_type=OrderType.MARKET,
+        protects_leg_index=0,
+    )
+    short_put = Leg(
+        symbol="SHORT_PUT",
+        exchange="NFO",
+        role=LegRole.SHORT,
+        side=Side.SELL,
+        quantity=65,
+        order_type=OrderType.MARKET,
+        protects_leg_index=1,
+    )
+    return MultiLegSpec(
+        structure_type=StructureType.IRON_CONDOR,
+        underlying="NIFTY",
+        legs=[long_call, long_put, short_call, short_put],
+        lot_size=65,
+        width=Decimal("200"),
+        credit=Decimal("55"),
+    )
+
+
 def _executor(broker: FakeBroker, **kwargs) -> MultiLegExecutor:
     return MultiLegExecutor(
         place_order_fn=broker.place_order,
@@ -226,3 +276,131 @@ async def test_exit_places_short_before_long_and_reverses_sides():
     assert (
         broker.placed[1].symbol == "LONG" and broker.placed[1].side == Side.SELL
     )  # sell-to-close long second
+
+
+# ── 2026-08-29: N-leg entry (iron condor, 4 legs) ────────────────────────────
+# Building the condor -- the first 3+ leg consumer -- surfaced a real bug:
+# _execute() used to stop attempting legs after the FIRST failure, invisible
+# with exactly 2 legs (nothing left to attempt) but silently wrong for 4:
+# an unrelated pair further down the sequence never even got tried.
+
+
+@pytest.mark.asyncio
+async def test_condor_all_four_legs_fill_success_longs_then_shorts():
+    broker = FakeBroker({})
+    spec = _condor_spec()
+    result = await _executor(broker).execute_entry(spec)
+    assert result.outcome == ExecutionOutcome.SUCCESS
+    assert len(result.fills) == 4
+    # Both longs before both shorts (order_entry_sequence), original
+    # relative order preserved within each role.
+    assert [r.symbol for r in broker.placed] == [
+        "LONG_CALL",
+        "LONG_PUT",
+        "SHORT_CALL",
+        "SHORT_PUT",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_condor_independent_pair_still_entered_when_the_other_pairs_long_fails():
+    """LONG_PUT is rejected (both the original attempt and its one retry).
+    The call side has nothing to do with the put side's failure and must
+    still be entered -- the bug this regresses against silently never
+    attempted SHORT_CALL/SHORT_PUT at all once LONG_PUT failed."""
+    broker = FakeBroker({"LONG_PUT": "REJECTED"})
+    spec = _condor_spec()
+    result = await _executor(broker).execute_entry(spec)
+
+    assert result.outcome == ExecutionOutcome.UNWOUND
+    # The call side (long_call, short_call) genuinely filled -- both must
+    # appear among the fills, and both must then be unwound cleanly since
+    # the whole 4-leg structure couldn't complete.
+    filled_symbols = {lf.leg.symbol for lf in result.fills}
+    assert filled_symbols == {"LONG_CALL", "SHORT_CALL"}
+    # SHORT_PUT must NEVER have been placed at all -- its protecting long
+    # (LONG_PUT) already failed, so placing it would manufacture a naked
+    # short outright rather than merely risk one.
+    assert all(r.symbol != "SHORT_PUT" for r in broker.placed)
+    assert "SHORT_PUT" in [leg.symbol for leg in result.failed_legs]
+
+
+@pytest.mark.asyncio
+async def test_condor_naked_short_not_falsely_flagged_on_the_successful_pair():
+    """The put side fails entirely (long rejected) while the call side
+    fully fills -- short_call's own protecting long (long_call) DID fill,
+    so it must never be misclassified as naked just because a different,
+    independent pair didn't complete."""
+    broker = FakeBroker({"LONG_PUT": "REJECTED"})
+    spec = _condor_spec()
+    result = await _executor(broker).execute_entry(spec)
+    # FORCE_UNWOUND would mean a false naked-short positive; the correct
+    # outcome is a clean UNWOUND of the call side (see test above).
+    assert result.outcome != ExecutionOutcome.FORCE_UNWOUND
+    assert result.outcome == ExecutionOutcome.UNWOUND
+
+
+@pytest.mark.asyncio
+async def test_condor_two_independent_leg_failures_halts_for_human():
+    """Both shorts fail after both longs succeed -- two genuinely
+    independent failures in one entry attempt is exactly the ambiguous
+    case E05 reserves for a human, not an automatic call."""
+    broker = FakeBroker({"SHORT_CALL": "REJECTED", "SHORT_PUT": "REJECTED"})
+    spec = _condor_spec()
+    result = await _executor(broker).execute_entry(spec)
+    assert result.outcome == ExecutionOutcome.HALTED_FOR_HUMAN
+    filled_symbols = {lf.leg.symbol for lf in result.fills}
+    assert filled_symbols == {"LONG_CALL", "LONG_PUT"}  # left open, untouched, pending review
+
+
+# ── 2026-08-29: exit-failure reversal bug ────────────────────────────────────
+# The naked-short "force unwind" reversal only makes sense on ENTRY. Applied
+# to a failed EXIT it would re-open a leg that had just been closed
+# successfully -- a latent bug in the 2-leg case too, never caught because
+# no test exercised a leg failing partway through an exit until now.
+
+
+@pytest.mark.asyncio
+async def test_exit_failure_never_reverses_a_leg_that_already_closed():
+    """SHORT's close succeeds; LONG's close is then rejected (and its
+    retry also rejected). The bug: the old code saw "a filled SHORT
+    without its LONG" and force-unwound by RE-SELLING the just-closed
+    short, recreating the naked position the exit was trying to remove.
+    Correct behaviour: leave the closed short closed, halt for human
+    review on the long that's still open, and place no new orders for
+    either leg beyond what already happened."""
+    broker = FakeBroker({"LONG": "REJECTED"})
+    spec = _two_leg_spec()
+    result = await _executor(broker).execute_exit(spec)
+
+    assert result.outcome == ExecutionOutcome.HALTED_FOR_HUMAN
+    # SHORT's close (BUY, since it was originally SELL) must appear exactly
+    # once -- never reversed back into a fresh SELL.
+    short_orders = [r for r in broker.placed if r.symbol == "SHORT"]
+    assert len(short_orders) == 1
+    assert short_orders[0].side == Side.BUY
+    assert all(r.side != Side.SELL for r in short_orders)
+    # LONG's close was attempted (plus one retry) but never "reversed" into
+    # a fresh BUY -- only SELL attempts for LONG should exist.
+    long_orders = [r for r in broker.placed if r.symbol == "LONG"]
+    assert all(r.side == Side.SELL for r in long_orders)
+
+
+@pytest.mark.asyncio
+async def test_condor_exit_long_left_open_when_its_short_fails_to_close():
+    """4-leg exit: SHORT_CALL's close fails -- LONG_CALL must be left
+    open (not closed) since closing it would strip SHORT_CALL's
+    protection while it's still held. The put side, unaffected, closes
+    normally."""
+    broker = FakeBroker({"SHORT_CALL": "REJECTED"})
+    spec = _condor_spec()
+    result = await _executor(broker).execute_exit(spec)
+
+    assert result.outcome == ExecutionOutcome.HALTED_FOR_HUMAN
+    closed_symbols = {lf.leg.symbol for lf in result.fills}
+    assert closed_symbols == {"SHORT_PUT", "LONG_PUT"}  # put side fully closed
+    # LONG_CALL must never even have been attempted.
+    assert all(r.symbol != "LONG_CALL" for r in broker.placed)
+    still_open = {leg.symbol for leg in result.failed_legs}
+    assert "SHORT_CALL" in still_open  # failed to close
+    assert "LONG_CALL" in still_open  # deliberately left open to protect it

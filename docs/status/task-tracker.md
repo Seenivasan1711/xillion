@@ -5,11 +5,15 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: broker failover (Zerodha ↔ Dhan) built**
-— health monitoring + exit-only cross-broker failover, migration 017. See
-"Broker failover" below. Same day, earlier: orders/fills reconciliation
-added to M01 (migration 016) — the other honest gap CP14 flagged
-(positions-only) when it shipped, alongside the trading-gate wiring from
+**Current position:** **2026-08-29: multi-leg structures beyond 2-leg —
+Iron Condor Weekly (4 legs) built, and two real bugs in
+multileg_execution.py's leg-failure protocol found and fixed in the
+process.** See "Multi-leg beyond 2-leg" under CP11 below. Same day,
+earlier: broker failover (Zerodha ↔ Dhan) — health monitoring + exit-only
+cross-broker failover, migration 017. See "Broker failover" below. Same
+day, earlier still: orders/fills reconciliation added to M01 (migration
+016) — the other honest gap CP14 flagged (positions-only) when it shipped,
+alongside the trading-gate wiring from
 the day before. See "CP14 follow-up" entries below. Before that, Gold Lane
 B1's broker+bridge plumbing built (see the Track B section below) —
 code-complete but unverified, no
@@ -434,12 +438,15 @@ actually proven, not just unit-tested.
       MACD, Supertrend. `rsi_threshold_alert.py` refactored to import the
       shared `rsi()` instead of its own private copy — one RSI formula in
       the codebase, not two that could silently drift apart
-- [ ] **Multi-leg option structures (straddle/strangle/spreads) — NOT done,
-      carried to Track B.** This needs a real options strategy to design
-      against (multi-leg P&L combination, margin, which legs move together)
-      — building it generically first, with no real strategy driving the
-      requirements, risks guessing wrong. Better triggered by Blocked on
-      you #2 (your trading-course rules) when Options reaches Stage 1
+- [x] **Multi-leg option structures — done via CP11 (generic engine,
+      2-leg credit spread) + the 2026-08-29 follow-up (Iron Condor
+      Weekly, 4 legs — see CP11's own section for the full writeup,
+      including two real leg-failure-protocol bugs the 4-leg build
+      surfaced and fixed).** Straddle/strangle (undefined-risk,
+      excluded by this codebase's own defined-risk-only sizing gate) and
+      butterfly (3-leg, 1:2:1 ratio) remain unbuilt but are no longer
+      blocked on "no real strategy to design against" — that was
+      resolved by the condor.
 - [x] **Parameter optimisation: grid search + walk-forward**
       (`xillion/engine/optimization.py`) — walk-forward's overfit heuristic
       verified against a deliberately-constructed regime-change scenario
@@ -955,6 +962,84 @@ copied per-instance in `__init__`. 418/418 tests passing, no regressions.
 (NIFTY/BANKNIFTY; Sensex is BSE-listed, NSE Bhavcopy doesn't cover it),
 and Dhan's Forever-Order path (blocked on the product-type decision
 above).
+
+**Multi-leg beyond 2-leg, 2026-08-29: Iron Condor Weekly (4 legs) built —
+and building it surfaced two real bugs the credit spread's 2-leg shape
+could never expose.** CP11's own multileg.py/multileg_execution.py were
+designed generic from the start ("protects_leg_index pairing, not a
+hardcoded 2-leg assumption -- generalises to condor/butterfly") but had
+never actually been exercised past 2 legs until now.
+- [strategies/iron_condor_weekly.py](../../strategies/iron_condor_weekly.py)
+  (KB 03 A1) — same weekly-cycle conventions as the credit spread
+  (09:45-10:30 entry window, VWAP+EMA trend check, entry_dte/time_stop_dte
+  defaults), but the OPPOSITE market view: enters exactly when the trend
+  check finds NEITHER a bull NOR a bear signal (the credit spread's own
+  "no clear trend, skipping entry" branch is this strategy's entry
+  signal) -- KB's own regime guidance: "range-bound -> neutral structures
+  (condor)... do not sell a neutral structure into a trend day."
+  `protective_orders.py`'s new `condor_value()` sums both sides'
+  `spread_value()` and feeds the SAME generic `credit_spread_protective_
+  levels()`/`check_exit_trigger()` the credit spread already uses --
+  those functions never cared how many legs produced the number.
+  **Deliberate scope cut, documented not hidden:** no broker-native GTT
+  backstop for this structure (splitting a combined stop/target across
+  two independent single-instrument GTTs needs its own allocation logic
+  that doesn't exist yet); the software stop remains primary regardless.
+- **Two real bugs found and fixed in
+  [xillion/core/multileg_execution.py](../../xillion/core/multileg_execution.py)
+  while designing the 4-leg entry/exit paths, before writing a single
+  line of the strategy itself:**
+  1. **Entry silently truncated beyond 2 legs.** The old `_execute` broke
+     out of its loop on the FIRST leg failure, so for the credit spread's
+     exactly-2-leg case there was never anything left to attempt anyway --
+     invisible. For a condor, a failure on ONE pair's long leg meant the
+     OTHER, entirely unrelated pair's short legs were never even
+     attempted, and the function could report SUCCESS or UNWOUND against
+     an incomplete leg set that was never fully placed. Fixed: `_execute`
+     now walks the complete ordered sequence, with a new
+     `_blocked_by_dependency()` gate that skips (never places an order
+     for) only a leg whose OWN dependency already failed -- a SHORT leg
+     whose protecting LONG failed on entry, or a LONG leg whose protected
+     SHORT failed to close on exit. Retry-once now happens inline per
+     leg, immediately at the point of failure, rather than being deferred
+     to the rollback handler.
+  2. **A failed EXIT could re-open a leg that had just closed
+     successfully.** The naked-short "force unwind" reversal logic only
+     makes sense on ENTRY (undo a newly-created naked position by closing
+     it). Applied to a failed EXIT -- short's close succeeds, long's
+     close then fails -- the old code saw "a filled SHORT without its
+     LONG" and force-unwound by REVERSING the short's already-successful
+     close, i.e. placing a fresh SELL, recreating the exact naked
+     position the whole protocol exists to prevent. This was a latent
+     bug in the 2-leg case too, sitting there since CP11 -- nothing had
+     ever tested a leg failing partway through an exit. Fixed:
+     `_rollback` now handles `is_exit` as its own case with no reversal
+     logic at all -- everything in `filled` during an exit is
+     legitimately closed already (that's the goal), so the only real
+     problem is what's still open, which now halts for human review
+     instead of being "reversed" into a new position.
+  Both fixes are fully backward-compatible with the credit spread's
+  existing behaviour -- all 44 pre-existing tests across
+  `test_multileg_execution.py`/`test_multileg.py`/`test_protective_
+  orders.py`/`test_credit_spread_strategy.py` pass unchanged against the
+  refactored code, verified before writing a single new test.
+- **Verify:** 14 tests in `test_multileg_execution.py` (10 new: condor
+  all-4-legs success, independent pair still entered when the other's
+  long fails, no false naked-short positive on the successful pair, two
+  independent failures halts for human, the exit-reversal bug's own
+  regression test on the ORIGINAL 2-leg case, and the condor exit-side
+  equivalent) + 8 in `test_iron_condor_strategy.py` (entry sizing against
+  KB's worked numbers, leg ordering, range-bound vs. trending entry gate,
+  DTE/sizing skip paths, stop/target exit, and the leg-failure-unwinds-
+  the-completed-pair scenario) + 2 in `test_protective_orders.py`
+  (`condor_value`) + 1 in `test_multileg.py` (`max_loss_per_lot` against
+  KB A1's own 200-wide/55-credit/lot-65 worked example: ₹9,425). 503/503
+  tests passing overall, no regressions. ruff/black/mypy all clean.
+  **Not yet run:** an options-chain backtest (the infra exists from the
+  credit spread's own Stage 2 work and this strategy's shape should fit
+  it unmodified, but genuinely hasn't been tried), and everything else
+  Stage 3/4 (paper, live) -- see
+  [docs/strategies/iron-condor-weekly.md](../strategies/iron-condor-weekly.md).
 
 ---
 

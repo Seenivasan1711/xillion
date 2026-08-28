@@ -94,6 +94,22 @@ def spread_value(short_leg_ltp: Decimal, long_leg_ltp: Decimal) -> Decimal:
     return short_leg_ltp - long_leg_ltp
 
 
+def condor_value(
+    short_call_ltp: Decimal,
+    long_call_ltp: Decimal,
+    short_put_ltp: Decimal,
+    long_put_ltp: Decimal,
+) -> Decimal:
+    """Current cost to close an iron condor (KB 03 A1): the call-side
+    spread and the put-side spread close independently, so this is just
+    spread_value() applied to each pair and summed -- there's no cross-term
+    between the two. `credit_spread_protective_levels()`/`check_exit_trigger()`
+    downstream don't care how this number was computed, only that it starts
+    at the entry credit and decays toward 0 as both sides' extrinsic value
+    decays, same as a 2-leg spread's spread_value()."""
+    return spread_value(short_call_ltp, long_call_ltp) + spread_value(short_put_ltp, long_put_ltp)
+
+
 def check_exit_trigger(
     spec: ProtectiveOrderSpec,
     current_value: Decimal,

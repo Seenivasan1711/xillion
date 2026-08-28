@@ -8,6 +8,7 @@ import pytest
 from xillion.core.multileg import StructureType
 from xillion.core.protective_orders import (
     check_exit_trigger,
+    condor_value,
     credit_spread_protective_levels,
     is_defined_risk,
     short_leg_gtt_levels,
@@ -81,3 +82,21 @@ def test_check_exit_trigger_before_time_stop_date_uses_normal_levels():
 def test_is_defined_risk():
     assert is_defined_risk(StructureType.CREDIT_SPREAD) is True
     assert is_defined_risk(StructureType.IRON_CONDOR) is True
+
+
+def test_condor_value_is_the_sum_of_both_sides_spread_value():
+    # call side: 25-10=15; put side: 25-10=15; combined = 30 (KB A1 worked example).
+    assert condor_value(Decimal("25"), Decimal("10"), Decimal("25"), Decimal("10")) == Decimal("30")
+
+
+def test_condor_value_reuses_credit_spread_protective_levels_unchanged():
+    """condor_value() is just an input to the SAME generic stop/target
+    math credit_spread_protective_levels() already computes -- no
+    condor-specific variant needed, since that function only cares about
+    the entry credit number, not how many legs produced it."""
+    entry_credit = condor_value(Decimal("25"), Decimal("10"), Decimal("25"), Decimal("10"))
+    spec = credit_spread_protective_levels(entry_credit)
+    assert spec.stop_value == Decimal("60")  # 2x credit
+    assert spec.target_value == Decimal("15")  # 50% of credit captured
+    assert check_exit_trigger(spec, Decimal("60"), date(2026, 1, 1)) == "STOP"
+    assert check_exit_trigger(spec, Decimal("15"), date(2026, 1, 1)) == "TARGET"

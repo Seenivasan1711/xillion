@@ -143,6 +143,14 @@ def test_size_rejects_nonpositive_loss_per_lot():
         size_defined_risk_position(Decimal("100000"), Decimal("0.01"), Decimal("0"))
 
 
+def test_max_loss_per_lot_iron_condor_matches_kb_worked_example():
+    # KB 03 A1's own Nifty worked example: 200-wide, 55 credit, lot 65.
+    loss = max_loss_per_lot(
+        StructureType.IRON_CONDOR, 65, width=Decimal("200"), credit=Decimal("55")
+    )
+    assert loss == Decimal("9425")  # (200-55)*65
+
+
 def test_max_loss_per_lot_long_option_uses_debit():
     loss = max_loss_per_lot(StructureType.LONG_OPTION, 65, debit=Decimal("40"))
     assert loss == Decimal("2600")
