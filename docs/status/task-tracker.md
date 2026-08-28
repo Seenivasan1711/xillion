@@ -5,11 +5,16 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: multi-leg structures beyond 2-leg —
-Iron Condor Weekly (4 legs) built, and two real bugs in
-multileg_execution.py's leg-failure protocol found and fixed in the
-process.** See "Multi-leg beyond 2-leg" under CP11 below. Same day,
-earlier: broker failover (Zerodha ↔ Dhan) — health monitoring + exit-only
+**Current position:** **2026-08-29: Dhan's Forever-Order (bracket/GTT)
+path unblocked** — Rakesh decided the product-type question (MARGIN,
+attempt Forever Orders with it), `brokers/dhan.py` now implements
+`place_protective_gtt`/`cancel_gtt` for real. See "Follow-up, 2026-08-29:
+Dhan's Forever-Order path, unblocked" under CP11 below. Same day, earlier:
+multi-leg structures beyond 2-leg — Iron Condor Weekly (4 legs) built, and
+two real bugs in multileg_execution.py's leg-failure protocol found and
+fixed in the process. See "Multi-leg beyond 2-leg" under CP11 below. Same
+day, earlier still: broker failover (Zerodha ↔ Dhan) — health monitoring +
+exit-only
 cross-broker failover, migration 017. See "Broker failover" below. Same
 day, earlier still: orders/fills reconciliation added to M01 (migration
 016) — the other honest gap CP14 flagged (positions-only) when it shipped,
@@ -925,15 +930,15 @@ orders) is a hard gate before Options S4 (live).
       `HALTED_FOR_HUMAN` (an unclassifiable partial fill), since the
       broker-side position is unclear exactly then and cancelling would
       remove the protection that window most needs.
-      **Dhan verified-blocked, not silently skipped:** Dhan's own
-      equivalent ("Forever Orders") is real and documented
+      **Dhan verified-blocked at the time, not silently skipped** — Dhan's
+      own equivalent ("Forever Orders") is real and documented
       (dhanhq.co/docs/v2/forever/), but its `productType` field only
-      accepts `CNC`/`MTF` — `brokers/dhan.py` hardcodes every regular
-      order's product to `INTRADAY` (a known, already-documented
-      simplification from CP15, not new). Building Forever-Order support
-      today would either silently fail against the real API or require
-      changing what product type Dhan positions trade under — a bigger,
-      separate decision, not guessed at here.
+      accepts `CNC`/`MTF` while `brokers/dhan.py` hardcoded every regular
+      order's product to `INTRADAY`. Building Forever-Order support then
+      would either silently fail against the real API or require changing
+      what product type Dhan positions trade under — a bigger, separate
+      decision, not guessed at here. **Resolved 2026-08-29 — see the
+      follow-up entry below.**
       **Also found and fixed in the same broker-capability area:**
       `POST /brokers/connections/{name}/reconnect` was hardcoded to
       `"Zerodha Primary"` only — Dhan's own Reconnect button in Settings →
@@ -959,9 +964,61 @@ leaked into every later test's fresh instance, since Python attribute
 lookup falls through to the class for an unshadowed mutable default. Now
 copied per-instance in `__init__`. 418/418 tests passing, no regressions.
 **Not yet done:** NSE-listed underlyings only for backtest options
-(NIFTY/BANKNIFTY; Sensex is BSE-listed, NSE Bhavcopy doesn't cover it),
-and Dhan's Forever-Order path (blocked on the product-type decision
-above).
+(NIFTY/BANKNIFTY; Sensex is BSE-listed, NSE Bhavcopy doesn't cover it).
+
+**Follow-up, 2026-08-29: Dhan's Forever-Order path, unblocked.** Rakesh's
+decision (asked directly, since this is a real capital/margin-cost
+tradeoff no amount of code review substitutes for): switch Dhan's product
+type from `INTRADAY` to `MARGIN` (Dhan's NRML-equivalent F&O carry
+product — Dhan has no NRML label; `MARGIN` is the one that isn't
+intraday-only, confirmed against the installed `dhanhq` SDK's own class
+constants: `CNC`/`INTRA`/`MARGIN`/`CO`/`BO`/`MTF`, no `NRML`), and attempt
+Forever Orders with it despite Dhan's own docs restricting that specific
+endpoint's `productType` to `CNC`/`MTF`.
+- `brokers/dhan.py`: `_PRODUCT_TYPE` changed to `"MARGIN"` for every
+  order — this is also what fixes the actual underlying problem the
+  product-type item was originally flagging: the credit spread and iron
+  condor hold positions across days until expiry, which `INTRADAY` would
+  have auto-squared-off same-day at Dhan, silently breaking both
+  strategies the moment either went live there.
+- New `place_protective_gtt()`/`cancel_gtt()` on `DhanBroker`, mirroring
+  `ZerodhaBroker`'s existing shape (`Broker.place_protective_gtt()`'s own
+  docstring already anticipated "Dhan's Forever-Order-OCO shape" when it
+  was written). Built against Dhan's real Forever Order docs
+  (dhanhq.co/docs/v2/forever/) and the installed SDK's `place_forever()`
+  signature: `price`/`triggerPrice` are the STOP_LOSS_LEG, `price1`/
+  `triggerPrice1`/`quantity1` are the TARGET_LEG (per Dhan's own field
+  descriptions — "Target price/trigger/quantity for OCO order" on the
+  `1`-suffixed fields specifically), one shared `transactionType`/
+  `orderType` for the whole OCO pair (simpler than Kite's per-leg
+  `orders[]` array). `DhanBroker.capabilities.supports_gtt_orders` is now
+  `True` — since `StrategyContext.place_protective_gtt()` already
+  dispatches generically off that flag (`xillion/engine/
+  strategy_engine.py`), `credit_spread_weekly.py` now places a real
+  Forever Order on Dhan too, with **zero strategy-code changes** — the
+  generic architecture from CP11 just started working for a second
+  broker the moment the capability flag and implementation existed.
+  (Iron Condor Weekly deliberately still has no GTT wiring on either
+  broker — see its own scope-cut note above.)
+- **Honest, prominent caveat, not buried:** whether Dhan's server
+  actually accepts a Forever Order for an F&O leg carried under `MARGIN`
+  — given the docs' own `CNC`/`MTF`-only restriction on that specific
+  endpoint — is **genuinely unverified**. No Dhan account exists in this
+  sandbox to place one. Built exactly as documented; if it turns out to
+  be a hard rejection in practice, the software stop (already the
+  primary protection mechanism regardless, per `protective_orders.py`'s
+  own module docstring) is unaffected. Logged in
+  [docs/status/manual-tasks.md](../status/manual-tasks.md) as the actual
+  thing to watch for the first time this runs live/paper on Dhan with
+  GTT enabled — not silently assumed to work.
+- **Verify:** 7 new tests in `test_dhan_protective_gtt.py` (capability
+  flag, product-type constant, stop-only single-flag request shape,
+  stop+target OCO request shape with the correct leg-field mapping,
+  failure-envelope handling, cancel, cancel-swallows-errors) + 1 existing
+  `test_dhan_broker.py` assertion updated (`product_type` from
+  `INTRADAY` to `MARGIN`, matching the decision, not a silent behaviour
+  drift). 510/510 tests passing, no regressions. ruff/black/mypy all
+  clean.
 
 **Multi-leg beyond 2-leg, 2026-08-29: Iron Condor Weekly (4 legs) built —
 and building it surfaced two real bugs the credit spread's 2-leg shape

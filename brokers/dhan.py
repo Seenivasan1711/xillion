@@ -29,10 +29,28 @@ success response structure... but usually it returns accessToken") — this
 plugin handles that defensively (tries a few plausible key names) and
 raises a clear, actionable error rather than failing silently if none match.
 
-Product type is hardcoded to INTRADAY (Dhan's MIS-equivalent) for every
-order, and exchange/security are resolved from Dhan's own scrip master by
-symbol -- OrderRequest carries neither field explicitly, matching the same
+Product type is hardcoded to MARGIN (Dhan's NRML-equivalent carry-forward
+product for F&O -- Dhan has no NRML label; MARGIN is the one that isn't
+intraday-only per the SDK's own constants) for every order, and exchange/
+security are resolved from Dhan's own scrip master by symbol --
+OrderRequest carries neither field explicitly, matching the same
 limitation zerodha.py already has (it hardcodes NSE + MIS product type).
+
+**2026-08-29, changed from INTRADAY, Rakesh's explicit decision:** the
+credit spread and iron condor strategies hold positions for several days
+until expiry; INTRADAY would have been auto-squared-off same-day by Dhan,
+silently breaking both strategies the moment this went live. MARGIN is
+also the product type place_protective_gtt() below needs -- Dhan's Forever
+Order API only accepts productType CNC or MTF per its own docs
+(dhanhq.co/docs/v2/forever/), NOT MARGIN or INTRADAY, despite MARGIN being
+a normal, first-class product type for regular F&O order placement
+elsewhere in the same API. That CNC/MTF-only restriction on the Forever
+Order endpoint specifically is UNVERIFIED against a real account -- no
+Dhan credentials exist in this sandbox, and the docs' own restriction is
+unusual enough (CNC/MTF are normally equity-specific labels) that it's
+worth treating as a real, live-testing risk rather than settled fact. See
+place_protective_gtt()'s own docstring for the honest scope of what this
+means in practice.
 """
 
 import asyncio
@@ -70,7 +88,7 @@ from xillion.core.instruments import InstrumentRow
 logger = structlog.get_logger(__name__)
 
 _TOKEN_CACHE = Path("data/dhan_token.json")
-_PRODUCT_TYPE = "INTRADAY"
+_PRODUCT_TYPE = "MARGIN"
 
 
 def _utcnow() -> datetime:
@@ -85,6 +103,11 @@ class DhanBroker(Broker):
         supports_historical=True,
         supports_bracket_orders=True,  # Dhan's BO product type -- not wired to a distinct order path here yet
         supports_cover_orders=True,  # Dhan's CO product type -- same caveat
+        # 2026-08-29: Forever Orders (Dhan's GTT equivalent) -- see
+        # place_protective_gtt() below and the module docstring's own
+        # honest caveat about the productType restriction being
+        # unverified against a real account.
+        supports_gtt_orders=True,
         supports_modify_order=True,
         supports_partial_fills=True,
         supported_timeframes=["1m", "5m", "15m", "1h", "1d"],
@@ -602,6 +625,83 @@ class DhanBroker(Broker):
                     continue
                 out[sym] = Tick(symbol=sym, ltp=Decimal(str(payload.get("last_price", 0))), ltt=now)
         return out
+
+    # ── Protective GTT / Forever Orders (2026-08-29) ─────────────────────────────
+    # Same OCO shape as zerodha.py's place_protective_gtt -- see broker_base.py's
+    # docstring, which was written anticipating this. Dhan's Forever Order API is
+    # simpler than Kite's GTT in one respect (one shared transactionType/orderType
+    # for the whole OCO pair, not a per-leg orders[] array) but its own docs
+    # restrict productType to CNC/MTF specifically for THIS endpoint -- neither of
+    # which is MARGIN, the product type place_order() above actually uses for
+    # every other order. Built exactly as documented (dhanhq.co/docs/v2/forever/,
+    # cross-checked against the installed dhanhq SDK's own place_forever()
+    # signature) -- but whether Dhan's server actually accepts a Forever Order
+    # for an F&O leg carried under MARGIN, given that restriction, is genuinely
+    # unverified. No Dhan account exists in this sandbox to place one. If this
+    # turns out to be a hard rejection in practice, the software stop (already
+    # the primary protection mechanism regardless -- see protective_orders.py's
+    # own module docstring) is unaffected either way.
+    _GTT_ORDER_TYPE = "LIMIT"
+
+    async def place_protective_gtt(
+        self,
+        *,
+        symbol: str,
+        exchange: str,
+        side: Side,
+        quantity: int,
+        stop_price: Decimal,
+        target_price: Decimal | None,
+        last_price: Decimal,
+    ) -> str:
+        resolved = await self._resolve(symbol)
+        order_flag = "OCO" if target_price is not None else "SINGLE"
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._dhan.place_forever(
+                security_id=resolved.security_id,
+                exchange_segment=resolved.exchange_segment,
+                transaction_type=side.value,
+                product_type=_PRODUCT_TYPE,
+                order_type=self._GTT_ORDER_TYPE,
+                quantity=quantity,
+                price=float(stop_price),
+                trigger_Price=float(stop_price),
+                order_flag=order_flag,
+                # price1/triggerPrice1/quantity1 are the OCO's TARGET_LEG per
+                # Dhan's own field docs ("Target price/trigger/quantity for
+                # OCO order") -- price/triggerPrice above are the STOP_LOSS_LEG.
+                price1=float(target_price) if target_price is not None else 0,
+                trigger_Price1=float(target_price) if target_price is not None else 0,
+                quantity1=quantity if target_price is not None else 0,
+                symbol=symbol,
+            ),
+        )
+        data = response.get("data", response) if isinstance(response, dict) else {}
+        if not isinstance(data, dict) or response.get("status") == "failure":
+            reason = (response or {}).get("remarks") or "unknown error"
+            raise RuntimeError(f"Dhan: Forever Order placement failed: {reason}")
+        order_id = data.get("orderId", "")
+        logger.info(
+            "dhan: protective Forever Order placed",
+            symbol=symbol,
+            order_id=order_id,
+            stop_price=str(stop_price),
+            target_price=str(target_price) if target_price else None,
+        )
+        return str(order_id)
+
+    async def cancel_gtt(self, gtt_id: str) -> None:
+        try:
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self._dhan.cancel_forever(gtt_id)
+            )
+            if isinstance(response, dict) and response.get("status") == "failure":
+                logger.error(
+                    "dhan: cancel_forever returned failure", gtt_id=gtt_id, response=response
+                )
+        except Exception as exc:
+            logger.error("dhan: cancel_forever failed", gtt_id=gtt_id, error=str(exc))
 
     # ── Instrument master (options resolution) ──────────────────────────────────
 

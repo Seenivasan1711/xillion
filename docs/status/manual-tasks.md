@@ -13,9 +13,9 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-28 (added: Gold backtest data-source decision,
-flagged after Gold Lane B1's live/paper broker+bridge shipped same day —
-see `task-tracker.md`)
+**Last updated:** 2026-08-29 (Dhan product-type decision made and built —
+MARGIN, Forever Orders wired; the Zerodha half of that question split out
+as its own still-open item)
 
 ---
 
@@ -45,22 +45,22 @@ see `task-tracker.md`)
       **Blocks:** the Zerodha-specific live path, Options S4 going live.
       **Cost:** ₹500/mo.
 
-- [ ] **Decide Zerodha/Dhan product type for multi-day option holds
-      (MIS/INTRADAY vs. NRML/CNC/MTF) — not urgent, flagging for
-      awareness.** Found while wiring CP11's real GTT/Forever-Order
-      support, 2026-08-25: both `brokers/zerodha.py` and `brokers/dhan.py`
-      currently hardcode every order to the intraday-margin product
-      (`MIS`/`INTRADAY`) — already a known, documented limitation from
-      earlier work, not new. The credit-spread weekly strategy holds
-      positions across multiple days until expiry, which an intraday
-      product would normally force-square-off same day at the broker —
-      worth understanding before this goes live with real capital. This
-      is also why Dhan's Forever Orders (their GTT equivalent) aren't
-      wired yet: Dhan's API only accepts `CNC`/`MTF` for that order type,
-      not `INTRADAY`. **Blocks:** nothing today (paper mode isn't affected
-      the same way) — decide before Options S4 (going live).
-      **Cost:** none — a decision, plus whatever margin difference
-      NRML/MTF carries vs. MIS/INTRADAY once you do go live.
+- [ ] **Decide Zerodha's product type for multi-day option holds (MIS vs.
+      NRML) — not urgent, flagging for awareness.** `brokers/zerodha.py`
+      still hardcodes every order (and its GTT legs) to `MIS` (intraday
+      margin) — an intraday product would normally force-square-off a
+      multi-day credit-spread/condor position same day at the broker,
+      before expiry. **Dhan's own version of this decision was made
+      2026-08-29 (see Done below) — this item is now Zerodha-only, and
+      the two aren't linked: Dhan's GTT (Forever Orders) genuinely needed
+      a product-type change to work at all (its API rejects INTRADAY
+      outright); Zerodha's GTT already works fine under MIS today — this
+      is purely about whether multi-day holds themselves should survive
+      Zerodha's own intraday square-off.** **Blocks:** nothing today
+      (paper mode isn't affected the same way) — decide before the
+      Zerodha live path (Options S4).
+      **Cost:** none to decide; whatever margin difference NRML carries
+      vs. MIS once you do go live.
 
 - [ ] **(Optional) free cloud LLM key** — Gemini or Groq free tier, for
       prosper-engine's AI-confidence hook.
@@ -80,6 +80,19 @@ see `task-tracker.md`)
 
 ## Done
 
+- [x] **Dhan product type for multi-day option holds — decided 2026-08-29:
+      MARGIN, attempt Forever Orders with it.** `brokers/dhan.py` switched
+      from `INTRADAY` to `MARGIN` (Dhan's NRML-equivalent F&O carry
+      product) for every order, and `place_protective_gtt`/`cancel_gtt`
+      now place real Forever Orders. Honest caveat: Dhan's own Forever
+      Order docs say productType only accepts `CNC`/`MTF`, not `MARGIN` —
+      built exactly as documented, but whether Dhan's server actually
+      accepts it for an F&O leg carried under MARGIN is unverified against
+      a real account (none exists in this sandbox). If it turns out to be
+      rejected in practice, the software stop (already the primary
+      protection mechanism regardless) is unaffected — worth watching for
+      the actual API response the first time this runs live/paper on Dhan
+      with GTT enabled.
 - [x] **Dhan API access token + client ID — connected live on Render,
       2026-08-26.** Entered via Settings → Brokers → Dhan card, stored
       encrypted in the DB. **Same day, a real production bug was found and

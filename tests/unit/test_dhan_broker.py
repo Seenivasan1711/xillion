@@ -122,7 +122,10 @@ async def test_place_order_passes_correct_fields_to_the_sdk(monkeypatch):
     assert captured["exchange_segment"] == "NSE_FNO"
     assert captured["transaction_type"] == "SELL"
     assert captured["order_type"] == "LIMIT"
-    assert captured["product_type"] == "INTRADAY"
+    # MARGIN, not INTRADAY -- 2026-08-29, Rakesh's decision: the credit
+    # spread/iron condor strategies hold positions across days until
+    # expiry, which INTRADAY would auto-square-off same-day at Dhan.
+    assert captured["product_type"] == "MARGIN"
     assert captured["price"] == 45.5
     assert captured["tag"] == "my_tag"
 
