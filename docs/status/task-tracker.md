@@ -5,7 +5,12 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: Dhan's Forever-Order (bracket/GTT)
+**Current position:** **2026-08-29: the four unauthenticated
+`brokers.py` routes (flagged in passing during the broker-failover work)
+fixed** — `GET /connections`, `POST .../reconnect`, `GET .../status`,
+`POST /refresh-instruments` all now require a session, matching every
+other route in the file. See "API" under "Broker failover" below. Before
+that, same day: **Dhan's Forever-Order (bracket/GTT)
 path unblocked** — Rakesh decided the product-type question (MARGIN,
 attempt Forever Orders with it), `brokers/dhan.py` now implements
 `place_protective_gtt`/`cancel_gtt` for real. See "Follow-up, 2026-08-29:
@@ -1568,13 +1573,20 @@ response at all; there wasn't even periodic health polling.
 - **API:** extended `GET /brokers/connections` with failover config +
   health fields; new `PATCH .../failover-target` (set/clear, auth-gated)
   and `POST .../failover` (manual trigger, auth-gated) in
-  `xillion/api/brokers.py`. **Found in passing, not fixed here (spawned
-  as its own follow-up task instead of expanding this one's scope):** the
-  FOUR pre-existing routes in this same file (`GET /connections`, `POST
-  .../reconnect`, `GET .../status`, `POST /refresh-instruments`) have NO
-  auth check at all — confirmed live against the dev server (200, not
-  401, with no session cookie). Predates this work; the two new mutating
-  endpoints added here were built auth-gated from the start.
+  `xillion/api/brokers.py`. **Found in passing 2026-08-29, fixed the same
+  day:** the FOUR pre-existing routes in this same file (`GET
+  /connections`, `POST .../reconnect`, `GET .../status`, `POST
+  /refresh-instruments`) had NO auth check at all — confirmed live
+  against the dev server (200, not 401, with no session cookie). All four
+  now take `user: AppUser = Depends(get_current_user)`, matching every
+  other authenticated route in this file and the app's own convention
+  (per-route dependency, not a router-level one). No dedicated 401 test
+  added — this codebase's existing convention is to exercise route
+  functions directly rather than through an HTTP `TestClient` (see
+  `test_signals_api.py`'s own docstring), so the auth wiring itself is
+  trusted to FastAPI's dependency injection the same way the two routes
+  built auth-gated from the start already were. 510/510 tests passing,
+  no regressions. ruff/black/mypy all clean.
 - **Frontend:** Configuration → Brokers → Active connections table now has
   a failover-target dropdown per connection, a "Failover now" button when
   one's configured, and a consecutive-failure count badge.

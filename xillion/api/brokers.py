@@ -43,7 +43,11 @@ async def list_broker_classes(request: Request):
 
 
 @router.get("/connections")
-async def list_connections(request: Request, db: AsyncSession = Depends(db_dep)):
+async def list_connections(
+    request: Request,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
     """List all configured broker connections with live status, plus
     (2026-08-29) failover config and health -- see xillion/engine/
     broker_health.py / broker_failover.py."""
@@ -187,7 +191,7 @@ _RECONNECT_HANDLERS = {
 
 
 @router.post("/connections/{name}/reconnect")
-async def reconnect_broker(name: str, request: Request):
+async def reconnect_broker(name: str, request: Request, user: AppUser = Depends(get_current_user)):
     """Trigger a reconnect for a specific broker connection. Used to be
     hardcoded to "Zerodha Primary" only -- Dhan's own Reconnect button in
     Settings > Active connections would 400. Dispatches by connection name
@@ -210,7 +214,7 @@ async def reconnect_broker(name: str, request: Request):
 
 
 @router.get("/connections/{name}/status")
-async def connection_status(name: str, request: Request):
+async def connection_status(name: str, request: Request, user: AppUser = Depends(get_current_user)):
     instances = getattr(request.app.state, "broker_instances", {})
     info = instances.get(name)
     if info is None:
@@ -235,7 +239,7 @@ async def connection_status(name: str, request: Request):
 
 
 @router.post("/refresh-instruments")
-async def refresh_instruments(request: Request):
+async def refresh_instruments(request: Request, user: AppUser = Depends(get_current_user)):
     """Manually refresh the shared `instrument` table (options strike
     resolution) from whichever broker is connected, instead of waiting for
     the 8:45 AM IST scheduled refresh. Useful right after connecting a new
