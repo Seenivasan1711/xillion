@@ -98,11 +98,29 @@ there, since your Funding Pips login never leaves this machine.
 
 ---
 
+## Historical data for backtesting (2026-08-29)
+
+This same bridge now also fulfils on-demand historical-bar requests, not
+just live orders — same poll loop, one more kind of work. From the xillion
+UI: **Settings → Data Providers → "MT5 Bridge (Gold)"**, then trigger a
+backfill the same way as any other provider (Coverage & backfill panel).
+The request queues in the backend's DB; this script picks it up on its next
+poll cycle, calls MT5's own `copy_rates_range()` against the real terminal,
+and reports the bars back. **Only works while this script is actually
+running** (and the terminal open/logged in) — if it's asleep or offline,
+the backend gives up after ~60s with a clear "bridge did not respond"
+error rather than hanging.
+
+If you want backtests to work even when you're away from this Mac (the
+scenario that prompted this): **"Alpha Vantage FX"**, a second, independent
+data provider, is a free (needs only a no-cost API key from
+alphavantage.co) daily-bar backup that doesn't go through this bridge at
+all — configure it under the same Data Providers tab. Between the two: this
+bridge for whenever you can leave your Mac running (real terminal data,
+no signup), Alpha Vantage for whenever you can't.
+
 ## Known limitations (v1, honestly scoped)
 
-- **No historical data feed.** Backtesting Gold needs its own data source —
-  not built yet. Live/paper trading works fully (real ticks from your real
-  terminal); backtesting doesn't, until that's built separately.
 - **Cancel only cancels a still-pending (unfilled) MT5 order.** Closing an
   already-open position happens through the strategy's normal exit logic
   (a fresh opposite-side order), not through the cancel path.

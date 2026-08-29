@@ -122,18 +122,32 @@ async def start_backfill(
     broker = None
     if caps.requires_broker:
         broker_instances = getattr(request.app.state, "broker_instances", {})
-        connected = next(
-            (
-                info["instance"]
-                for info in broker_instances.values()
-                if info.get("status") == "connected"
-            ),
-            None,
+        # required_broker_name pins this to the specific broker CLASS the
+        # provider actually needs (e.g. Kite -> "Zerodha") -- without it,
+        # "any connected broker" picks whichever happens to be first in
+        # dict order, which silently hands the wrong instance to a
+        # provider's fetch_bars() the moment more than one broker is
+        # connected at once. None (a provider that never declared one)
+        # keeps the original looser behaviour.
+        candidates = (
+            info
+            for info in broker_instances.values()
+            if info.get("status") == "connected"
+            and (
+                caps.required_broker_name is None
+                or info.get("broker_name") == caps.required_broker_name
+            )
         )
+        connected = next((info["instance"] for info in candidates), None)
         if connected is None:
+            needed = (
+                f"a connected {caps.required_broker_name} broker"
+                if caps.required_broker_name
+                else "a connected broker"
+            )
             raise HTTPException(
                 422,
-                f"'{body.provider_name}' needs a connected broker — connect one under Settings → Brokers",
+                f"'{body.provider_name}' needs {needed} — connect one under Settings → Brokers",
             )
         broker = connected
 

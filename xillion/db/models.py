@@ -717,6 +717,38 @@ class MT5BridgeTick(Base):
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class MT5HistoricalRequest(Base):
+    """Gold Lane B1 backtest data source (2026-08-29): the same "queue in
+    the DB, the local bridge polls and fulfils it" shape MT5PendingOrder
+    already uses for live orders, extended to on-demand historical OHLC --
+    the MT5 terminal's own history is only reachable from the machine
+    actually running it, same reason live orders have to be queued rather
+    than called directly. data_providers/mt5_bridge_history.py enqueues a
+    row here and polls for it to reach DONE/FAILED; the bridge (bridge.py)
+    picks it up on its normal poll cycle, calls MT5's own
+    copy_rates_range(), and reports back via POST /mt5-bridge/
+    historical-report. bars_json is a temporary hand-off, not the durable
+    store -- once fetch_bars() returns the parsed bars, BarWarehouse
+    persists them into the warehouse DB's own `bar` table the same as
+    every other provider, so this row's JSON isn't needed again after
+    that (kept for audit rather than deleted)."""
+
+    __tablename__ = "mt5_historical_request"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    broker_connection_name: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    timeframe: Mapped[str] = mapped_column(Text, nullable=False)
+    from_date: Mapped[str] = mapped_column(Text, nullable=False)  # ISO date
+    to_date: Mapped[str] = mapped_column(Text, nullable=False)  # ISO date
+    # PENDING (queued, bridge hasn't picked it up) | DONE | FAILED
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="PENDING")
+    bars_json: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    requested_at: Mapped[str] = mapped_column(Text, nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(Text)
+
+
 # ── System logs ──────────────────────────────────────────────────────────────
 
 

@@ -19,7 +19,13 @@ from sqlalchemy import select
 
 from xillion.api.deps import get_current_user
 from xillion.core.events import Tick
-from xillion.db.models import AppUser, MT5BridgeState, MT5BridgeTick, MT5PendingOrder
+from xillion.db.models import (
+    AppUser,
+    MT5BridgeState,
+    MT5BridgeTick,
+    MT5HistoricalRequest,
+    MT5PendingOrder,
+)
 from xillion.db.session import get_session_factory
 
 router = APIRouter(prefix="/mt5-bridge", tags=["mt5-bridge"])
@@ -70,9 +76,39 @@ async def poll(connection_name: str, request: Request, user: AppUser = Depends(g
             if row.status == "PENDING":
                 row.status = "ACKED"
                 row.updated_at = datetime.now(UTC).isoformat()
+
+        # Gold Lane B1 backtest data source (2026-08-29): same PENDING-pickup
+        # shape as the orders above, for on-demand historical OHLC requests
+        # (data_providers/mt5_bridge_history.py). Deliberately NOT marked
+        # ACKED here the way orders are -- an order must never be executed
+        # twice, but a historical fetch is idempotent (re-running
+        # copy_rates_range for the same range is harmless), so leaving it
+        # PENDING until the bridge's own historical-report call marks it
+        # DONE/FAILED means a bridge restart mid-fetch just re-fetches
+        # instead of leaving the request stuck forever.
+        hist_result = await db.execute(
+            select(MT5HistoricalRequest).where(
+                MT5HistoricalRequest.broker_connection_name == connection_name,
+                MT5HistoricalRequest.status == "PENDING",
+            )
+        )
+        historical_out = [
+            {
+                "request_id": r.id,
+                "symbol": r.symbol,
+                "timeframe": r.timeframe,
+                "from_date": r.from_date,
+                "to_date": r.to_date,
+            }
+            for r in hist_result.scalars().all()
+        ]
         await db.commit()
 
-    return {"orders": orders_out, "subscribe_symbols": broker.subscribed_symbols()}
+    return {
+        "orders": orders_out,
+        "subscribe_symbols": broker.subscribed_symbols(),
+        "historical_requests": historical_out,
+    }
 
 
 class ReportFill(BaseModel):
@@ -195,6 +231,55 @@ async def report(
                 ask=_dec(tick.ask) if tick.ask else None,
             )
         )
+
+    return {"status": "ok"}
+
+
+class ReportBar(BaseModel):
+    ts: str  # ISO datetime, bar open
+    open: str
+    high: str
+    low: str
+    close: str
+    volume: int = 0
+
+
+class HistoricalReportBody(BaseModel):
+    request_id: int
+    status: str  # DONE | FAILED
+    bars: list[ReportBar] = []
+    error_message: str | None = None
+
+
+@router.post("/historical-report")
+async def historical_report(
+    body: HistoricalReportBody,
+    user: AppUser = Depends(get_current_user),
+):
+    """The bridge calls this once per historical request it picks up from
+    /poll's historical_requests list, after calling MT5's own
+    copy_rates_range(). Gold Lane B1 backtest data source (2026-08-29) --
+    see MT5HistoricalRequest's own docstring. Unlike /report above, this
+    doesn't touch a live broker instance -- a historical fetch has nothing
+    to do with the in-memory tick/order queues, it's purely a DB hand-off
+    to data_providers/mt5_bridge_history.py, which is polling this same
+    row for it to reach DONE/FAILED."""
+    import json
+
+    factory = get_session_factory()
+    async with factory() as db:
+        row = await db.get(MT5HistoricalRequest, body.request_id)
+        if row is None:
+            # Stale report for a request this backend no longer tracks
+            # (e.g. restarted since the bridge picked it up) -- same
+            # "ignore, don't crash" stance /report already takes for an
+            # unknown fill.
+            return {"status": "ok"}
+        row.status = body.status
+        row.bars_json = json.dumps([b.model_dump() for b in body.bars])
+        row.error_message = body.error_message
+        row.completed_at = datetime.now(UTC).isoformat()
+        await db.commit()
 
     return {"status": "ok"}
 

@@ -44,9 +44,23 @@
 
 ## Gold Lane B1 (XAUUSD/Funding Pips MT5) specifics
 
-| Item | Why deferred | Revisit when |
-|---|---|---|
-| Historical Gold (XAUUSD) data source for backtesting | Lane B1's broker+bridge (`brokers/mt5_funding_pips.py`, `mt5_bridge/`) only covers live/paper — it streams real-time ticks from the Wine MT5 terminal, nothing historical. Building this needs its own design pass, not a quick add-on. Candidate approaches to weigh when this is picked up: **(a)** extend `mt5_bridge/bridge.py` to also call MT5's own `copy_rates_range()` once, on demand, against the terminal's built-in history (same terminal already required for live trading, likely the least-new-infra option, but ties backtesting to the Mac+Wine bridge being up) — **(b)** a free external source (e.g. Dukascopy historical tick/bar export, or a free-tier API like Alpha Vantage/Twelve Data for daily XAUUSD) cached the same way NSE Bhavcopy is cached today (`BarWarehouse`, local SQLite) — **(c)** paid data vendor (last resort, costs money, avoid per the low-budget constraint). None of these are started; this is a research+build task for whenever Gold backtesting is actually wanted. | Rakesh wants to backtest the Gold strategy before/alongside running it live via the bridge |
+**Historical Gold (XAUUSD) data source for backtesting — built 2026-08-29,
+no longer deferred.** Rakesh picked candidates (a) and (b) together
+(explicitly declined (c), the paid option) — see "Gold Lane B1 backtest
+data source" under CP15/Track B in `docs/status/task-tracker.md` for the
+full writeup:
+- **(a)** `mt5_bridge/bridge.py` extended to also fulfil on-demand
+  historical requests via MT5's own `copy_rates_range()`, using the same
+  DB-queue-and-poll shape already used for live orders (migration 019) —
+  registered as the `MT5 Bridge (Gold)` data provider.
+- **(b)** `data_providers/alpha_vantage_fx.py`, a free (API-key-only)
+  daily-bar backup for when the bridge itself isn't reachable — registered
+  as the `Alpha Vantage FX` data provider.
+- Also requested: a persistent "local agent" connection so backtests work
+  even away from the Mac. This is exactly what the bridge's existing
+  poll-out (not poll-in) architecture already provides — no separate
+  mechanism was needed, just extending the one channel that already
+  exists to carry historical requests too.
 
 ## Crypto specifics
 

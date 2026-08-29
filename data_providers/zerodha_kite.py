@@ -33,6 +33,7 @@ class KiteHistoricalProvider(HistoricalDataProvider):
         supports_forex=False,
         requires_credentials=False,  # reuses the Zerodha broker's own credentials
         requires_broker=True,
+        required_broker_name="Zerodha",
         max_lookback_days=365,
     )
 

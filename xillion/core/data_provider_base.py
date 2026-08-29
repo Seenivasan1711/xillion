@@ -34,6 +34,19 @@ class DataProviderCapabilities:
     requires_broker: bool = (
         False  # True for providers that piggyback on a connected Broker (e.g. Kite)
     )
+    # Which broker CLASS this provider needs (Broker.name, e.g. "Zerodha",
+    # "MT5 Funding Pips") when requires_broker is True -- None means "any
+    # connected broker will do" (the original, looser behaviour, kept as
+    # the default so a provider that doesn't care isn't forced to declare
+    # one). Added 2026-08-29 alongside the second requires_broker provider
+    # (MT5 bridge history): with only Kite ever using requires_broker, "just
+    # take whichever broker happens to be connected" was silently correct
+    # by coincidence, not by design -- with two such providers, a session
+    # with both Zerodha and MT5 connected could hand Kite's fetch_bars() the
+    # MT5 broker instance (dict iteration order, not anything provider-
+    # aware), which would fail confusingly rather than clearly. See
+    # xillion/api/data.py's start_backfill().
+    required_broker_name: str | None = None
     max_lookback_days: int | None = None  # None = no known hard limit
     # True when one fetch_all_bars_for_day() call returns every instrument's
     # bar for that exchange/day (e.g. NSE bhavcopy's whole-market ZIP), so

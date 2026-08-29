@@ -13,26 +13,24 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-29 (product type for both Zerodha and Dhan made
-UI-configurable per connection, rather than requiring a one-time decision
-from Rakesh — see Done below; M01 funds reconciliation built, one
-watch-item caveat added)
+**Last updated:** 2026-08-29 (Gold Lane B1 backtest data source built —
+MT5 bridge extended for on-demand history, plus a free Alpha Vantage
+backup; product type for both Zerodha and Dhan made UI-configurable per
+connection, rather than requiring a one-time decision from Rakesh; M01
+funds reconciliation built, one watch-item caveat added — see Done below)
 
 ---
 
 ## Open
 
-- [ ] **Decide how Gold (XAUUSD) backtesting should work — no historical
-      data source exists yet.** The MT5/Funding Pips broker+bridge built
-      2026-08-28 only covers live/paper trading (real-time ticks from your
-      Wine terminal); there's no way to backtest the Gold strategy today.
-      Three candidate approaches are written up in
-      `docs/status/deferred-backlog.md` ("Gold Lane B1 specifics") — take a
-      look when you're ready to think about this, no rush since it's just
-      a design/build task, not blocked on anything external.
-      **Blocks:** backtesting Gold before/alongside running it live.
-      **Cost:** none to decide; possibly a small one depending which
-      approach you pick.
+- [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
+      backup data source.** Only needed if you want backtests to work when
+      your Mac/bridge isn't reachable — the primary path (the MT5 bridge
+      itself) needs no signup at all. Get one free at
+      alphavantage.co/support/#api-key (no card, ~20 seconds), then enter
+      it under Settings → Data Providers → "Alpha Vantage FX".
+      **Blocks:** nothing — the MT5 bridge path already works without
+      this. **Cost:** free.
 
 - [ ] **Kite Connect developer app — LOW PRIORITY, LATER.** Register at
       developers.kite.trade, get API key + secret. Needs a Zerodha account
@@ -64,6 +62,22 @@ watch-item caveat added)
 
 ## Done
 
+- [x] **Gold Lane B1 backtest data source — built 2026-08-29, per your
+      decision to go with (a) and (b) together, plus a persistent "local
+      agent" connection.** Two new data providers under Settings → Data
+      Providers: **"MT5 Bridge (Gold)"** (no signup — extends the same
+      local bridge you already run for live trading to also fulfil
+      on-demand historical requests through MT5's own terminal history,
+      only works while the bridge is actually running) and **"Alpha
+      Vantage FX"** (a free-API-key backup for when it isn't — see the
+      Open item above). The "local agent, works even when I'm away" idea
+      turned out to already exist: the bridge already polls OUT to the
+      backend (never the other way — that's why it works through your
+      Mac's NAT/firewall with zero port-forwarding), so extending that
+      same channel to carry historical requests was all that was needed,
+      not a new mechanism. Trigger a backfill the same way as any other
+      provider (Coverage & backfill panel) once you've got Gold ticks
+      flowing and want history to backtest against.
 - [x] **Zerodha and Dhan product type made UI-configurable per connection,
       2026-08-29 — no decision needed from you, ever, going forward.**
       Rakesh's own request: rather than a one-time hardcoded decision

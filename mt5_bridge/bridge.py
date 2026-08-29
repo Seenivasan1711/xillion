@@ -21,6 +21,7 @@ Usage:
 import os
 import sys
 import time
+from datetime import UTC, datetime
 
 import httpx
 
@@ -48,6 +49,17 @@ _ORDER_TYPE_MAP = {
     ("SELL", "MARKET"): mt5.ORDER_TYPE_SELL,
     ("BUY", "LIMIT"): mt5.ORDER_TYPE_BUY_LIMIT,
     ("SELL", "LIMIT"): mt5.ORDER_TYPE_SELL_LIMIT,
+}
+
+# Gold Lane B1 backtest data source (2026-08-29) -- matches
+# brokers/mt5_funding_pips.py's own supported_timeframes list.
+_TIMEFRAME_MAP = {
+    "1m": mt5.TIMEFRAME_M1,
+    "5m": mt5.TIMEFRAME_M5,
+    "15m": mt5.TIMEFRAME_M15,
+    "30m": mt5.TIMEFRAME_M30,
+    "1h": mt5.TIMEFRAME_H1,
+    "1d": mt5.TIMEFRAME_D1,
 }
 
 
@@ -249,6 +261,61 @@ def _collect_positions() -> list[dict]:
     return out
 
 
+def _fetch_historical(req: dict) -> dict:
+    """req: one item from GET /mt5-bridge/poll's "historical_requests" list.
+    Returns a report dict for POST /mt5-bridge/historical-report. Gold Lane
+    B1 backtest data source (2026-08-29) -- see data_providers/
+    mt5_bridge_history.py's own module docstring for the full picture."""
+    timeframe = _TIMEFRAME_MAP.get(req["timeframe"])
+    if timeframe is None:
+        return {
+            "request_id": req["request_id"],
+            "status": "FAILED",
+            "error_message": f"unsupported timeframe: {req['timeframe']!r}",
+        }
+
+    symbol = req["symbol"]
+    if not mt5.symbol_select(symbol, True):
+        return {
+            "request_id": req["request_id"],
+            "status": "FAILED",
+            "error_message": f"symbol_select({symbol!r}) failed: {mt5.last_error()}",
+        }
+
+    from_dt = datetime.fromisoformat(req["from_date"]).replace(tzinfo=UTC)
+    # copy_rates_range's `date_to` is exclusive of that exact instant in
+    # practice for daily bars unless pushed to end-of-day -- add a day so
+    # the requested to_date's own bar is actually included.
+    to_dt = datetime.fromisoformat(req["to_date"]).replace(
+        hour=23, minute=59, second=59, tzinfo=UTC
+    )
+
+    rates = mt5.copy_rates_range(symbol, timeframe, from_dt, to_dt)
+    if rates is None:
+        return {
+            "request_id": req["request_id"],
+            "status": "FAILED",
+            "error_message": f"copy_rates_range returned nothing: {mt5.last_error()}",
+        }
+
+    bars = [
+        {
+            "ts": datetime.fromtimestamp(int(r["time"]), tz=UTC).isoformat(),
+            "open": str(r["open"]),
+            "high": str(r["high"]),
+            "low": str(r["low"]),
+            "close": str(r["close"]),
+            # tick_volume (number of price changes in the bar) is what MT5
+            # actually has for a CFD/forex symbol like Gold -- real_volume
+            # (actual traded contracts) is broker-dependent and usually 0
+            # for Funding Pips' feed. Documented here, not silently assumed.
+            "volume": int(r["tick_volume"]),
+        }
+        for r in rates
+    ]
+    return {"request_id": req["request_id"], "status": "DONE", "bars": bars}
+
+
 def _collect_margins() -> dict:
     info = mt5.account_info()
     if info is None:
@@ -291,6 +358,14 @@ def run() -> None:
                 session.post(
                     "/mt5-bridge/report", report_body, params={"connection_name": CONNECTION_NAME}
                 )
+
+            # Gold Lane B1 backtest data source (2026-08-29) -- same poll
+            # cycle, a second independent kind of work. Each request is
+            # reported individually (not batched) so one bad symbol/range
+            # doesn't block the others behind it.
+            for req in poll.get("historical_requests", []):
+                report = _fetch_historical(req)
+                session.post("/mt5-bridge/historical-report", report)
         except Exception as exc:  # noqa: BLE001 -- a bridge crash shouldn't be silent, but also
             # shouldn't take the loop down; log and keep polling.
             print(f"[bridge] error this cycle, will retry: {exc}", file=sys.stderr)

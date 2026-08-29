@@ -5,8 +5,19 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: product type (MIS/NRML for Zerodha,
-INTRADAY/MARGIN for Dhan) made UI-configurable per connection**, Rakesh's
+**Current position:** **2026-08-29: Gold Lane B1's backtest data source
+built** -- Rakesh's decision to combine both deferred-backlog candidates
+(extend the MT5 bridge for on-demand history, plus a free Alpha Vantage
+backup) rather than pick one, plus a "local agent" connection so backtests
+work even away from his Mac, which turned out to need no new mechanism at
+all -- the bridge's existing poll-out architecture already provides it.
+Two new data providers (`MT5 Bridge (Gold)`, `Alpha Vantage FX`), new
+`mt5_historical_request` queue (migration 019), and a real pre-existing
+bug fixed along the way (broker-backed data providers could silently get
+handed the wrong connected broker). See "Gold Lane B1 backtest data
+source" under Track B below. Before that, same day: product type
+(MIS/NRML for Zerodha,
+INTRADAY/MARGIN for Dhan) made UI-configurable per connection, Rakesh's
 own request rather than a one-time hardcoded decision -- new dropdown on
 each broker's credential form (Configuration -> Brokers), persisted the
 same encrypted way as every other credential field, defaulting to the
@@ -1811,7 +1822,7 @@ Each asset runs the same 6 stages — see
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
 | **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
-| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | 🟡 broker+bridge built, unverified | ⬜ | ⬜ | ⬜ | ⬜ | 🟡 |
+| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | 🟡 broker+bridge built, unverified | 🟡 data source built 2026-08-29, not yet run against real data | ⬜ | ⬜ | ⬜ | 🟡 |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -1866,11 +1877,99 @@ Infrastructure each asset needs before its pipeline can start:
   currency field, real FX lot-size math beyond the micro-lot convention,
   **Funding Pips drawdown rules as hard risk limits** (breaching one
   instantly fails the account — see `architecture/risk-and-compliance.md`
-  Part C.3), a historical Gold data source (Stage 2 needs it, this file
-  doesn't provide it), and the actual Wine/Mac bridge setup + a real MT5
+  Part C.3), and the actual Wine/Mac bridge setup + a real MT5
   account to verify any of this against — none of that exists in this
   sandbox. `mt5_bridge/README.md` has the setup steps but they're
-  unverified against a real Mac+Wine environment.
+  unverified against a real Mac+Wine environment. **Historical Gold data
+  source (Stage 2) built 2026-08-29 — see "Gold Lane B1 backtest data
+  source" below.**
+
+**Gold Lane B1 backtest data source, 2026-08-29.** Rakesh's decision
+(asked directly, since this genuinely needed a design pick, not something
+to guess at): both candidate approaches from `deferred-backlog.md`
+together, (a) extending the bridge and (b) a free external backup — plus a
+request for a persistent "local agent" connection (his own framing,
+comparing it to Azure/Testsigma local agents) so backtests work even away
+from the Mac.
+- **(a) MT5 bridge extended for on-demand history.** New
+  `mt5_historical_request` table (migration 019) reuses the exact same
+  "queue a row in the DB, the local bridge polls and fulfils it" shape
+  `mt5_pending_order` already uses for live orders — the MT5 terminal's
+  history, like its order execution, only exists on the machine actually
+  running it.
+  [xillion/api/mt5_bridge.py](../../xillion/api/mt5_bridge.py)'s `poll()`
+  now also returns pending historical requests (left PENDING rather than
+  flipped to an intermediate state the way orders are, since a history
+  fetch is idempotent — a bridge restart mid-fetch just re-fetches on its
+  next cycle instead of the request getting stuck); new
+  `POST /historical-report` receives the fetched bars.
+  [mt5_bridge/bridge.py](../../mt5_bridge/bridge.py) calls MT5's own
+  `copy_rates_range()` each poll cycle for any pending request.
+  New [data_providers/mt5_bridge_history.py](../../data_providers/mt5_bridge_history.py)
+  (`MT5BridgeHistoryProvider`) is the actual `HistoricalDataProvider` a
+  backfill request goes through — it enqueues the request and polls (2s
+  interval, 60s timeout) for the bridge to fulfil it, so this plugs into
+  the EXACT SAME `BarWarehouse`/Coverage-and-backfill machinery every
+  other provider already uses, no new UI needed (confirmed: the existing
+  Data Providers panel is driven entirely by the plugin registry). If the
+  bridge is offline, this fails with a clear "did not respond, is your
+  bridge running?" error rather than hanging.
+- **"Local agent" framing — didn't need a new mechanism.** The bridge
+  already polls OUT to the backend on its own schedule (never the reverse
+  — that's specifically why it works through NAT/a home firewall with zero
+  inbound port-forwarding on Rakesh's Mac). Extending that one existing
+  channel to also carry historical requests, rather than inventing a
+  second connection type, is what makes this already work "even when
+  away" — the backtest just has to wait for the Mac to be reachable and
+  the bridge running, same as live trading already does.
+- **(b) Alpha Vantage FX, a free backup.** New
+  [data_providers/alpha_vantage_fx.py](../../data_providers/alpha_vantage_fx.py)
+  (`AlphaVantageFXProvider`) — daily XAUUSD bars via Alpha Vantage's
+  FX_DAILY endpoint, needs only a free API key (no card). Verified live
+  against Alpha Vantage's real API that `FX_DAILY?from_symbol=XAU&
+  to_symbol=USD` is accepted (not an invalid-parameter error, just gated
+  on a real key) and that the numbered-field response convention
+  ("1. open" etc) is real (confirmed via `TIME_SERIES_DAILY`'s own demo
+  endpoint, which does return real data). **Honest, stated gap:** the
+  exact FX-specific top-level JSON key and whether a volume field exists
+  at all weren't independently confirmed against a live authenticated FX
+  response (the demo key doesn't cover FX) — parsed defensively (tries the
+  documented key, falls back to the equity-style key name, treats missing
+  volume as 0) rather than assumed correct, and raises a clear error if
+  neither key is present instead of silently returning nothing.
+- **Real bug found and fixed along the way, not specific to Gold:** adding
+  this as a SECOND `requires_broker` data provider (alongside the existing
+  Kite one) surfaced that `xillion/api/data.py`'s `start_backfill()` broker
+  selection just took whichever connected broker happened to be first in
+  dict iteration order — correct only by coincidence while Kite/Zerodha
+  was the only such pairing that existed. New
+  `DataProviderCapabilities.required_broker_name` pins each provider to
+  the specific broker CLASS it actually needs (`MT5BridgeHistoryProvider`
+  -> `"MT5 Funding Pips"`, `KiteHistoricalProvider` -> `"Zerodha"`); a
+  session with both Zerodha and MT5 connected at once would otherwise have
+  silently handed Kite's `fetch_bars()` the MT5 broker instance.
+- **Verify:** 7 new tests in `test_mt5_historical.py` (poll returns/
+  excludes/isolates pending requests correctly, leaves them PENDING not
+  ACKED, historical-report marks DONE/FAILED, unknown request id doesn't
+  crash) + 5 in `test_mt5_bridge_history_provider.py` (no-broker error,
+  enqueue-then-fulfil round trip via a simulated concurrent "bridge",
+  FAILED propagates the bridge's own error message, a genuine timeout when
+  nothing responds) + 8 in `test_alpha_vantage_fx.py` (documented key
+  parses, defensive fallback key parses, date-range filtering, symbol
+  splitting, rate-limit `Note` raises clearly, intraday timeframe
+  rejected, missing key/short symbol rejected) + 3 in
+  `test_backfill_broker_selection.py` (a pinned provider gets its own
+  broker even when a different one is first in dict order, an unpinned
+  provider keeps the old loose behaviour, a clear 422 when only the wrong
+  broker is connected). 575/575 tests passing, no regressions.
+  ruff/black/mypy all clean; plugin discovery confirmed clean locally —
+  both "MT5 Bridge (Gold)" and "Alpha Vantage FX" load with zero errors.
+  Migration 019 applied to the real Supabase DB, confirmed via
+  `alembic current` -> 019. **Not yet run against real data** — no real
+  Mac+Wine bridge or Alpha Vantage key exists in this sandbox to actually
+  fetch a real Gold bar with; the plumbing is proven correct against a
+  simulated bridge/stubbed HTTP response, not a live run.
+
 - **Gold Lane B2 (MCX)** — ⬜ needs: MCX instrument/expiry resolution
   (monthly, 5th), reuses the Lane A broker adapter (Dhan/Zerodha both
   support MCX) — cheaper to build than B1 since no new broker is needed,
