@@ -13,10 +13,10 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-29 (M01 funds reconciliation built, one watch-item
-caveat added; Dhan product-type decision made and built — MARGIN, Forever
-Orders wired; the Zerodha half of that question split out as its own
-still-open item)
+**Last updated:** 2026-08-29 (product type for both Zerodha and Dhan made
+UI-configurable per connection, rather than requiring a one-time decision
+from Rakesh — see Done below; M01 funds reconciliation built, one
+watch-item caveat added)
 
 ---
 
@@ -46,23 +46,6 @@ still-open item)
       **Blocks:** the Zerodha-specific live path, Options S4 going live.
       **Cost:** ₹500/mo.
 
-- [ ] **Decide Zerodha's product type for multi-day option holds (MIS vs.
-      NRML) — not urgent, flagging for awareness.** `brokers/zerodha.py`
-      still hardcodes every order (and its GTT legs) to `MIS` (intraday
-      margin) — an intraday product would normally force-square-off a
-      multi-day credit-spread/condor position same day at the broker,
-      before expiry. **Dhan's own version of this decision was made
-      2026-08-29 (see Done below) — this item is now Zerodha-only, and
-      the two aren't linked: Dhan's GTT (Forever Orders) genuinely needed
-      a product-type change to work at all (its API rejects INTRADAY
-      outright); Zerodha's GTT already works fine under MIS today — this
-      is purely about whether multi-day holds themselves should survive
-      Zerodha's own intraday square-off.** **Blocks:** nothing today
-      (paper mode isn't affected the same way) — decide before the
-      Zerodha live path (Options S4).
-      **Cost:** none to decide; whatever margin difference NRML carries
-      vs. MIS once you do go live.
-
 - [ ] **(Optional) free cloud LLM key** — Gemini or Groq free tier, for
       prosper-engine's AI-confidence hook.
       **Deferred — Rakesh's explicit call, 2026-08-25 ("keep for later").**
@@ -81,6 +64,20 @@ still-open item)
 
 ## Done
 
+- [x] **Zerodha and Dhan product type made UI-configurable per connection,
+      2026-08-29 — no decision needed from you, ever, going forward.**
+      Rakesh's own request: rather than a one-time hardcoded decision
+      (MIS/NRML for Zerodha, INTRADAY/MARGIN for Dhan), both are now a
+      dropdown on the credential form (Configuration → Brokers → the
+      Zerodha/Dhan card), stored the same encrypted way as every other
+      credential field, defaulting to MIS/MARGIN respectively (matching
+      the previous hardcoded behaviour, so an existing connection that
+      never opens the dropdown keeps behaving exactly as before). Switch
+      it anytime, per connection, without a code change or redeploy. Same
+      logged-in-UI caveat as every other Configuration-panel change this
+      session — the dropdowns themselves haven't been visually confirmed
+      (Claude won't log in itself), though `tsc --noEmit`/`vite build`/the
+      full backend test suite are all clean.
 - [x] **M01 funds reconciliation (broker P&L vs. computed P&L) — built
       2026-08-29, needs no decision from you, just a watch item.**
       `Broker.get_realised_pnl_today()` now implemented for both brokers;
@@ -106,7 +103,9 @@ still-open item)
       rejected in practice, the software stop (already the primary
       protection mechanism regardless) is unaffected — worth watching for
       the actual API response the first time this runs live/paper on Dhan
-      with GTT enabled.
+      with GTT enabled. **Same-day follow-up:** this default is now
+      switchable per connection via the UI rather than fixed in code —
+      see the entry above.
 - [x] **Dhan API access token + client ID — connected live on Render,
       2026-08-26.** Entered via Settings → Brokers → Dhan card, stored
       encrypted in the DB. **Same day, a real production bug was found and

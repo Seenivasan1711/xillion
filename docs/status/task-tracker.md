@@ -5,7 +5,14 @@
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
 **Last updated:** 2026-08-29
-**Current position:** **2026-08-29: Butterfly Weekly built — the third
+**Current position:** **2026-08-29: product type (MIS/NRML for Zerodha,
+INTRADAY/MARGIN for Dhan) made UI-configurable per connection**, Rakesh's
+own request rather than a one-time hardcoded decision -- new dropdown on
+each broker's credential form (Configuration -> Brokers), persisted the
+same encrypted way as every other credential field, defaulting to the
+previous hardcoded values so an existing connection behaves unchanged
+until the dropdown is touched. See "Product type made UI-configurable"
+under CP15 below. Before that, same day: **Butterfly Weekly built — the third
 multi-leg strategy and the first DEBIT structure**, closing out
 "Blocked-on-you #7"'s last unbuilt structure (credit spread + condor were
 already done). New split-middle-leg design for a 1:2:1 ratio's shared
@@ -1753,6 +1760,46 @@ response at all; there wasn't even periodic health polling.
   else built this way this session: the symbol-compatibility reasoning is
   sound from reading both adapters' code, but has never actually placed a
   real order through Dhan for a position opened via Zerodha.
+
+**Product type made UI-configurable, 2026-08-29.** Rakesh's own request,
+prompted by seeing the "decide Zerodha's product type" item in
+manual-tasks.md: rather than a one-time hardcoded decision the way Dhan's
+was made earlier the same day, make BOTH brokers' product type a setting
+he can change himself from the app, any time, no code change or redeploy.
+- **`brokers/zerodha.py`/`brokers/dhan.py`:** both had a single hardcoded
+  product type (`self._kite.PRODUCT_MIS`, `_PRODUCT_TYPE = "MARGIN"`) used
+  at every `place_order()`/`place_protective_gtt()` call site. New
+  `_product_type()` instance method on each reads `self._credentials.get(
+  "product_type")` (already the per-connection dict every other credential
+  field lives in -- `connect()` stores whatever `xillion.auth.credstore`
+  hands it), falling back to the original hardcoded default (MIS / MARGIN)
+  if unset or set to something invalid -- an existing connection that
+  never opens the new dropdown keeps behaving exactly as before, verified
+  by the pre-existing tests passing unchanged.
+- **No new DB table or migration needed** -- `BrokerCredential`'s
+  encrypted payload is already a generic JSON blob per connection
+  (`xillion/auth/credstore.py`), so `product_type` is just one more key in
+  the same dict `api_key`/`client_id`/etc. already live in.
+  `xillion/api/settings.py`'s `ZerodhaCredentialsRequest`/
+  `DhanCredentialsRequest` gained a `Literal["MIS","NRML"]` /
+  `Literal["INTRADAY","MARGIN"]` field (defaults MIS/MARGIN); the GET
+  status endpoints now echo the saved value back so the frontend dropdown
+  reflects what's actually configured, not just what the form happens to
+  hold.
+- **Frontend:** Configuration -> Brokers -> Zerodha/Dhan cards each get a
+  "Product type" `<select>` alongside the existing credential fields,
+  prefilled from the GET status response on load and after every save.
+- **Verify:** 7 new broker-level unit tests (`_product_type()` default/
+  configured/invalid-falls-back-to-default for both brokers, plus a
+  request-shape test proving the configured value actually reaches the
+  GTT/place_order call) + a new `test_zerodha_settings.py` (Zerodha had no
+  Settings-API test file at all before this) and an addition to
+  `test_dhan_settings.py`, both proving the field round-trips through the
+  real encrypted-DB storage path, not just the Pydantic model. 552/552
+  tests passing, no regressions. ruff/black/mypy all clean; frontend `tsc
+  --noEmit` and `vite build` both clean. Same logged-in-UI caveat as every
+  other Configuration-panel change this session -- the dropdowns
+  themselves weren't visually confirmed against a live login.
 
 ---
 

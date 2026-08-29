@@ -29,14 +29,17 @@ success response structure... but usually it returns accessToken") — this
 plugin handles that defensively (tries a few plausible key names) and
 raises a clear, actionable error rather than failing silently if none match.
 
-Product type is hardcoded to MARGIN (Dhan's NRML-equivalent carry-forward
-product for F&O -- Dhan has no NRML label; MARGIN is the one that isn't
-intraday-only per the SDK's own constants) for every order, and exchange/
-security are resolved from Dhan's own scrip master by symbol --
-OrderRequest carries neither field explicitly, matching the same
-limitation zerodha.py already has (it hardcodes NSE + MIS product type).
+Product type is configurable per connection (Settings -> Brokers -> Dhan
+card, 2026-08-29 -- previously hardcoded) between INTRADAY and MARGIN
+(Dhan's NRML-equivalent carry-forward product for F&O -- Dhan has no NRML
+label; MARGIN is the one that isn't intraday-only per the SDK's own
+constants), defaulting to MARGIN if unset. Exchange/security are resolved
+from Dhan's own scrip master by symbol -- OrderRequest carries neither
+field explicitly, matching the same limitation zerodha.py already has (it
+resolves NSE + a configurable product type the same way).
 
-**2026-08-29, changed from INTRADAY, Rakesh's explicit decision:** the
+**2026-08-29, default changed from INTRADAY, Rakesh's explicit decision
+(now overridable per connection via the UI, same day):** the
 credit spread and iron condor strategies hold positions for several days
 until expiry; INTRADAY would have been auto-squared-off same-day by Dhan,
 silently breaking both strategies the moment this went live. MARGIN is
@@ -321,6 +324,15 @@ class DhanBroker(Broker):
         "CANCELLED": OrderStatus.CANCELLED,
         "EXPIRED": OrderStatus.CANCELLED,
     }
+    _VALID_PRODUCT_TYPES = ("INTRADAY", "MARGIN")
+
+    def _product_type(self) -> str:
+        """Configurable per connection (Settings -> Brokers -> Dhan card)
+        -- see this module's own docstring. Defaults to MARGIN if unset or
+        set to something this codebase doesn't actually support -- the
+        safer choice for multi-day option holds."""
+        value = self._credentials.get("product_type")
+        return value if value in self._VALID_PRODUCT_TYPES else _PRODUCT_TYPE
 
     async def place_order(self, request: OrderRequest) -> Order:
         resolved = await self._resolve(request.symbol)
@@ -333,7 +345,7 @@ class DhanBroker(Broker):
                 transaction_type=request.side.value,
                 quantity=request.quantity,
                 order_type=self._ORDER_TYPE_MAP[request.order_type],
-                product_type=_PRODUCT_TYPE,
+                product_type=self._product_type(),
                 price=float(request.price) if request.price is not None else 0,
                 trigger_price=float(request.stop_price) if request.stop_price is not None else 0,
                 validity=self._VALIDITY_MAP.get(request.tif, "DAY"),
@@ -663,7 +675,7 @@ class DhanBroker(Broker):
                 security_id=resolved.security_id,
                 exchange_segment=resolved.exchange_segment,
                 transaction_type=side.value,
-                product_type=_PRODUCT_TYPE,
+                product_type=self._product_type(),
                 order_type=self._GTT_ORDER_TYPE,
                 quantity=quantity,
                 price=float(stop_price),

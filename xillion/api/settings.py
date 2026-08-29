@@ -2,6 +2,8 @@
 Settings endpoints — manage broker credentials, app preferences.
 """
 
+from typing import Literal
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -47,6 +49,10 @@ class ZerodhaCredentialsRequest(BaseModel):
     user_id: str
     password: str
     totp_secret: str
+    # 2026-08-29: previously hardcoded to MIS in brokers/zerodha.py -- see
+    # that file's own docstring. MIS auto-squares-off same-day; NRML is
+    # the carry-forward product multi-day option holds actually need.
+    product_type: Literal["MIS", "NRML"] = "MIS"
 
 
 class ZerodhaCredentialsStatus(BaseModel):
@@ -54,6 +60,7 @@ class ZerodhaCredentialsStatus(BaseModel):
     api_key_preview: str | None = None
     user_id: str | None = None
     updated_at: str | None = None
+    product_type: str = "MIS"
 
 
 @router.get("/zerodha", response_model=ZerodhaCredentialsStatus)
@@ -72,6 +79,7 @@ async def get_zerodha_status(
         api_key_preview=f"{api_key[:4]}…{api_key[-4:]}" if len(api_key) >= 8 else "set",
         user_id=creds.get("user_id"),
         updated_at=updated_at,
+        product_type=creds.get("product_type") or "MIS",
     )
 
 
@@ -135,12 +143,18 @@ class DhanCredentialsRequest(BaseModel):
     access_token: str
     pin: str = ""
     totp_secret: str = ""
+    # 2026-08-29: previously hardcoded to MARGIN in brokers/dhan.py -- see
+    # that file's own docstring. INTRADAY auto-squares-off same-day; MARGIN
+    # is Dhan's NRML-equivalent carry-forward product multi-day option
+    # holds actually need.
+    product_type: Literal["INTRADAY", "MARGIN"] = "MARGIN"
 
 
 class DhanCredentialsStatus(BaseModel):
     configured: bool
     client_id: str | None = None
     updated_at: str | None = None
+    product_type: str = "MARGIN"
 
 
 @router.get("/dhan", response_model=DhanCredentialsStatus)
@@ -157,6 +171,7 @@ async def get_dhan_status(
         configured=True,
         client_id=creds.get("client_id"),
         updated_at=updated_at,
+        product_type=creds.get("product_type") or "MARGIN",
     )
 
 

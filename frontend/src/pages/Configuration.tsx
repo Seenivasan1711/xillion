@@ -58,9 +58,10 @@ function BrokersTab() {
     api_key_preview?: string
     user_id?: string
     updated_at?: string
+    product_type?: 'MIS' | 'NRML'
   } | null>(null)
   const [form, setForm] = useState<ZerodhaCredentials>({
-    api_key: '', api_secret: '', user_id: '', password: '', totp_secret: '',
+    api_key: '', api_secret: '', user_id: '', password: '', totp_secret: '', product_type: 'MIS',
   })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -72,9 +73,10 @@ function BrokersTab() {
     configured: boolean
     client_id?: string
     updated_at?: string
+    product_type?: 'INTRADAY' | 'MARGIN'
   } | null>(null)
   const [dhanForm, setDhanForm] = useState<DhanCredentials>({
-    client_id: '', access_token: '', pin: '', totp_secret: '',
+    client_id: '', access_token: '', pin: '', totp_secret: '', product_type: 'MARGIN',
   })
   const [dhanSaving, setDhanSaving] = useState(false)
   const [dhanMsg, setDhanMsg] = useState('')
@@ -85,6 +87,8 @@ function BrokersTab() {
       setZerodhaStatus(z)
       setDhanStatus(d)
       setBrokers(b.connections)
+      if (z.product_type) setForm(f => ({ ...f, product_type: z.product_type! }))
+      if (d.product_type) setDhanForm(f => ({ ...f, product_type: d.product_type! }))
     }).catch(() => {})
   }, [])
 
@@ -103,6 +107,7 @@ function BrokersTab() {
       const [z, b] = await Promise.all([api.settings.getZerodha(), api.brokers.connections()])
       setZerodhaStatus(z)
       setBrokers(b.connections)
+      if (z.product_type) setForm(f => ({ ...f, product_type: z.product_type! }))
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Save failed')
       setMsgKind('err')
@@ -141,6 +146,7 @@ function BrokersTab() {
       const [d, b] = await Promise.all([api.settings.getDhan(), api.brokers.connections()])
       setDhanStatus(d)
       setBrokers(b.connections)
+      if (d.product_type) setDhanForm(f => ({ ...f, product_type: d.product_type! }))
     } catch (e) {
       setDhanMsg(e instanceof Error ? e.message : 'Save failed')
       setDhanMsgKind('err')
@@ -285,6 +291,21 @@ function BrokersTab() {
               The base32 string from Zerodha 2FA setup — not the 6-digit code. Credentials are encrypted at rest.
             </div>
           </div>
+          <div className="field">
+            <label>Product type</label>
+            <select
+              className="input"
+              name="zerodha-product-type"
+              value={form.product_type}
+              onChange={e => setForm({ ...form, product_type: e.target.value as 'MIS' | 'NRML' })}
+            >
+              <option value="MIS">MIS — intraday, auto-squared-off same day</option>
+              <option value="NRML">NRML — carried forward across days (needed for multi-day option holds)</option>
+            </select>
+            <div className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>
+              Applies to every order this connection places, including protective GTTs.
+            </div>
+          </div>
 
           {msg && (
             <div style={{
@@ -387,6 +408,21 @@ function BrokersTab() {
                 onChange={e => setDhanForm({ ...dhanForm, totp_secret: e.target.value })}
                 autoComplete="new-password"
               />
+            </div>
+          </div>
+          <div className="field">
+            <label>Product type</label>
+            <select
+              className="input"
+              name="dhan-product-type"
+              value={dhanForm.product_type}
+              onChange={e => setDhanForm({ ...dhanForm, product_type: e.target.value as 'INTRADAY' | 'MARGIN' })}
+            >
+              <option value="INTRADAY">INTRADAY — auto-squared-off same day</option>
+              <option value="MARGIN">MARGIN — carried forward across days (needed for multi-day option holds)</option>
+            </select>
+            <div className="faint" style={{ fontSize: 10.5, marginTop: 4 }}>
+              Applies to every order this connection places, including protective Forever Orders.
             </div>
           </div>
 

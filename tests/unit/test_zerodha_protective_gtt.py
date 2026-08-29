@@ -18,6 +18,7 @@ from xillion.core.events import Side
 
 class _StubKite:
     PRODUCT_MIS = "MIS"
+    PRODUCT_NRML = "NRML"
     GTT_TYPE_SINGLE = "single"
     GTT_TYPE_OCO = "two-leg"
 
@@ -38,9 +39,11 @@ class _StubKite:
         return self._positions_response
 
 
-def _broker(stub: _StubKite) -> ZerodhaBroker:
+def _broker(stub: _StubKite, product_type: str | None = None) -> ZerodhaBroker:
     b = ZerodhaBroker()
     b._kite = stub
+    if product_type is not None:
+        b._credentials = {"product_type": product_type}
     return b
 
 
@@ -168,3 +171,42 @@ async def test_realised_pnl_is_zero_when_day_array_is_empty():
     result = await broker.get_realised_pnl_today()
 
     assert result == Decimal("0")
+
+
+# ── Product type, UI-configurable per connection (2026-08-29) ───────────────
+
+
+def test_product_type_defaults_to_mis_when_unconfigured():
+    broker = _broker(_StubKite())
+    assert broker._product_type() == "MIS"
+
+
+def test_product_type_is_configurable_to_nrml():
+    broker = _broker(_StubKite(), product_type="NRML")
+    assert broker._product_type() == "NRML"
+
+
+def test_product_type_falls_back_to_mis_on_an_invalid_value():
+    """A stale/bad DB value must not silently place NRML- or MIS-neither
+    orders -- fall back to the safe, original default rather than passing
+    garbage through to Kite."""
+    broker = _broker(_StubKite(), product_type="NOT_A_REAL_PRODUCT")
+    assert broker._product_type() == "MIS"
+
+
+@pytest.mark.asyncio
+async def test_gtt_uses_nrml_product_when_the_connection_is_configured_for_it():
+    stub = _StubKite()
+    broker = _broker(stub, product_type="NRML")
+
+    await broker.place_protective_gtt(
+        symbol="NIFTY26AUG24000CE",
+        exchange="NFO",
+        side=Side.BUY,
+        quantity=65,
+        stop_price=Decimal("120.5"),
+        target_price=None,
+        last_price=Decimal("90"),
+    )
+
+    assert stub.place_gtt_calls[0]["orders"][0]["product"] == "NRML"

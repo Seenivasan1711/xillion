@@ -146,9 +146,13 @@ export const api = {
 
   settings: {
     getZerodha: () =>
-      request<{ configured: boolean; api_key_preview?: string; user_id?: string; updated_at?: string }>(
-        '/settings/zerodha'
-      ),
+      request<{
+        configured: boolean
+        api_key_preview?: string
+        user_id?: string
+        updated_at?: string
+        product_type?: 'MIS' | 'NRML'
+      }>('/settings/zerodha'),
     saveZerodha: (body: ZerodhaCredentials) =>
       request<{ saved: boolean; connection_status: string; last_error: string | null }>(
         '/settings/zerodha',
@@ -157,9 +161,12 @@ export const api = {
     deleteZerodha: () =>
       request<{ deleted: boolean }>('/settings/zerodha', { method: 'DELETE' }),
     getDhan: () =>
-      request<{ configured: boolean; client_id?: string; updated_at?: string }>(
-        '/settings/dhan'
-      ),
+      request<{
+        configured: boolean
+        client_id?: string
+        updated_at?: string
+        product_type?: 'INTRADAY' | 'MARGIN'
+      }>('/settings/dhan'),
     saveDhan: (body: DhanCredentials) =>
       request<{ saved: boolean; connection_status: string; last_error: string | null }>(
         '/settings/dhan',
@@ -749,6 +756,7 @@ export interface ZerodhaCredentials {
   user_id: string
   password: string
   totp_secret: string
+  product_type: 'MIS' | 'NRML'
 }
 
 export interface DhanCredentials {
@@ -756,4 +764,5 @@ export interface DhanCredentials {
   access_token: string
   pin: string
   totp_secret: string
+  product_type: 'INTRADAY' | 'MARGIN'
 }

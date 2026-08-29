@@ -121,6 +121,46 @@ async def test_saving_dhan_credentials_does_not_touch_zerodha_credentials(monkey
 
 
 @pytest.mark.asyncio
+async def test_product_type_round_trips_and_defaults_to_margin(monkeypatch):
+    """2026-08-29: product type moved from a hardcoded constant in
+    brokers/dhan.py to a per-connection, UI-configurable field -- proves
+    it actually persists through the same encrypted-DB round trip as
+    every other credential field, and that an existing saved connection
+    (or a request that omits it) defaults to MARGIN, not a blank/invalid
+    value."""
+
+    async def _noop_connect(app):
+        pass
+
+    monkeypatch.setattr("xillion.main._try_connect_dhan", _noop_connect)
+
+    await init_db()
+    app = FastAPI()
+    app.state.broker_instances = {}
+    request = _FakeRequest(app)
+    user = _user()
+    factory = get_session_factory()
+
+    async with factory() as db:
+        body = DhanCredentialsRequest(client_id="1000000003", access_token="tok-abc")
+        await put_dhan_credentials(body, request, db, user)
+
+    async with factory() as db:
+        status = await get_dhan_status(db=db, user=user)
+        assert status.product_type == "MARGIN"  # default, not specified above
+
+    async with factory() as db:
+        body = DhanCredentialsRequest(
+            client_id="1000000003", access_token="tok-abc", product_type="INTRADAY"
+        )
+        await put_dhan_credentials(body, request, db, user)
+
+    async with factory() as db:
+        status = await get_dhan_status(db=db, user=user)
+        assert status.product_type == "INTRADAY"
+
+
+@pytest.mark.asyncio
 async def test_saving_dhan_broker_credentials_also_configures_the_dhanhq_data_provider(monkeypatch):
     """The Dhan broker (order placement) and the DhanHQ data provider
     (historical bars) both authenticate with the exact same real Dhan API

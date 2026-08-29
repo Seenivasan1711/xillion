@@ -15,6 +15,14 @@ same trading day do not require a new login. Tokens expire around 6 AM IST.
 
 NOTE: The auto-login flow automates Zerodha's web login using your credentials
 and TOTP. Review Zerodha's API developer terms before using this in production.
+
+**Product type is configurable per connection (Settings -> Brokers ->
+Zerodha card, 2026-08-29), not hardcoded.** MIS (intraday margin) squares
+off automatically same-day; NRML is the carry-forward product multi-day
+option holds (the credit spread/condor/butterfly strategies) actually
+need. Defaults to MIS if unset, matching this file's original hardcoded
+behaviour before this was made configurable -- an existing connection
+that never opens the dropdown keeps behaving exactly as before.
 """
 
 import asyncio
@@ -280,8 +288,20 @@ class ZerodhaBroker(Broker):
         TimeInForce.IOC: "IOC",
         TimeInForce.GTC: "GTC",
     }
+    _VALID_PRODUCT_TYPES = ("MIS", "NRML")
+
+    def _product_type(self) -> str:
+        """Configurable per connection (Settings -> Brokers -> Zerodha
+        card) -- see this module's own docstring. Defaults to MIS, the
+        original hardcoded value, if unset or set to something Kite
+        doesn't actually support."""
+        value = self._credentials.get("product_type")
+        return value if value in self._VALID_PRODUCT_TYPES else "MIS"
 
     async def place_order(self, request: OrderRequest) -> Order:
+        product = (
+            self._kite.PRODUCT_NRML if self._product_type() == "NRML" else self._kite.PRODUCT_MIS
+        )
         kw = dict(
             variety=self._kite.VARIETY_REGULAR,
             exchange=self._kite.EXCHANGE_NSE,
@@ -289,7 +309,7 @@ class ZerodhaBroker(Broker):
             transaction_type=request.side.value,
             quantity=request.quantity,
             order_type=self._ORDER_TYPE_MAP[request.order_type],
-            product=self._kite.PRODUCT_MIS,
+            product=product,
             validity=self._TIF_MAP.get(request.tif, "DAY"),
             tag=(request.tag or "")[:20],  # Zerodha tag max 20 chars
         )
@@ -569,12 +589,16 @@ class ZerodhaBroker(Broker):
         target_price: Decimal | None,
         last_price: Decimal,
     ) -> str:
+        product = (
+            self._kite.PRODUCT_NRML if self._product_type() == "NRML" else self._kite.PRODUCT_MIS
+        )
+
         def _leg(price: Decimal) -> dict:
             return {
                 "transaction_type": side.value,
                 "quantity": quantity,
                 "order_type": self._GTT_ORDER_TYPE,
-                "product": self._kite.PRODUCT_MIS,
+                "product": product,
                 "price": float(price),
             }
 

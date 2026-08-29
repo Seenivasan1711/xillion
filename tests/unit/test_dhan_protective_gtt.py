@@ -54,9 +54,11 @@ def _resolved(**overrides):
     return ResolvedSecurity(**defaults)
 
 
-def _broker(stub: _StubDhan, monkeypatch) -> DhanBroker:
+def _broker(stub: _StubDhan, monkeypatch, product_type: str | None = None) -> DhanBroker:
     b = DhanBroker()
     b._dhan = stub
+    if product_type is not None:
+        b._credentials = {"product_type": product_type}
 
     async def _fake_resolve(symbol):
         return _resolved()
@@ -214,6 +216,52 @@ async def test_realised_pnl_is_zero_when_no_positions(monkeypatch):
     result = await broker.get_realised_pnl_today()
 
     assert result == Decimal("0")
+
+
+# ── Product type, UI-configurable per connection (2026-08-29) ───────────────
+
+
+def test_product_type_defaults_to_margin_when_unconfigured(monkeypatch):
+    broker = _broker(_StubDhan(), monkeypatch)
+    assert broker._product_type() == "MARGIN"
+
+
+def test_product_type_is_configurable_to_intraday(monkeypatch):
+    broker = _broker(_StubDhan(), monkeypatch, product_type="INTRADAY")
+    assert broker._product_type() == "INTRADAY"
+
+
+def test_product_type_falls_back_to_margin_on_an_invalid_value(monkeypatch):
+    """A stale/bad DB value must not silently pass garbage through to
+    Dhan -- fall back to the safe default (MARGIN, the multi-day-hold-
+    safe choice) rather than an unrecognised productType string."""
+    broker = _broker(_StubDhan(), monkeypatch, product_type="NOT_A_REAL_PRODUCT")
+    assert broker._product_type() == "MARGIN"
+
+
+@pytest.mark.asyncio
+async def test_place_order_uses_intraday_product_when_the_connection_is_configured_for_it(
+    monkeypatch,
+):
+    from xillion.core.events import OrderRequest, OrderType, Side
+
+    stub = _StubDhan()
+    broker = _broker(stub, monkeypatch, product_type="INTRADAY")
+    captured = {}
+
+    def fake_place_order(**kw):
+        captured.update(kw)
+        return {"orderId": "1", "orderStatus": "TRANSIT"}
+
+    stub.place_order = fake_place_order
+
+    await broker.place_order(
+        OrderRequest(
+            symbol="NIFTY26AUG24000CE", side=Side.BUY, quantity=65, order_type=OrderType.MARKET
+        )
+    )
+
+    assert captured["product_type"] == "INTRADAY"
 
 
 @pytest.mark.asyncio
