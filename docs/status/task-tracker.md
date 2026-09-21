@@ -49,12 +49,25 @@ this checklist doesn't affect it.
       still a hardcoded stub (`return False`, never vetoes). The key
       existing doesn't change that; wiring the real economic-calendar/
       news check is separate, small, not-yet-done work.
-- [ ] **← YOU ARE HERE. Apply migration 020 to the real Supabase DB**
-      (Rakesh's call, 2026-09-21: staying on Supabase, not switching to a
-      local DB) — this repo's `.env` `DATABASE_URL` points at the same DB
-      Render uses (per this file's "Deploy workflow" section in CLAUDE.md),
-      so **confirm before running this**, even though it's additive-only
-      (6 nullable columns + 1 index on `signal_log`, no data touched):
+- [ ] **← YOU ARE HERE. 🔴 Check the Supabase project — it may be paused
+      or gone.** Tried to apply migration 020 (Rakesh's call, 2026-09-21:
+      staying on Supabase, not switching to a local DB) and hit a real
+      connection failure, not a code bug: `kgvlnmvwdkgxmfgvlzon.supabase.co`
+      returns **NXDOMAIN** (doesn't resolve in DNS at all — confirmed
+      general DNS works fine, e.g. `google.com` resolves normally; this is
+      specific to this project). The regional pooler hostname
+      (`aws-0-ap-northeast-1.pooler.supabase.com`) resolves fine — it's
+      shared AWS infrastructure, not project-specific — but rejects the
+      connection with `tenant/user postgres.kgvlnmvwdkgxmfgvlzon not
+      found`. Together this points at the project being paused or deleted
+      -- free-tier Supabase auto-pauses after ~1 week idle, and this DB
+      hasn't been touched since 2026-08-29 (23 days at the time this was
+      found). **Log into supabase.com and check the project's status** —
+      restoring a paused project is one click; if it's actually gone, that
+      blocks everything (users, broker credentials, Options signal
+      history all live there, not just Gold), not just this migration.
+      See `manual-tasks.md` for the same item. Once confirmed working
+      again:
       ```bash
       export DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
       alembic upgrade head
@@ -2243,7 +2256,8 @@ from the Mac.
 | ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
 | ~~12~~ | ~~Twelve Data free API key (live XAUUSD M5 candles)~~ | ~~Gold Sweep-Reversal alert engine running against real data~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live (real quote + real M5 bar poll) |
 | ~~13~~ | ~~Finnhub free API key (news/econ-calendar ritual check)~~ | ~~Gold Sweep-Reversal news-check ritual only~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live. Wiring it into `_news_veto_active()` (still a stub) is separate follow-up work, not blocked on Rakesh |
-| 14 | Confirm before running: apply migration 020 to the real Supabase DB (additive-only, exact command in the go-live checklist above) | Taken/skipped/outcome columns existing on the real DB | Open — see `manual-tasks.md` |
+| 14 | Confirm before running: apply migration 020 to the real Supabase DB (additive-only, exact command in the go-live checklist above) | Taken/skipped/outcome columns existing on the real DB | Open — **blocked on #15 first** |
+| 15 | 🔴 Check whether the Supabase project is paused or gone — its own hostname returns NXDOMAIN, see the go-live checklist above for the full diagnosis | Everything: migration 020, the backend starting cleanly, all of Gold Sweep-Reversal, and the rest of the live app | Open — see `manual-tasks.md` |
 
 ---
 

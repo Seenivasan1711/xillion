@@ -14,16 +14,35 @@
 > per-checkpoint summary. Keep them in sync when either changes.
 
 **Last updated:** 2026-09-21 (both Gold Sweep-Reversal API keys are in and
-verified live — one item left before it can actually run: confirm the DB
-migration below. Rakesh also decided to stay on Supabase rather than switch
-to a local DB.)
+verified live. Attempting migration 020 surfaced a real blocker, though:
+the Supabase project appears paused or gone — see the 🔴 item at the top
+of Open. Nothing else can proceed until that's checked. Rakesh also
+decided to stay on Supabase rather than switch to a local DB.)
 
 ---
 
 ## Open
 
-- [ ] **Confirm before running: apply migration 020 to the real Supabase
-      DB** (`alembic upgrade head` with `DATABASE_URL` exported from
+- [ ] **🔴 Check the Supabase project — it may be paused or gone.**
+      Found 2026-09-21 while trying to apply migration 020: your project's
+      own hostname (`kgvlnmvwdkgxmfgvlzon.supabase.co`) returns **NXDOMAIN**
+      — doesn't resolve in DNS at all (confirmed general DNS works fine;
+      this is specific to your project). The regional pooler hostname
+      resolves fine (it's shared AWS infra) but rejects the connection
+      with `tenant/user ... not found`. This combination points at the
+      project being paused or deleted — free-tier Supabase auto-pauses
+      after ~1 week idle, and this DB hasn't been touched since 2026-08-29
+      (23 days). **Log into supabase.com and check your project's status**
+      — if paused, there's a one-click restore; if it's actually gone,
+      that's a bigger conversation since all live app data (users, broker
+      credentials, Options signal history) lives there, not just Gold.
+      **Blocks:** the migration below, the backend even starting cleanly
+      against this DB, and by extension everything else on this list.
+      **Cost:** none — a dashboard check, possibly a click to restore.
+
+- [ ] **Confirm before running (blocked on the item above first): apply
+      migration 020 to the real Supabase DB**
+      (`alembic upgrade head` with `DATABASE_URL` exported from
       `.env` — exact command in task-tracker.md's checklist). Additive-only
       (6 nullable columns + 1 index on `signal_log`, no data touched), but
       it's the same DB Render uses, so this needs an explicit go-ahead each
