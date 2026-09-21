@@ -1,13 +1,24 @@
 """
 Gold Sweep-Reversal -- session-liquidity-sweep fade on XAUUSD.
 
-Full rules: docs/strategies/gold-xauusd-sweep-reversal.md. Runs ALERT MODE
-ONLY -- a Telegram notification with full reasoning (via ctx.alert_entry's
-`reason`), no order placement. Live data comes from
-brokers/twelve_data_feed.py (Twelve Data's free intraday feed), not the
-Funding Pips MT5 broker -- alert mode needs a price feed, not an execution
-path, so there's no Wine/MT5 terminal dependency. See the strategy doc's
-Section 7 for the feed-divergence caveat this implies.
+Full rules: docs/strategies/gold-xauusd-sweep-reversal.md. Mode-aware:
+- **alert** (the live instance running since 2026-09-21): a Telegram
+  notification with full reasoning (via ctx.alert_entry's `reason`), no
+  order placement.
+- **paper / backtest / live**: a real fire-and-forget entry (ctx.buy/sell,
+  fixed lot_size converted to hundredths-of-a-lot quantity -- see
+  params_schema), software SL/TP monitoring in on_tick (no broker-native
+  bracket assumed, matching this codebase's protective_orders.py pattern
+  elsewhere), and a Telegram notification on both entry and exit/outcome
+  via ctx.notify -- separate from alert mode's ctx.alert_entry path.
+
+Live data comes from brokers/twelve_data_feed.py (Twelve Data's free
+intraday feed) for the alert instance, or data_providers/twelve_data_history.py
+for backtests -- not the Funding Pips MT5 broker either way; execution
+here (paper mode) is broker-agnostic (any connected broker's PaperBroker
+substitute), so there's still no Wine/MT5 terminal dependency for any of
+this. See the strategy doc's Section 7 for the feed-divergence caveat
+alert mode's live data implies.
 
 Mechanical rules, mechanically applied:
   - 4 daily levels: Asian session high/low (00:00-07:00 UTC by default =
@@ -32,11 +43,19 @@ the full writeup, not hidden here:
   - Session-level marking uses M5 bars (this feed's only granularity), not
     M1 -- slightly coarser wick precision on the 4 lines than the
     backtest's M1-derived levels.
-  - No real position is tracked (alert-only) -- "max trades/day" is a pure
-    count plus a cooldown, not "wait for the open trade to actually
-    resolve" the way the backtest's busy_until models a real single-
-    position account. In practice the user only ever holds one real
-    position at a time; this doesn't try to simulate that.
+  - Alert mode tracks no real position -- "max trades/day" there is a
+    pure count plus a cooldown, not "wait for the open trade to actually
+    resolve" the way the reference backtest's busy_until models a real
+    single-position account. Paper/live/backtest modes DO track a real
+    open position (see on_tick) and gate new entries on it being closed
+    first, closer to busy_until's intent, but still not identical --
+    e.g. no max_hold_min timeout; a position just sits until SL or TP
+    hits, however long that takes, since the card doesn't specify one.
+  - SL/TP checks in backtest mode only happen once per bar, at that bar's
+    close (see BacktestEngine.run's on_tick synthesis) -- not true
+    intrabar wicks. Same honest limitation credit-spread-weekly's
+    protective-order monitoring already has; a live/paper position gets
+    checked on every real tick instead.
   - Spread filter (the card's "skip if spread > 0.30") is NOT applied --
     Twelve Data's time_series endpoint returns OHLC only, no bid/ask, so
     there's no spread figure available to check.
@@ -58,7 +77,7 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
-from xillion.core.events import Bar, Side
+from xillion.core.events import Bar, Side, Tick
 from xillion.core.strategy_base import ParamSpec, Strategy, StrategyContext
 
 _LEVEL_ASIAN_HIGH = "Asian High"
@@ -180,6 +199,20 @@ class GoldSweepReversal(Strategy):
             max=24.0,
             description="Asian session end, UTC hour (7.0 = 12:30 IST)",
         ),
+        ParamSpec(
+            "lot_size",
+            "float",
+            default=0.08,
+            min=0.01,
+            max=1.0,
+            description=(
+                "Fixed lot size for real orders (paper/live/backtest modes only -- "
+                "alert mode places no order). Converted to whole-unit quantity as "
+                "round(lot_size * 100), the same hundredths-of-a-lot convention "
+                "brokers/mt5_funding_pips.py already uses, so this stays "
+                "unit-compatible with a real MT5 fill later."
+            ),
+        ),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
@@ -189,7 +222,11 @@ class GoldSweepReversal(Strategy):
         ctx.state.setdefault("pending", {})  # name -> {"bar_index": int, "extreme": float}
         ctx.state.setdefault("bar_index", 0)
         ctx.state.setdefault("cooldown_until", None)  # ISO timestamp string
-        ctx.log("info", f"{self.name} started (alert mode)", params=ctx.params)
+        # Real open position for non-alert modes only (paper/live/backtest) --
+        # alert mode never sets this, it only ever emits ctx.alert_entry().
+        # {symbol, side, qty, entry, sl, tp, level, entry_time} or None.
+        ctx.state.setdefault("open_position", None)
+        ctx.log("info", f"{self.name} started (mode={ctx.mode})", params=ctx.params)
 
     async def on_bar(self, bar: Bar, ctx: StrategyContext) -> None:
         # Use bar.timeframe, not self.timeframe -- a hardcoded-timeframe
@@ -225,6 +262,13 @@ class GoldSweepReversal(Strategy):
             ctx.state["trades_today"] < p["max_trades_per_day"]
             and not _cooldown_active(ctx, bar)
             and not _news_veto_active(ctx)
+            # Alert mode tracks no real position (never has -- it's a
+            # notify-only signal, see the module docstring), so this gate
+            # doesn't apply there. Paper/live/backtest track a real fill,
+            # and only ever hold one position at a time, matching a real
+            # single account -- a second entry while one is still open
+            # isn't meaningful until the first one closes via on_tick.
+            and (ctx.mode == "alert" or ctx.state.get("open_position") is None)
         )
 
         pending: dict = ctx.state.setdefault("pending", {})
@@ -358,18 +402,44 @@ class GoldSweepReversal(Strategy):
             f"Entry {entry:.2f} | SL {sl:.2f} ({sl_pts:.2f} pts) | "
             f"TP {tp:.2f} ({p['tp_pts']:.1f} pts) | R:R {rr:.2f}:1\n"
             f"Trade {trades_today}/{p['max_trades_per_day']} today -- {progress}\n"
-            "Fixed 0.08 lot. Never move the stop. No partials. No re-entry on this line today."
+            f"Fixed {p['lot_size']:.2f} lot. Never move the stop. No partials. "
+            "No re-entry on this line today."
         )
 
-        await ctx.alert_entry(
-            bar.symbol,
-            side,
-            price=Decimal(str(round(entry, 2))),
-            target=Decimal(str(round(tp, 2))),
-            stop_loss=Decimal(str(round(sl, 2))),
-            tag=level_name,
-            reason=reason,
-        )
+        if ctx.mode == "alert":
+            # Notify-only, no order -- the live path this strategy has run
+            # since 2026-09-21. Unchanged.
+            await ctx.alert_entry(
+                bar.symbol,
+                side,
+                price=Decimal(str(round(entry, 2))),
+                target=Decimal(str(round(tp, 2))),
+                stop_loss=Decimal(str(round(sl, 2))),
+                tag=level_name,
+                reason=reason,
+            )
+        else:
+            # Real fire-and-forget entry (paper/live/backtest) -- SL/TP are
+            # tracked in ctx.state and enforced in on_tick below, not by the
+            # broker (mirrors the rest of this codebase's software-stop
+            # pattern, e.g. protective_orders.py, rather than assuming
+            # broker-native bracket support exists for this instrument).
+            qty = max(1, round(p["lot_size"] * 100))
+            place = ctx.buy if side == Side.BUY else ctx.sell
+            order = await place(bar.symbol, qty, tag=level_name)
+            fill_price = float(order.avg_fill_price) if order.avg_fill_price else entry
+            ctx.state["open_position"] = {
+                "symbol": bar.symbol,
+                "side": side.value,
+                "qty": qty,
+                "entry": fill_price,
+                "sl": sl,
+                "tp": tp,
+                "level": level_name,
+                "entry_time": bar.ts.isoformat(),
+            }
+            await ctx.notify(f"Entered {side.value} {bar.symbol}", reason)
+
         ctx.state["trades_today"] = trades_today
         cooldown_until = bar.ts + timedelta(minutes=p["cooldown_minutes"])
         ctx.state["cooldown_until"] = cooldown_until.isoformat()
@@ -382,4 +452,50 @@ class GoldSweepReversal(Strategy):
             sl=sl,
             tp=tp,
             trades_today=trades_today,
+            mode=ctx.mode,
+        )
+
+    async def on_tick(self, tick: Tick, ctx: StrategyContext) -> None:
+        """SL/TP monitoring for a real open position (paper/live/backtest
+        only -- alert mode never sets ctx.state['open_position'], so this
+        is a no-op there). In backtest mode this only ever sees one
+        synthetic tick per bar, at that bar's close (see
+        BacktestEngine.run) -- an honest bar-close-only precision limit,
+        same one credit-spread-weekly's protective-order monitoring
+        already lives with, not unique to this strategy."""
+        pos = ctx.state.get("open_position")
+        if pos is None or tick.symbol != pos["symbol"]:
+            return
+
+        price = float(tick.ltp)
+        side = pos["side"]
+        if side == "BUY":
+            hit_tp, hit_sl = price >= pos["tp"], price <= pos["sl"]
+        else:
+            hit_tp, hit_sl = price <= pos["tp"], price >= pos["sl"]
+        if not (hit_tp or hit_sl):
+            return
+
+        close = ctx.sell if side == "BUY" else ctx.buy
+        order = await close(pos["symbol"], pos["qty"], tag=pos["level"])
+        exit_price = float(order.avg_fill_price) if order.avg_fill_price else price
+        pnl_pts = (exit_price - pos["entry"]) if side == "BUY" else (pos["entry"] - exit_price)
+        outcome = "WIN" if hit_tp else "LOSS"
+
+        ctx.state["open_position"] = None
+        await ctx.notify(
+            f"{outcome}: closed {side} {pos['symbol']}",
+            f"{pos['level']} | entry {pos['entry']:.2f} -> exit {exit_price:.2f} "
+            f"({pnl_pts:+.2f} pts, {'target hit' if hit_tp else 'stopped out'})",
+            severity="info" if hit_tp else "warn",
+        )
+        ctx.log(
+            "info",
+            "sweep-reversal position closed",
+            swept_level=pos["level"],
+            side=side,
+            entry=pos["entry"],
+            exit=exit_price,
+            pnl_pts=pnl_pts,
+            outcome=outcome,
         )

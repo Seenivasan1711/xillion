@@ -269,6 +269,14 @@ class StrategyContext(ABC):
         the leg-failure protocol itself."""
         raise NotImplementedError
 
+    async def notify(self, title: str, body: str, severity: str = "info") -> None:
+        """Best-effort Telegram notification for routine events a human
+        wants to see but that aren't urgent (e.g. a paper/live trade's
+        real entry/exit fill and outcome) -- `notify_critical` above is
+        reserved for events that need attention *now*. Same falls-back-to-
+        a-log-line, never-raises contract."""
+        raise NotImplementedError
+
 
 class Strategy(ABC):
     """

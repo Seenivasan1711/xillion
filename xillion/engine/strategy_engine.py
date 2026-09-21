@@ -424,6 +424,19 @@ class _StrategyContextImpl(StrategyContext):
                 "notify_critical: alert failed", instance_id=self.instance_id, error=str(exc)
             )
 
+    async def notify(self, title: str, body: str, severity: str = "info") -> None:
+        logger.info(title, instance_id=self.instance_id, detail=body)
+        if self._notifier is None:
+            return
+        try:
+            await self._notifier.alert(
+                title=f"{self._instance_name}: {title}",
+                body=body,
+                severity=severity,
+            )
+        except Exception as exc:
+            logger.error("notify: alert failed", instance_id=self.instance_id, error=str(exc))
+
     # ── Instrument resolution (options) ──────────────────────────────────────────
 
     _INDEX_SPOT_SYMBOLS = {
