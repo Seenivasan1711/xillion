@@ -70,18 +70,104 @@ Zerodha/Dhan paper mode) uses real-time broker ticks, not this cache; the
 warehouse only matters for *backtesting* history.
 
 **Back up the warehouse before anything risky** (wiping `data/`, a fresh
-machine) — it took hours to build from NSE Bhavcopy:
+machine) — it took hours to build from NSE Bhavcopy. **Yes, this dump
+already exists and is ready to reuse** — the NIFTY+BANKNIFTY 2021-2026
+backfill (1.5GB raw) compresses to **~241MB gzipped**, small enough to sit
+in Google Drive (or wherever) comfortably:
 ```bash
 make backup-warehouse                       # → data/backups/warehouse/warehouse_<ts>.db.gz
-make restore-warehouse FILE=data/backups/warehouse/warehouse_<ts>.db.gz
+```
+Upload that `.gz` to Drive — there's no cloud copy of this file by design,
+and it's 100% free to regenerate from NSE Bhavcopy if you ever lose it, so
+this is purely a time-saver, not irreplaceable data. On any new setup
+(fresh machine, a new git worktree/branch checkout — **`data/` is
+gitignored and NOT shared between worktrees**, so every worktree needs its
+own restore), skip the hours-long backfill entirely:
+```bash
+make restore-warehouse FILE=path/to/warehouse_<ts>.db.gz
 ```
 Whole-file snapshot, so it automatically covers any table added later —
-upload the `.gz` to Drive (or wherever) since there's no cloud copy by
-design.
+nothing to update here as the schema grows.
+
+**Note on encrypted credentials across setups:** if `ENCRYPTION_KEY` is
+left empty in `.env`, the app auto-generates and persists one to
+`data/.encryption_key` **per machine**. That file isn't part of this
+backup and isn't shared between worktrees either — if you're pointed at a
+shared Postgres DB (see below) that already has encrypted broker/Telegram
+credentials from another machine, a fresh auto-generated key here won't
+decrypt them. Set a real `ENCRYPTION_KEY` in `.env` once
+(`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
+and reuse it everywhere you want those credentials to keep working.
 
 See [docs/product/user-guide.md](docs/product/user-guide.md) for the full
 walkthrough of every page in the app (Journal, Alerts, MCP server, going
 live, etc.), not just the backtest flow.
+
+---
+
+## Gold Sweep-Reversal (XAUUSD alert engine) quick start
+
+An alert-only strategy — Telegram notification with full reasoning per
+signal, plus taken/skipped + win/loss tracking on the Alerts page — not
+live trading. Full rules, design rationale, and honest gaps:
+[docs/strategies/gold-xauusd-sweep-reversal.md](docs/strategies/gold-xauusd-sweep-reversal.md).
+Deliberately **doesn't need the Funding Pips MT5 broker/bridge** (no Wine,
+no MT5 terminal) — it runs on a separate free live-data feed instead.
+
+**1. Two free API keys, no card required:**
+- [Twelve Data](https://twelvedata.com) → live XAUUSD M5 candles. Required.
+- [Finnhub](https://finnhub.io) → news/econ-calendar ritual check. Optional
+  — the strategy's rules run fine without it, this check is currently a
+  stub either way (see the strategy doc §7).
+
+Add both to `.env`:
+```bash
+TWELVE_DATA_API_KEY=...
+FINNHUB_API_KEY=...
+```
+
+**2. Apply the DB migration** (adds taken/skipped/outcome columns to
+`signal_log`; additive-only, no data touched):
+```bash
+alembic upgrade head       # or: make db-upgrade
+```
+> If your `DATABASE_URL` points at a shared/production database (see
+> "Deploy workflow" in `CLAUDE.md` — this repo's own local setup does, by
+> design, to stay in sync with what's deployed), treat this as a real
+> production migration: confirm before running, even though it's additive.
+
+**3. Start the app** (`make dev`) and confirm the feed connected — Dev
+page / logs should show `twelve_data: connected successfully`. If it
+errors instead, the key is wrong (`TwelveDataBroker.connect()` makes a
+real `/quote` call and raises on any API error).
+
+**4. Create the instance.** There's no broker-picker in the
+instance-creation UI yet, so create it directly via the API — paste this
+in the browser console on a tab where you're already logged into the app:
+```js
+await fetch('/api/instances', {
+  method: 'POST', credentials: 'include',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'Gold Sweep-Reversal (XAUUSD)',
+    strategy_class_name: 'Gold Sweep-Reversal',
+    mode: 'alert',
+    instruments: ['XAUUSD'],
+    timeframe: '5m',
+    broker_connection_name: 'Twelve Data Gold Feed',
+    capital_allocation: 5000,     // matches the FundingPips $5K card
+    params: {},                   // defaults match the card exactly
+  }),
+}).then(r => r.json()).then(console.log)
+```
+Then start it from the Strategies page (or `POST /api/instances/{id}/start`).
+
+**5. Verify it's actually alive.** During 07:00–13:00 UTC
+(12:30–18:30 IST), watch Dev logs for a `daily levels marked` line, then
+wait for a real ENTER signal to confirm the whole path end to end
+(Twelve Data → strategy → Telegram → Alerts page take/skip buttons).
+Fewer than 4 daily levels on the first day or two is expected — see the
+strategy doc §7, not a bug.
 
 ---
 

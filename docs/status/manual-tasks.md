@@ -13,36 +13,14 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-21 (Gold Sweep-Reversal alert engine is fully
-code-complete — G1-G6 all built and committed on `feat/track-b-pipelines`.
-**Everything left to go live is on this list or in task-tracker.md's "🔴
-NEXT UP" checklist at the very top of that file** — read that checklist
-first, it has exact commands for every step below.)
+**Last updated:** 2026-09-21 (both Gold Sweep-Reversal API keys are in and
+verified live — one item left before it can actually run: confirm the DB
+migration below. Rakesh also decided to stay on Supabase rather than switch
+to a local DB.)
 
 ---
 
 ## Open
-
-- [ ] **Twelve Data free API key — signup at twelvedata.com, no card.**
-      Free tier (800 req/day, 8/min) supplies live XAUUSD M5 candles for the
-      Gold Sweep-Reversal alert engine, which is fully built and waiting on
-      this (see `docs/strategies/gold-xauusd-sweep-reversal.md` and
-      task-tracker.md's go-live checklist) — deliberately not using the
-      Funding Pips MT5 bridge for this, so no Wine/MT5 terminal needed for
-      alert-only mode. Add to `.env` as `TWELVE_DATA_API_KEY`.
-      **Blocks:** the alert engine running against real data — everything
-      else (strategy logic, Telegram, take/skip tracking, weekly digest)
-      is already built and tested, just waiting on real prices to act on.
-      **Cost:** free.
-
-- [ ] **Finnhub free API key — signup at finnhub.io, no card.**
-      Free tier covers both market news headlines and an economic calendar,
-      used for the pre-signal "ritual" check (the strategy's own rule: no
-      entry within 15 min of a red-folder USD release). Add to `.env` as
-      `FINNHUB_API_KEY`.
-      **Blocks:** only the news-check ritual specifically (currently a
-      stub that never vetoes) — data feed, signal logic, taken/skipped
-      tracking, and Telegram alerts don't depend on it. **Cost:** free.
 
 - [ ] **Confirm before running: apply migration 020 to the real Supabase
       DB** (`alembic upgrade head` with `DATABASE_URL` exported from
@@ -91,6 +69,19 @@ first, it has exact commands for every step below.)
 ---
 
 ## Done
+
+- [x] **Twelve Data free API key — done 2026-09-21.** In `.env` as
+      `TWELVE_DATA_API_KEY`, verified against the real API: `connect()` +
+      `get_quote(['XAUUSD'])` returned a genuine live price (~$4368), and
+      a real `_poll_once()` against `/time_series` correctly found a
+      closed M5 bar and produced 4 correctly time-ordered synthetic ticks
+      — the actual mechanism the app runs every 30s once started.
+- [x] **Finnhub free API key — done 2026-09-21.** In `.env` as
+      `FINNHUB_API_KEY`, verified with a real `/quote` call. **Not yet
+      wired into the strategy** — `_news_veto_active()` in
+      `strategies/gold_sweep_reversal.py` is still a hardcoded stub
+      (`return False`); the key existing doesn't change that, wiring the
+      real check is separate, not-yet-done, un-blocked follow-up work.
 
 - [x] **Gold Lane B1 backtest data source — built 2026-08-29, per your
       decision to go with (a) and (b) together, plus a persistent "local

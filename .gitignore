@@ -31,6 +31,12 @@ data/*.sqlite
 data/*.csv
 data/.encryption_key
 
+# Warehouse backups (make backup-warehouse) -- gzipped snapshots, 200MB+,
+# meant for Drive/offline storage, never git history. Found this gap
+# 2026-09-21 while making one: no existing rule covered data/backups/ at
+# all, so `git add -A` would have staged a 241MB blob.
+data/backups/
+
 # Testing & coverage
 .pytest_cache/
 .coverage

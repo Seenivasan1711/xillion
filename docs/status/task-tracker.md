@@ -36,17 +36,25 @@ this checklist doesn't affect it.
 
 **What's actually left, in order:**
 
-- [ ] **Get a free Twelve Data API key** — [twelvedata.com](https://twelvedata.com),
-      no card. Add to `.env`: `TWELVE_DATA_API_KEY=...` (placeholder already
-      in `.env.example`). Blocks: the data feed running against real prices.
-- [ ] **(Optional) get a free Finnhub API key** — [finnhub.io](https://finnhub.io),
-      no card. Add to `.env`: `FINNHUB_API_KEY=...`. Blocks: only the news-
-      veto ritual check — everything else works without it.
-- [ ] **Apply migration 020 to the real Supabase DB** — this repo's `.env`
-      `DATABASE_URL` points at the same DB Render uses (per this file's
-      "Deploy workflow" section in CLAUDE.md), so **confirm with Rakesh
-      before running this**, even though it's additive-only (6 nullable
-      columns + 1 index on `signal_log`, no data touched):
+- [x] **Twelve Data API key — done 2026-09-21, in `.env` and verified live.**
+      Real `connect()` + `get_quote(['XAUUSD'])` returned a genuine live
+      price (~$4368), and a real `_poll_once()` against `/time_series`
+      correctly found a closed M5 bar and produced 4 correctly time-ordered
+      synthetic ticks (O/H/L/C) — the actual mechanism the app runs every
+      30s once started. Not just "key present," the whole feed path is
+      confirmed working end to end.
+- [x] **Finnhub API key — done 2026-09-21, in `.env` and verified live**
+      (a real `/quote` call succeeded). **Not yet wired into the strategy**
+      — `_news_veto_active()` in `strategies/gold_sweep_reversal.py` is
+      still a hardcoded stub (`return False`, never vetoes). The key
+      existing doesn't change that; wiring the real economic-calendar/
+      news check is separate, small, not-yet-done work.
+- [ ] **← YOU ARE HERE. Apply migration 020 to the real Supabase DB**
+      (Rakesh's call, 2026-09-21: staying on Supabase, not switching to a
+      local DB) — this repo's `.env` `DATABASE_URL` points at the same DB
+      Render uses (per this file's "Deploy workflow" section in CLAUDE.md),
+      so **confirm before running this**, even though it's additive-only
+      (6 nullable columns + 1 index on `signal_log`, no data touched):
       ```bash
       export DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
       alembic upgrade head
@@ -2233,8 +2241,8 @@ from the Mac.
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking — **explicitly deferred by Rakesh 2026-08-25** |
 | ~~10~~ | ~~**Dhan API access token + client ID**~~ | ~~CP15 live verification~~ | ✅ **Resolved 2026-08-26** — connected live on Render; see the crash-loop bug found+fixed same day, above |
 | ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
-| 12 | Twelve Data free API key (live XAUUSD M5 candles) | Gold Sweep-Reversal alert engine running against real data | Open — see `manual-tasks.md` |
-| 13 | Finnhub free API key (news/econ-calendar ritual check) | Gold Sweep-Reversal news-check ritual only | Open — see `manual-tasks.md` |
+| ~~12~~ | ~~Twelve Data free API key (live XAUUSD M5 candles)~~ | ~~Gold Sweep-Reversal alert engine running against real data~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live (real quote + real M5 bar poll) |
+| ~~13~~ | ~~Finnhub free API key (news/econ-calendar ritual check)~~ | ~~Gold Sweep-Reversal news-check ritual only~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live. Wiring it into `_news_veto_active()` (still a stub) is separate follow-up work, not blocked on Rakesh |
 | 14 | Confirm before running: apply migration 020 to the real Supabase DB (additive-only, exact command in the go-live checklist above) | Taken/skipped/outcome columns existing on the real DB | Open — see `manual-tasks.md` |
 
 ---
