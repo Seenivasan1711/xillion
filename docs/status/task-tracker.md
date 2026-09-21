@@ -49,42 +49,37 @@ this checklist doesn't affect it.
       still a hardcoded stub (`return False`, never vetoes). The key
       existing doesn't change that; wiring the real economic-calendar/
       news check is separate, small, not-yet-done work.
-- [ ] **← YOU ARE HERE. 🔴 Check the Supabase project — it may be paused
-      or gone.** Tried to apply migration 020 (Rakesh's call, 2026-09-21:
-      staying on Supabase, not switching to a local DB) and hit a real
-      connection failure, not a code bug: `kgvlnmvwdkgxmfgvlzon.supabase.co`
-      returns **NXDOMAIN** (doesn't resolve in DNS at all — confirmed
-      general DNS works fine, e.g. `google.com` resolves normally; this is
-      specific to this project). The regional pooler hostname
-      (`aws-0-ap-northeast-1.pooler.supabase.com`) resolves fine — it's
-      shared AWS infrastructure, not project-specific — but rejects the
-      connection with `tenant/user postgres.kgvlnmvwdkgxmfgvlzon not
-      found`. Together this points at the project being paused or deleted
-      -- free-tier Supabase auto-pauses after ~1 week idle, and this DB
-      hasn't been touched since 2026-08-29 (23 days at the time this was
-      found). **Log into supabase.com and check the project's status** —
-      restoring a paused project is one click; if it's actually gone, that
-      blocks everything (users, broker credentials, Options signal
-      history all live there, not just Gold), not just this migration.
-      See `manual-tasks.md` for the same item. Once confirmed working
-      again:
-      ```bash
-      export DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
-      alembic upgrade head
-      ```
-- [ ] **Restart the backend** (`make dev` or `make dev-backend`) so
-      `_try_connect_twelve_data` (in `xillion/main.py`) registers the
-      broker at startup. Confirm via the Dev page / logs: look for
-      `twelve_data: connected successfully`. If it logs an error instead,
-      the key is probably wrong — `TwelveDataBroker.connect()` does a real
-      `/quote` call and raises on any API error response.
-- [ ] **Create the strategy instance.** There's no broker-picker in the
-      instance-creation UI yet (`frontend/src/pages/Strategies.tsx` — a
-      real, pre-existing gap shared with MT5 Funding Pips, not new). Until
-      that UI exists, create it directly via the API — log into the
-      webapp first in a browser (creates the session cookie), then reuse
-      that cookie for a `curl` call, or use the browser's own dev-tools
-      console on an already-logged-in tab:
+- [x] **Supabase project — was paused, resumed by Rakesh 2026-09-21.**
+      DNS resolved again immediately, but the connection pooler took ~60-90s
+      to fully propagate the tenant afterward (`tenant/user ... not found`
+      until it did) — expected right after a resume, not a bug.
+- [x] **Migration 020 applied to the real Supabase DB — 2026-09-21.**
+      `alembic upgrade head` ran clean, `019 -> 020`. Verified directly
+      against `information_schema.columns`: all 6 new columns
+      (`user_action`, `user_action_at`, `user_action_source`, `outcome`,
+      `outcome_notes`, `outcome_recorded_at`) exist on `signal_log`.
+- [x] **Backend restarted — 2026-09-21.** Killed a stale 23-day-old
+      `uvicorn` process still running from before this whole session (from
+      when the DB was still paused). **Real gotcha hit and worked around:**
+      `uvicorn --reload`'s multiprocessing worker hung indefinitely inside
+      `sync_registry_to_db` on this machine — confirmed it wasn't a DB
+      issue (the same call completed in ~20s run standalone, no locks in
+      `pg_stat_activity`), so it's specific to something about the forked
+      reload-worker subprocess. Running **without** `--reload`
+      (`uvicorn xillion.main:app --host 0.0.0.0 --port 8001`, no
+      `make dev`) started clean in ~13s. Log confirms:
+      `twelve_data: connected successfully` → `xillion ready`. Frontend
+      (`npm run dev`) started separately, both up at their normal ports.
+      Worth knowing for next time: skip `make dev`'s `--reload` if it
+      hangs the same way again.
+- [ ] **← YOU ARE HERE. Create the strategy instance.** There's no
+      broker-picker in the instance-creation UI yet
+      (`frontend/src/pages/Strategies.tsx` — a real, pre-existing gap
+      shared with MT5 Funding Pips, not new). Until that UI exists, create
+      it directly via the API — log into the webapp first in a browser
+      (creates the session cookie), then reuse that cookie for a `curl`
+      call, or use the browser's own dev-tools console on an
+      already-logged-in tab:
       ```js
       // Paste in the browser console while logged into the Xillion webapp
       await fetch('/api/instances', {

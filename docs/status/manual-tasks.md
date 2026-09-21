@@ -13,42 +13,24 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-21 (both Gold Sweep-Reversal API keys are in and
-verified live. Attempting migration 020 surfaced a real blocker, though:
-the Supabase project appears paused or gone — see the 🔴 item at the top
-of Open. Nothing else can proceed until that's checked. Rakesh also
-decided to stay on Supabase rather than switch to a local DB.)
+**Last updated:** 2026-09-21 (Supabase project resumed, migration 020
+applied and verified, backend + frontend running locally, Twelve Data
+confirmed connected. One thing left: log in and create the instance — see
+the 🔴 item at the top of Open.)
 
 ---
 
 ## Open
 
-- [ ] **🔴 Check the Supabase project — it may be paused or gone.**
-      Found 2026-09-21 while trying to apply migration 020: your project's
-      own hostname (`kgvlnmvwdkgxmfgvlzon.supabase.co`) returns **NXDOMAIN**
-      — doesn't resolve in DNS at all (confirmed general DNS works fine;
-      this is specific to your project). The regional pooler hostname
-      resolves fine (it's shared AWS infra) but rejects the connection
-      with `tenant/user ... not found`. This combination points at the
-      project being paused or deleted — free-tier Supabase auto-pauses
-      after ~1 week idle, and this DB hasn't been touched since 2026-08-29
-      (23 days). **Log into supabase.com and check your project's status**
-      — if paused, there's a one-click restore; if it's actually gone,
-      that's a bigger conversation since all live app data (users, broker
-      credentials, Options signal history) lives there, not just Gold.
-      **Blocks:** the migration below, the backend even starting cleanly
-      against this DB, and by extension everything else on this list.
-      **Cost:** none — a dashboard check, possibly a click to restore.
-
-- [ ] **Confirm before running (blocked on the item above first): apply
-      migration 020 to the real Supabase DB**
-      (`alembic upgrade head` with `DATABASE_URL` exported from
-      `.env` — exact command in task-tracker.md's checklist). Additive-only
-      (6 nullable columns + 1 index on `signal_log`, no data touched), but
-      it's the same DB Render uses, so this needs an explicit go-ahead each
-      time, not just running it. **Blocks:** the taken/skipped/outcome
-      tracking columns existing on the real DB at all. **Cost:** none —
-      a confirmation, then one command.
+- [ ] **🔴 Log into the webapp and create the Gold Sweep-Reversal
+      instance.** Everything else is done — backend + frontend are running
+      locally right now (`localhost:5174`), Twelve Data confirmed
+      connected. The one piece I can't do without your login: there's no
+      broker-picker in the instance-creation UI yet, so it needs a direct
+      API call from an authenticated browser tab (exact paste-in-console
+      snippet in task-tracker.md's checklist, or just tell me your
+      password and I'll do it from here). **Blocks:** the instance
+      existing and being started at all. **Cost:** none — 2 minutes.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
@@ -89,6 +71,13 @@ decided to stay on Supabase rather than switch to a local DB.)
 
 ## Done
 
+- [x] **Supabase project — was paused, resumed 2026-09-21.** Found via a
+      hard connection failure (project hostname returned NXDOMAIN) while
+      applying migration 020; you resumed it from the dashboard and it
+      came back within a couple minutes (pooler took ~60-90s longer than
+      DNS to fully propagate — expected right after a resume).
+- [x] **Migration 020 applied to the real Supabase DB — 2026-09-21.**
+      Verified directly: all 6 new `signal_log` columns exist.
 - [x] **Twelve Data free API key — done 2026-09-21.** In `.env` as
       `TWELVE_DATA_API_KEY`, verified against the real API: `connect()` +
       `get_quote(['XAUUSD'])` returned a genuine live price (~$4368), and
