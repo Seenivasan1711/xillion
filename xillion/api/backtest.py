@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xillion.api.deps import db_dep, get_current_user
 from xillion.auth.data_provider_credstore import load_provider_credentials
 from xillion.core.events import Bar
+from xillion.core.strategy_base import fill_param_defaults
 from xillion.data.backtest_runs import get_backtest_run, list_backtest_runs, persist_backtest_run
 from xillion.data.coverage import BarCoverageRepository
 from xillion.data.option_chain import OptionChainRepository, OptionChainWarehouse
@@ -111,7 +112,7 @@ async def run_backtest(body: RunBacktestRequest, request: Request):
         instruments=body.instruments,
         timeframe=body.timeframe,
         initial_capital=body.initial_capital,
-        params=body.params,
+        params=fill_param_defaults(cls, body.params),
         slippage_bps=body.slippage_bps,
         option_chain_warehouse=_option_chain_warehouse(),
     )
@@ -174,7 +175,7 @@ async def run_backtest_csv(
         instruments=instr_list,
         timeframe=timeframe,
         initial_capital=initial_capital,
-        params=params_dict,
+        params=fill_param_defaults(cls, params_dict),
         slippage_bps=slippage_bps,
         option_chain_warehouse=_option_chain_warehouse(),
     )
@@ -311,7 +312,7 @@ async def run_backtest_provider(
         instruments=[body.symbol],
         timeframe=body.timeframe,
         initial_capital=body.initial_capital,
-        params=body.params,
+        params=fill_param_defaults(strategy_cls, body.params),
         slippage_bps=body.slippage_bps,
         option_chain_warehouse=_option_chain_warehouse(),
     )
@@ -355,7 +356,7 @@ async def run_grid_search(
         body.timeframe,
         body.initial_capital,
         body.param_grid,
-        body.base_params,
+        fill_param_defaults(strategy_cls, body.base_params),
         body.slippage_bps,
         None,
         body.rank_by,
@@ -396,7 +397,7 @@ async def run_walk_forward(
         body.param_grid,
         body.n_folds,
         body.train_ratio,
-        body.base_params,
+        fill_param_defaults(strategy_cls, body.base_params),
         body.slippage_bps,
         None,
         body.rank_by,

@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.api.deps import db_dep, get_current_user
+from xillion.core.strategy_base import fill_param_defaults
 from xillion.db.models import (
     AppUser,
     BrokerClass,
@@ -284,7 +285,7 @@ async def create_instance(
         broker_connection_id=broker_conn_id,
         instruments_json=json.dumps(body.instruments),
         timeframe=body.timeframe,
-        params_json=json.dumps(body.params),
+        params_json=json.dumps(fill_param_defaults(cls, body.params)),
         capital_allocation=body.capital_allocation,
         risk_limits_json=json.dumps(body.risk_limits),
         created_at=now,

@@ -27,6 +27,20 @@ class ParamSpec:
     choices: list | None = None  # for "choice"
 
 
+def fill_param_defaults(strategy_cls: "type[Strategy]", params: dict) -> dict:
+    """Merge `params_schema` defaults under whatever's explicitly given in
+    `params` -- explicit values always win, missing keys get the schema
+    default. The dashboard's instance-creation form always sends every
+    param already (it seeds its own state from params_schema), so this
+    gap was invisible there; it only bites a caller that goes around the
+    UI (a direct API call, a script, the MCP server later) with a partial
+    or empty params dict -- found for real 2026-09-21 when a `{}` params
+    payload crashed on the strategy's very first `ctx.params["x"]` access,
+    both for a live instance and for a provider-backed backtest run. Both
+    call this before the params ever reach a strategy."""
+    return {spec.name: params.get(spec.name, spec.default) for spec in strategy_cls.params_schema}
+
+
 class StrategyContext(ABC):
     """
     Framework-injected interface. The strategy's only window into the world:
