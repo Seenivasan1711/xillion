@@ -1839,7 +1839,7 @@ Each asset runs the same 6 stages — see
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
 | **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
-| **Gold — Lane B1** (XAUUSD, Sweep-Reversal) · Funding Pips MT5 | 🟡 rules encoded 2026-09-21, no strategy code yet | ⬜ not run in this repo (external MT5/TradingView validation not done either) | ⬜ | ⬜ | ⬜ | 🟡 `docs/strategies/gold-xauusd-sweep-reversal.md` |
+| **Gold — Lane B1** (XAUUSD, Sweep-Reversal) · alert engine built 2026-09-21, decoupled from Funding Pips MT5 | ✅ `strategies/gold_sweep_reversal.py`, tested against a fake context | ⬜ not run in this repo (external MT5/TradingView validation not done either) | 🟡 alert pipeline code-complete (data feed, signal logic, Telegram reasoning, take/skip + outcome tracking, weekly digest) — **not yet run against live data**, needs `TWELVE_DATA_API_KEY` | ⬜ N/A — alert-only, no execution planned yet | ⬜ | 🟡 `docs/strategies/gold-xauusd-sweep-reversal.md` |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -1864,6 +1864,50 @@ real, multi-year, pass/fail-criteria backtest KB `10-FIRST-STRATEGY-SPEC.md`
 BSE-listed, out of reach of this provider). S4 (Live) is blocked on the
 CP11 bracket/GTT gap (software stops now survive a restart via CP12, but
 that's not the same as a fully independent crash-watchdog — see CP12).
+
+**2026-09-21, continued: taken/skipped + outcome tracking (G5) and weekly
+win-rate reporting (G6) built.** Migration 020 adds `user_action` (TAKEN|
+SKIPPED), `user_action_at/_source`, `outcome` (WIN|LOSS|BREAKEVEN),
+`outcome_notes`, `outcome_recorded_at` to `signal_log` -- generic to any
+alert-mode ENTER signal, not Gold-specific. New `PUT /journal/signal-action`
+and `PUT /journal/signal-outcome` endpoints. `xillion/engine/journal.py`'s
+`build_journal` now prefers this self-reported outcome over its existing
+price-derived `classify_signal_outcome` when present -- necessary because
+Gold Sweep-Reversal never emits a real EXIT signal to classify from (alert-
+only, one-shot ENTER, no on_tick exit monitoring), so without this every
+one of its calls would show `still_open` forever. **Frontend: the Alerts
+page** (`frontend/src/pages/Alerts.tsx`) **now has "I took this"/"Skipped"
+buttons and a Win/Loss/Breakeven picker per ENTER signal, plus an
+expandable row showing the full reasoning text** (`SignalLog.message`,
+which already carries G2's `reason`) -- this is the "mark it on the
+webpage" half of what was asked; Telegram inline buttons stay a fast-follow
+(logged in manual-tasks.md as a design note, not blocking). Also fixed a
+real pre-existing display bug while touching this page: Alerts always
+rendered every price with a hardcoded ₹ symbol, which would have shown
+Gold's dollar prices as rupees the moment a Gold signal ever appeared --
+now currency-aware by symbol.
+
+**Weekly review (G6): extended the existing CP10 weekly Telegram digest**
+(Sundays 6pm IST, already-running `run_weekly_digest`) rather than building
+a new scheduler -- `DigestReport`/`build_digest`
+(`xillion/engine/digest.py`) now also aggregates the period's alert ENTER
+signals: taken/skipped/unmarked counts and a win-rate line
+(`WW/LL/BEBE (NN% win rate of resolved calls)`) computed from the same
+self-reported `outcome` field. This directly answers "every week I'll check
+what was taken and what the win % is" via the push that already exists,
+rather than a new pull-only report -- the existing Journal/Alerts pages
+still work for an on-demand look too.
+
+New tests: 5 in `test_gold_sweep_reversal.py` (G2, listed below), 3 in
+`test_journal.py` (self-reported outcome takes priority over price-derived;
+both new endpoints update the row; invalid action is rejected with 400), 1
+in `test_digest.py` (alert-signal stats + the exact rendered digest text).
+Migration 020's raw `ALTER TABLE ... ADD COLUMN` statements verified
+directly against SQLite (plain nullable columns, no constraints -- doesn't
+hit the batch-mode limitation an earlier, unrelated migration has on
+SQLite; this repo's migrations are Postgres-primary per CLAUDE.md anyway).
+Frontend `tsc --noEmit` and `npm run build` (CI's actual frontend check)
+both clean. 584/584 backend tests passing, ruff/black/mypy clean.
 
 **2026-09-21, continued: Sweep-Reversal strategy logic built (G2) --
 `strategies/gold_sweep_reversal.py`.** The exact card, mechanically: 4

@@ -214,6 +214,59 @@ async def test_build_digest_reports_errored_and_running_instances():
     assert "Running Instance" not in report.errored_instances
 
 
+@pytest.mark.asyncio
+async def test_build_digest_reports_alert_signal_stats():
+    from xillion.db.models import SignalLog
+
+    await init_db()
+    factory = get_session_factory()
+    since = datetime.now(UTC) - timedelta(hours=1)
+
+    async with factory() as db:
+        conn_id = await _seed_broker_connection(db)
+        await _seed_instance(
+            db, "digest-alert-1", "Gold Sweep-Reversal Test", conn_id, status="running"
+        )
+
+        def _entry(tag, user_action, outcome) -> SignalLog:
+            return SignalLog(
+                strategy_instance_id="digest-alert-1",
+                ts=_now(),
+                underlying_symbol="XAUUSD",
+                signal_type="ENTER",
+                tag=tag,
+                side="SELL",
+                price=2629.0,
+                message="test",
+                mode="alert",
+                notified=True,
+                user_action=user_action,
+                outcome=outcome,
+            )
+
+        db.add(_entry("Asian High", "TAKEN", "WIN"))
+        db.add(_entry("Asian Low", "TAKEN", "LOSS"))
+        db.add(_entry("PD High", "TAKEN", None))  # taken, outcome not logged yet
+        db.add(_entry("PD Low", "SKIPPED", None))
+        db.add(_entry("Asian High", None, None))  # not responded to yet
+        await db.commit()
+
+    report = await build_digest(factory, since=since, period_label="Weekly")
+
+    assert report.alert_signal_count == 5
+    assert report.alert_taken == 3
+    assert report.alert_skipped == 1
+    assert report.alert_pending == 1
+    assert report.alert_wins == 1
+    assert report.alert_losses == 1
+    assert report.alert_outcome_pending == 1
+
+    msg = format_digest_message(report)
+    assert "5 · 3 taken / 1 skipped / 1 unmarked" in msg
+    assert "1W/1L/0BE (50.0% win rate of resolved calls)" in msg
+    assert "1 taken, outcome not logged yet" in msg
+
+
 def test_format_digest_message_with_no_trades():
     from xillion.engine.digest import DigestReport
 

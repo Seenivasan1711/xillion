@@ -1,12 +1,94 @@
-import { useEffect, useState } from 'react'
-import { Bell, CheckCircle, RefreshCw, Search } from 'lucide-react'
+import { Fragment, useEffect, useState } from 'react'
+import { Bell, CheckCircle, ChevronDown, ChevronUp, RefreshCw, Search } from 'lucide-react'
 import { api, type SignalLogEntry } from '../lib/api'
 import { Badge, fmtTime, SkeletonRows } from '../components/ui'
+
+// XAUUSD (and any other non-INR symbol later) quotes in $, not ₹ -- this
+// page originally only ever showed NIFTY/options signals, all ₹.
+function fmtPrice(symbol: string, price: number | null): string {
+  if (price == null) return '—'
+  const ccy = symbol.toUpperCase().includes('XAU') || symbol.toUpperCase().includes('USD') ? '$' : '₹'
+  return `${ccy}${price.toFixed(2)}`
+}
+
+const ACTION_TONE: Record<string, 'pos' | 'neg' | undefined> = { TAKEN: 'pos', SKIPPED: undefined }
+const OUTCOME_TONE: Record<string, 'pos' | 'neg' | 'warn' | undefined> = {
+  WIN: 'pos', LOSS: 'neg', BREAKEVEN: 'warn',
+}
+
+function SignalRow({ s, expanded, onToggle, onSaved }: {
+  s: SignalLogEntry
+  expanded: boolean
+  onToggle: () => void
+  onSaved: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+
+  const act = async (action: 'TAKEN' | 'SKIPPED') => {
+    setBusy(true)
+    try {
+      await api.signals.setAction(s.id, action)
+      onSaved()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const recordOutcome = async (outcome: 'WIN' | 'LOSS' | 'BREAKEVEN') => {
+    setBusy(true)
+    try {
+      await api.signals.setOutcome(s.id, outcome)
+      onSaved()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="row" style={{ gap: 10, padding: '10px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <button
+        className="btn ghost sm" onClick={onToggle}
+        style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+      >
+        {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />} reasoning
+      </button>
+
+      {s.user_action == null ? (
+        <>
+          <button className="btn sm" onClick={() => act('TAKEN')} disabled={busy}>I took this</button>
+          <button className="btn ghost sm" onClick={() => act('SKIPPED')} disabled={busy}>Skipped</button>
+        </>
+      ) : (
+        <Badge tone={ACTION_TONE[s.user_action]}>{s.user_action}</Badge>
+      )}
+
+      {s.user_action === 'TAKEN' && (
+        s.outcome == null ? (
+          <div className="row" style={{ gap: 6 }}>
+            <span className="faint" style={{ fontSize: 11 }}>How'd it go?</span>
+            <button className="btn ghost sm" onClick={() => recordOutcome('WIN')} disabled={busy}>Win</button>
+            <button className="btn ghost sm" onClick={() => recordOutcome('LOSS')} disabled={busy}>Loss</button>
+            <button className="btn ghost sm" onClick={() => recordOutcome('BREAKEVEN')} disabled={busy}>Breakeven</button>
+          </div>
+        ) : (
+          <Badge tone={OUTCOME_TONE[s.outcome]}>{s.outcome}</Badge>
+        )
+      )}
+
+      {expanded && (
+        <div style={{ flexBasis: '100%', fontSize: 12, whiteSpace: 'pre-wrap', color: 'var(--text-dim)', paddingTop: 4 }}>
+          {s.message}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Alerts() {
   const [signals, setSignals] = useState<SignalLogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -126,36 +208,50 @@ export default function Alerts() {
               {filtered.map(s => {
                 const isOpenEntry = s.signal_type === 'ENTER' && !closedParentIds.has(s.id)
                 return (
-                  <tr key={s.id}>
-                    <td className="faint mono-num" style={{ fontSize: 11 }}>{fmtTime(s.ts)}</td>
-                    <td className="dim" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {s.strategy_instance_name ?? s.strategy_instance_id}
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{s.underlying_symbol}</td>
-                    <td>
-                      <Badge tone={typeTone(s.signal_type)}>
-                        {s.signal_type}{isOpenEntry ? ' · open' : ''}
-                      </Badge>
-                    </td>
-                    <td>
-                      {s.side && (
-                        <span style={{ color: s.side === 'BUY' ? 'var(--pos)' : 'var(--neg)', fontWeight: 500, fontSize: 11 }}>
-                          {s.side}
-                        </span>
-                      )}
-                    </td>
-                    <td className="num mono-num">{s.price != null ? `₹${s.price.toFixed(2)}` : '—'}</td>
-                    <td className="num mono-num pos">{s.target_price != null ? `₹${s.target_price.toFixed(2)}` : '—'}</td>
-                    <td className="num mono-num neg">{s.stop_loss_price != null ? `₹${s.stop_loss_price.toFixed(2)}` : '—'}</td>
-                    <td className="faint" style={{ fontSize: 10.5 }}>
-                      {s.parent_signal_id != null ? `closes #${s.parent_signal_id}` : (s.tag ?? '—')}
-                    </td>
-                    <td>
-                      {s.notified
-                        ? <CheckCircle size={13} style={{ color: 'var(--pos)' }} />
-                        : <span className="faint" style={{ fontSize: 11 }}>—</span>}
-                    </td>
-                  </tr>
+                  <Fragment key={s.id}>
+                    <tr>
+                      <td className="faint mono-num" style={{ fontSize: 11 }}>{fmtTime(s.ts)}</td>
+                      <td className="dim" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.strategy_instance_name ?? s.strategy_instance_id}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{s.underlying_symbol}</td>
+                      <td>
+                        <Badge tone={typeTone(s.signal_type)}>
+                          {s.signal_type}{isOpenEntry ? ' · open' : ''}
+                        </Badge>
+                      </td>
+                      <td>
+                        {s.side && (
+                          <span style={{ color: s.side === 'BUY' ? 'var(--pos)' : 'var(--neg)', fontWeight: 500, fontSize: 11 }}>
+                            {s.side}
+                          </span>
+                        )}
+                      </td>
+                      <td className="num mono-num">{fmtPrice(s.underlying_symbol, s.price)}</td>
+                      <td className="num mono-num pos">{fmtPrice(s.underlying_symbol, s.target_price)}</td>
+                      <td className="num mono-num neg">{fmtPrice(s.underlying_symbol, s.stop_loss_price)}</td>
+                      <td className="faint" style={{ fontSize: 10.5 }}>
+                        {s.parent_signal_id != null ? `closes #${s.parent_signal_id}` : (s.tag ?? '—')}
+                      </td>
+                      <td>
+                        {s.notified
+                          ? <CheckCircle size={13} style={{ color: 'var(--pos)' }} />
+                          : <span className="faint" style={{ fontSize: 11 }}>—</span>}
+                      </td>
+                    </tr>
+                    {s.signal_type === 'ENTER' && (
+                      <tr>
+                        <td colSpan={9} style={{ background: 'var(--surface-2)', padding: 0 }}>
+                          <SignalRow
+                            s={s}
+                            expanded={expandedId === s.id}
+                            onToggle={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                            onSaved={load}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>

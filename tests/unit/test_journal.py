@@ -205,3 +205,123 @@ async def test_build_journal_combines_signal_log_and_backtest_trade():
     assert len(trade_entries) == 1
     assert trade_entries[0].outcome == "loss"
     assert trade_entries[0].pnl == -10.0
+
+
+@pytest.mark.asyncio
+async def test_self_reported_outcome_takes_priority_over_price_derived():
+    """Gold Sweep-Reversal never emits a real EXIT signal (alert-only, no
+    on_tick exit monitoring), so classify_signal_outcome would always see
+    STILL_OPEN for it -- the self-reported outcome (migration 020) must be
+    what build_journal actually returns for a signal like this."""
+    await init_db()
+    instance_id = "test-journal-self-reported"
+    await _seed_instance(instance_id)
+    factory = get_session_factory()
+    now = datetime.now(UTC).isoformat()
+
+    async with factory() as session:
+        session.add(
+            SignalLog(
+                strategy_instance_id=instance_id,
+                ts=now,
+                underlying_symbol="XAUUSD",
+                signal_type="ENTER",
+                tag="Asian High",
+                target_price=2621.5,
+                stop_loss_price=2632.5,
+                side="SELL",
+                price=2629.0,
+                message="m",
+                mode="alert",
+                notified=True,
+                user_action="TAKEN",
+                user_action_source="webpage",
+                outcome="WIN",
+            )
+        )
+        await session.commit()
+
+    journal = await build_journal(factory, strategy_instance_id=instance_id)
+    entries = [j for j in journal if j.source == "signal_log"]
+    assert len(entries) == 1
+    # Without the self-reported outcome this would be STILL_OPEN -- no EXIT
+    # row exists for this signal at all.
+    assert entries[0].outcome == "win"
+    assert entries[0].user_action == "TAKEN"
+    assert entries[0].user_action_source == "webpage"
+
+
+@pytest.mark.asyncio
+async def test_signal_action_and_outcome_endpoints_update_the_row():
+    from xillion.api.journal import (
+        SignalActionRequest,
+        SignalOutcomeRequest,
+        put_signal_action,
+        put_signal_outcome,
+    )
+
+    await init_db()
+    instance_id = "test-journal-endpoints"
+    await _seed_instance(instance_id)
+    factory = get_session_factory()
+    now = datetime.now(UTC).isoformat()
+
+    async with factory() as session:
+        entry = SignalLog(
+            strategy_instance_id=instance_id,
+            ts=now,
+            underlying_symbol="XAUUSD",
+            signal_type="ENTER",
+            tag="Asian Low",
+            side="BUY",
+            price=2611.0,
+            message="m",
+            mode="alert",
+            notified=True,
+        )
+        session.add(entry)
+        await session.commit()
+        signal_id = entry.id
+
+    async with factory() as session:
+        result = await put_signal_action(
+            SignalActionRequest(source_id=str(signal_id), action="TAKEN"), db=session, user=None
+        )
+        assert result == {"saved": True}
+
+    async with factory() as session:
+        row = await session.get(SignalLog, signal_id)
+        assert row.user_action == "TAKEN"
+        assert row.user_action_source == "webpage"
+        assert row.user_action_at is not None
+
+    async with factory() as session:
+        result = await put_signal_outcome(
+            SignalOutcomeRequest(source_id=str(signal_id), outcome="WIN", notes="clean fade"),
+            db=session,
+            user=None,
+        )
+        assert result == {"saved": True}
+
+    async with factory() as session:
+        row = await session.get(SignalLog, signal_id)
+        assert row.outcome == "WIN"
+        assert row.outcome_notes == "clean fade"
+        assert row.outcome_recorded_at is not None
+
+
+@pytest.mark.asyncio
+async def test_signal_action_rejects_invalid_action():
+    from fastapi import HTTPException
+
+    from xillion.api.journal import SignalActionRequest, put_signal_action
+
+    await init_db()
+    factory = get_session_factory()
+
+    async with factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            await put_signal_action(
+                SignalActionRequest(source_id="1", action="MAYBE"), db=session, user=None
+            )
+        assert exc_info.value.status_code == 400

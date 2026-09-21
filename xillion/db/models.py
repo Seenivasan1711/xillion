@@ -594,6 +594,19 @@ class SignalLog(Base):
     notified_at: Mapped[str | None] = mapped_column(Text)
     context_json: Mapped[str | None] = mapped_column(Text)
 
+    # 2026-09-21 (migration 020): "did the user actually take this call, and
+    # how did it go" -- built for Gold Sweep-Reversal's alert workflow but
+    # generic to any alert-mode ENTER signal. NULL/NULL until the user
+    # responds via the Journal (Telegram buttons are a later fast-follow --
+    # see docs/status/manual-tasks.md); outcome is a separate, later step
+    # since it isn't known at take/skip time.
+    user_action: Mapped[str | None] = mapped_column(Text)  # TAKEN | SKIPPED
+    user_action_at: Mapped[str | None] = mapped_column(Text)
+    user_action_source: Mapped[str | None] = mapped_column(Text)  # webpage | telegram
+    outcome: Mapped[str | None] = mapped_column(Text)  # WIN | LOSS | BREAKEVEN
+    outcome_notes: Mapped[str | None] = mapped_column(Text)
+    outcome_recorded_at: Mapped[str | None] = mapped_column(Text)
+
     strategy_instance: Mapped[StrategyInstance] = relationship(back_populates="signal_logs")
 
     __table_args__ = (

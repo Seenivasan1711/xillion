@@ -262,6 +262,16 @@ export const api = {
       const qs = params.toString()
       return request<{ signals: SignalLogEntry[] }>(`/signals${qs ? `?${qs}` : ''}`)
     },
+    setAction: (signalId: number, action: 'TAKEN' | 'SKIPPED') =>
+      request<{ saved: boolean }>('/journal/signal-action', {
+        method: 'PUT',
+        body: JSON.stringify({ source_id: String(signalId), action }),
+      }),
+    setOutcome: (signalId: number, outcome: 'WIN' | 'LOSS' | 'BREAKEVEN', notes?: string) =>
+      request<{ saved: boolean }>('/journal/signal-outcome', {
+        method: 'PUT',
+        body: JSON.stringify({ source_id: String(signalId), outcome, notes: notes || undefined }),
+      }),
   },
 
   journal: {
@@ -605,6 +615,12 @@ export interface SignalLogEntry {
   mode: string
   notified: boolean
   notified_at: string | null
+  user_action: 'TAKEN' | 'SKIPPED' | null
+  user_action_at: string | null
+  user_action_source: string | null
+  outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | null
+  outcome_notes: string | null
+  outcome_recorded_at: string | null
 }
 
 export interface JournalEntryRow {

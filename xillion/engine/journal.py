@@ -55,6 +55,13 @@ class JournalEntry:
     )  # CP8 pre-trade hook's prediction, if one was made -- compare against `outcome`
     outcome: str
     tag: str | None
+    # 2026-09-21 (migration 020): self-reported taken/skipped + outcome, for
+    # alert strategies (Gold Sweep-Reversal) that never emit a real EXIT
+    # signal to auto-classify from (see the module docstring's own honesty
+    # about what this module can/can't classify). None for anything that
+    # predates the migration or hasn't been responded to yet.
+    user_action: str | None = None  # TAKEN | SKIPPED
+    user_action_source: str | None = None
 
 
 def classify_signal_outcome(
@@ -116,12 +123,22 @@ async def _signal_log_entries(
     for entry in entries:
         exit_row = exit_by_parent.get(entry.id)
         exit_price = float(exit_row.price) if exit_row and exit_row.price is not None else None
-        outcome = classify_signal_outcome(
-            entry.side,
-            exit_price,
-            float(entry.target_price) if entry.target_price is not None else None,
-            float(entry.stop_loss_price) if entry.stop_loss_price is not None else None,
-        )
+        # Self-reported outcome (migration 020) takes priority when present
+        # -- it's evidence the price-derived classifier below has no way to
+        # get at for a strategy that never emits a real EXIT signal (Gold
+        # Sweep-Reversal is alert-only, one ENTER per trade, no on_tick
+        # exit monitoring). Falls back to price-derived classification for
+        # everything else (credit-spread-weekly and friends, which do emit
+        # a real EXIT).
+        if entry.outcome:
+            outcome = entry.outcome.lower()
+        else:
+            outcome = classify_signal_outcome(
+                entry.side,
+                exit_price,
+                float(entry.target_price) if entry.target_price is not None else None,
+                float(entry.stop_loss_price) if entry.stop_loss_price is not None else None,
+            )
         out.append(
             JournalEntry(
                 source="signal_log",
@@ -144,6 +161,8 @@ async def _signal_log_entries(
                 ),
                 outcome=outcome,
                 tag=entry.tag,
+                user_action=entry.user_action,
+                user_action_source=entry.user_action_source,
             )
         )
     return out

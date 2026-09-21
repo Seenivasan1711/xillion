@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xillion.api.deps import db_dep, get_current_user
-from xillion.db.models import AppUser, JournalNote, StrategyClass, StrategyVersionHistory
+from xillion.db.models import AppUser, JournalNote, SignalLog, StrategyClass, StrategyVersionHistory
 from xillion.db.session import get_session_factory
 from xillion.engine.journal import JournalEntry, build_journal
 from xillion.engine.strategy_export import write_strategy_markdown
@@ -39,6 +39,8 @@ def _entry_dict(e: JournalEntry) -> dict:
         "ai_confidence": e.ai_confidence,
         "outcome": e.outcome,
         "tag": e.tag,
+        "user_action": e.user_action,
+        "user_action_source": e.user_action_source,
     }
 
 
@@ -116,6 +118,83 @@ async def put_journal_note(
     row.failure_mode = body.failure_mode
     row.change_made = body.change_made
     row.updated_at = now
+    await db.commit()
+    return {"saved": True}
+
+
+_VALID_USER_ACTIONS = ("TAKEN", "SKIPPED")
+_VALID_OUTCOMES = ("WIN", "LOSS", "BREAKEVEN")
+
+
+async def _get_entry_signal(db: AsyncSession, source: str, source_id: str) -> SignalLog:
+    """Both new endpoints below only make sense for a signal_log ENTER row
+    (Gold Sweep-Reversal's alert-only signals) -- a backtest_trade already
+    has a real, computed outcome and nothing for the user to "take"."""
+    if source != "signal_log":
+        raise HTTPException(
+            400, f"user action/outcome only apply to signal_log entries, not {source!r}"
+        )
+    try:
+        signal_id = int(source_id)
+    except ValueError:
+        raise HTTPException(400, f"invalid signal_log id: {source_id!r}") from None
+    row = await db.get(SignalLog, signal_id)
+    if row is None:
+        raise HTTPException(404, f"signal_log {signal_id} not found")
+    if row.signal_type != "ENTER":
+        raise HTTPException(400, f"signal_log {signal_id} is a {row.signal_type}, not an ENTER")
+    return row
+
+
+class SignalActionRequest(BaseModel):
+    source_id: str
+    action: str  # TAKEN | SKIPPED
+
+
+@router.put("/signal-action")
+async def put_signal_action(
+    body: SignalActionRequest,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Mark an ENTER alert as taken or skipped -- the Journal webpage path
+    (Telegram inline buttons are a later fast-follow, see
+    docs/status/manual-tasks.md). Re-callable: changing your mind and
+    re-marking overwrites the previous action rather than being rejected,
+    since this is a log of the current decision, not an audit trail of
+    every click."""
+    if body.action not in _VALID_USER_ACTIONS:
+        raise HTTPException(400, f"action must be one of {_VALID_USER_ACTIONS}")
+    row = await _get_entry_signal(db, "signal_log", body.source_id)
+    row.user_action = body.action
+    row.user_action_at = datetime.now(UTC).isoformat()
+    row.user_action_source = "webpage"
+    await db.commit()
+    return {"saved": True}
+
+
+class SignalOutcomeRequest(BaseModel):
+    source_id: str
+    outcome: str  # WIN | LOSS | BREAKEVEN
+    notes: str | None = None
+
+
+@router.put("/signal-outcome")
+async def put_signal_outcome(
+    body: SignalOutcomeRequest,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Record how a taken call actually went -- self-reported, since alert
+    mode places no real order and has no fill to compute this from (see
+    xillion/engine/journal.py's module docstring). This is the number the
+    weekly review's win-rate comes from."""
+    if body.outcome not in _VALID_OUTCOMES:
+        raise HTTPException(400, f"outcome must be one of {_VALID_OUTCOMES}")
+    row = await _get_entry_signal(db, "signal_log", body.source_id)
+    row.outcome = body.outcome
+    row.outcome_notes = body.notes
+    row.outcome_recorded_at = datetime.now(UTC).isoformat()
     await db.commit()
     return {"saved": True}
 

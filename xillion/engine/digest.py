@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from xillion.api.trades import _match_fills
-from xillion.db.models import FillRecord, OrderRecord, StrategyInstance, SystemLog
+from xillion.db.models import FillRecord, OrderRecord, SignalLog, StrategyInstance, SystemLog
 
 
 @dataclass
@@ -29,6 +29,19 @@ class DigestReport:
     error_count: int = 0
     running_instances: list = field(default_factory=list)
     errored_instances: list = field(default_factory=list)
+    # 2026-09-21 (migration 020): alert-mode ENTER signals this period --
+    # Gold Sweep-Reversal and friends place no real order, so their
+    # "outcome" is the self-reported taken/skipped + win/loss/breakeven on
+    # signal_log, not a fill -- a separate figure from trade_count/total_pnl
+    # above, which come from real FillRecord rows.
+    alert_signal_count: int = 0
+    alert_taken: int = 0
+    alert_skipped: int = 0
+    alert_pending: int = 0  # ENTER fired, no taken/skipped response yet
+    alert_wins: int = 0
+    alert_losses: int = 0
+    alert_breakeven: int = 0
+    alert_outcome_pending: int = 0  # taken, but no outcome recorded yet
 
 
 async def build_digest(session_factory, *, since: datetime, period_label: str) -> DigestReport:
@@ -58,6 +71,21 @@ async def build_digest(session_factory, *, since: datetime, period_label: str) -
         inst_result = await db.execute(select(StrategyInstance))
         instances = inst_result.scalars().all()
 
+        signal_result = await db.execute(
+            select(SignalLog).where(SignalLog.signal_type == "ENTER", SignalLog.ts >= since_iso)
+        )
+        alert_signals = signal_result.scalars().all()
+
+    alert_taken = sum(1 for s in alert_signals if s.user_action == "TAKEN")
+    alert_skipped = sum(1 for s in alert_signals if s.user_action == "SKIPPED")
+    alert_pending = sum(1 for s in alert_signals if s.user_action is None)
+    alert_wins = sum(1 for s in alert_signals if s.outcome == "WIN")
+    alert_losses = sum(1 for s in alert_signals if s.outcome == "LOSS")
+    alert_breakeven = sum(1 for s in alert_signals if s.outcome == "BREAKEVEN")
+    alert_outcome_pending = sum(
+        1 for s in alert_signals if s.user_action == "TAKEN" and s.outcome is None
+    )
+
     win_count = sum(1 for t in trades if t["pnl"] > 0)
     loss_count = sum(1 for t in trades if t["pnl"] <= 0)
     total_pnl = round(sum(t["pnl"] for t in trades), 2)
@@ -79,6 +107,14 @@ async def build_digest(session_factory, *, since: datetime, period_label: str) -
         error_count=error_count,
         running_instances=[i.name for i in instances if i.status == "running"],
         errored_instances=[i.name for i in instances if i.status == "error"],
+        alert_signal_count=len(alert_signals),
+        alert_taken=alert_taken,
+        alert_skipped=alert_skipped,
+        alert_pending=alert_pending,
+        alert_wins=alert_wins,
+        alert_losses=alert_losses,
+        alert_breakeven=alert_breakeven,
+        alert_outcome_pending=alert_outcome_pending,
     )
 
 
@@ -99,6 +135,24 @@ def format_digest_message(report: DigestReport) -> str:
         )
         for name, pnl in sorted(report.by_instance.items(), key=lambda kv: -abs(kv[1])):
             lines.append(f"  • {name}: {_fmt_signed_inr(pnl)}")
+
+    if report.alert_signal_count:
+        resolved = report.alert_wins + report.alert_losses + report.alert_breakeven
+        line = (
+            f"Alert calls: {report.alert_signal_count} · {report.alert_taken} taken / "
+            f"{report.alert_skipped} skipped"
+        )
+        if report.alert_pending:
+            line += f" / {report.alert_pending} unmarked"
+        lines.append(line)
+        if resolved:
+            win_rate = round(100 * report.alert_wins / resolved, 1)
+            lines.append(
+                f"  • {report.alert_wins}W/{report.alert_losses}L/{report.alert_breakeven}BE "
+                f"({win_rate}% win rate of resolved calls)"
+            )
+        if report.alert_outcome_pending:
+            lines.append(f"  • {report.alert_outcome_pending} taken, outcome not logged yet")
 
     if report.errored_instances:
         lines.append(f"⚠️ In error state: {', '.join(report.errored_instances)}")

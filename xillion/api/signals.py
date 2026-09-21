@@ -32,6 +32,12 @@ def _row_dict(s: SignalLog, instance_name: str | None) -> dict:
         "mode": s.mode,
         "notified": s.notified,
         "notified_at": s.notified_at,
+        "user_action": s.user_action,
+        "user_action_at": s.user_action_at,
+        "user_action_source": s.user_action_source,
+        "outcome": s.outcome,
+        "outcome_notes": s.outcome_notes,
+        "outcome_recorded_at": s.outcome_recorded_at,
     }
 
 
