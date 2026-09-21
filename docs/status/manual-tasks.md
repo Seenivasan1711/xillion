@@ -13,15 +13,29 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-08-29 (Gold Lane B1 backtest data source built —
-MT5 bridge extended for on-demand history, plus a free Alpha Vantage
-backup; product type for both Zerodha and Dhan made UI-configurable per
-connection, rather than requiring a one-time decision from Rakesh; M01
-funds reconciliation built, one watch-item caveat added — see Done below)
+**Last updated:** 2026-09-21 (Gold Sweep-Reversal alert engine build started
+— two new free-API-key items added, Twelve Data for live candles and
+Finnhub for the news/econ-calendar ritual check; see task-tracker.md)
 
 ---
 
 ## Open
+
+- [ ] **Twelve Data free API key — signup at twelvedata.com, no card.**
+      Free tier (800 req/day, 8/min) supplies live XAUUSD M5 candles for the
+      Gold Sweep-Reversal alert engine being built now (see
+      `docs/strategies/gold-xauusd-sweep-reversal.md`) — deliberately not
+      using the Funding Pips MT5 bridge for this, so no Wine/MT5 terminal
+      needed for alert-only mode.
+      **Blocks:** the alert engine running against real data (falls back to
+      stubbed/backtest data until this key exists). **Cost:** free.
+
+- [ ] **Finnhub free API key — signup at finnhub.io, no card.**
+      Free tier covers both market news headlines and an economic calendar,
+      used for the pre-signal "ritual" check (the strategy's own rule: no
+      entry within 15 min of a red-folder USD release).
+      **Blocks:** only the news-check ritual specifically — data feed,
+      signal logic, and Telegram alerts don't depend on it. **Cost:** free.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when

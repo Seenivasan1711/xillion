@@ -2042,6 +2042,8 @@ from the Mac.
 | 9 | A free-tier cloud LLM key (Gemini/Groq) in `prosper-engine/.env` — not blocking (Ollama's real tool-calling covered full verification), just faster/hosted than local Ollama when you want it | CP8 close-out | Open, not blocking — **explicitly deferred by Rakesh 2026-08-25** |
 | ~~10~~ | ~~**Dhan API access token + client ID**~~ | ~~CP15 live verification~~ | ✅ **Resolved 2026-08-26** — connected live on Render; see the crash-loop bug found+fixed same day, above |
 | ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
+| 12 | Twelve Data free API key (live XAUUSD M5 candles) | Gold Sweep-Reversal alert engine running against real data | Open — see `manual-tasks.md` |
+| 13 | Finnhub free API key (news/econ-calendar ritual check) | Gold Sweep-Reversal news-check ritual only | Open — see `manual-tasks.md` |
 
 ---
 
