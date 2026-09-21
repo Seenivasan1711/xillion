@@ -241,6 +241,20 @@ class TwelveDataBroker(Broker):
             await self._tick_queue.put(
                 Tick(symbol=symbol, ltp=price, ltt=bar_ts + timedelta(seconds=offset))
             )
+        # BarAggregator only finalizes/publishes a bucket once it sees a
+        # tick belonging to the *next* one (correct for a real streaming
+        # feed -- a later tick proves the earlier bucket is truly done).
+        # All 4 ticks above are backdated into bar_ts's own window for OHLC
+        # accuracy, so without this, the bar just built would sit
+        # unpublished until the *next* poll cycle's ticks arrive -- a full
+        # bar late, every time. A tick stamped with real "now" (always in
+        # a later bucket, since Twelve Data only reports a bar as closed
+        # after its 5 minutes have fully elapsed) forces the just-built bar
+        # to publish immediately, and doubles as a reasonable seed for the
+        # new bucket now forming. Found 2026-09-21: verified via a live
+        # WebSocket listen that ticks were flowing end-to-end but no bar
+        # ever reached on_bar -- this was why.
+        await self._tick_queue.put(Tick(symbol=symbol, ltp=c, ltt=datetime.now(UTC)))
         self._last_bar_ts[symbol] = bar_ts
 
     async def tick_stream(self) -> AsyncIterator[Tick]:
