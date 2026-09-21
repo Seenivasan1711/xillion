@@ -4,8 +4,25 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
-**Last updated:** 2026-08-29
-**Current position:** **2026-08-29: Gold Lane B1's backtest data source
+**Last updated:** 2026-09-21
+**Current position:** **2026-09-21: Options work paused by Rakesh's explicit
+call — full focus shifts to Gold Lane B1.** Rakesh brought a specific XAUUSD
+scalping strategy ("Sweep-Reversal," a session-liquidity-sweep fade) with
+exact entry/exit/sizing rules and a FundingPips 1 Step Flex $5K prop-rule
+mapping; Stage 1 (rules encoded) is done — see
+[docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md)
+and the reference backtester at
+[scripts/gold_sweep_backtest.py](../../scripts/gold_sweep_backtest.py). Goal
+is a full alert pipeline: scheduled pre-signal checks (session/market status,
+recent candles, news), a Telegram push with entry reasoning, manual
+taken/skipped tracking (webpage, Telegram buttons later), and a weekly
+win-rate review — deliberately **decoupled from the Funding Pips MT5
+broker/bridge for v1** (alert-only, no order placement, so no Wine/MT5
+terminal setup needed yet). Full checkpoint breakdown for this build is being
+scoped next; this entry will be updated once it's written up. Options
+(credit-spread-weekly) stays at its current Stage 1/2 status below,
+untouched, resumable later — nothing about it was reverted, it's simply not
+being worked on for now. Before that, same day: **2026-08-29: Gold Lane B1's backtest data source
 built** -- Rakesh's decision to combine both deferred-backlog candidates
 (extend the MT5 bridge for on-demand history, plus a free Alpha Vantage
 backup) rather than pick one, plus a "local agent" connection so backtests
@@ -1822,7 +1839,7 @@ Each asset runs the same 6 stages — see
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
 | **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
-| **Gold — Lane B1** (XAUUSD) · Funding Pips MT5 | 🟡 broker+bridge built, unverified | 🟡 data source built 2026-08-29, not yet run against real data | ⬜ | ⬜ | ⬜ | 🟡 |
+| **Gold — Lane B1** (XAUUSD, Sweep-Reversal) · Funding Pips MT5 | 🟡 rules encoded 2026-09-21, no strategy code yet | ⬜ not run in this repo (external MT5/TradingView validation not done either) | ⬜ | ⬜ | ⬜ | 🟡 `docs/strategies/gold-xauusd-sweep-reversal.md` |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -1847,6 +1864,29 @@ real, multi-year, pass/fail-criteria backtest KB `10-FIRST-STRATEGY-SPEC.md`
 BSE-listed, out of reach of this provider). S4 (Live) is blocked on the
 CP11 bracket/GTT gap (software stops now survive a restart via CP12, but
 that's not the same as a fully independent crash-watchdog — see CP12).
+
+**2026-09-21: Gold Lane B1's first named strategy, Sweep-Reversal, Stage 1
+rules encoded.** User-provided session-sweep-fade card (4 daily levels —
+Asian high/low + prior-day high/low, M5 close-back-inside trigger, fixed
+0.08 lot / 3.0pt min SL / 7.5pt TP, 2 trades/day max, London window
+12:30–18:30 IST only) written up in full, including the FundingPips 1 Step
+Flex $5K prop-rule mapping and the user's manual 4-day TradingView-replay
+validation protocol, in
+[docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md).
+The user's own reference Python backtester (MT5-only, Windows/Wine) is
+checked in verbatim at
+[scripts/gold_sweep_backtest.py](../../scripts/gold_sweep_backtest.py) so it
+doesn't need re-pasting into a future session — **not yet run against real
+data**, no strategy code written yet. **What's next (Stage 2):** either the
+user runs the reference script against real MT5 history, or completes the
+manual 100+-trade TradingView replay test — a keep/kill decision on win rate
+comes out of that before any strategy code gets written. **Separately, a
+live *alert-only* engine for this strategy (Telegram signal notifications
+with reasoning, no order placement) is being scoped as its own work item —
+deliberately decoupled from the Funding Pips MT5 broker/bridge (see the doc's
+§7 note), since alert mode doesn't need Wine or a running MT5 terminal, only
+a price feed. Not started yet; see "Blocked on you" below for the manual
+setup this still needs.**
 
 ### Per-asset enablement work
 Infrastructure each asset needs before its pipeline can start:
