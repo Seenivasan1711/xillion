@@ -356,7 +356,11 @@ async def update_instance(
     if body.name is not None:
         inst.name = body.name
     if body.params is not None:
-        inst.params_json = json.dumps(body.params)
+        loader = getattr(request.app.state, "plugin_loader", None)
+        strategy_name = await _strategy_name_for(inst, db)
+        strategy_cls = loader.registry.strategies.get(strategy_name) if loader else None
+        merged = fill_param_defaults(strategy_cls, body.params) if strategy_cls else body.params
+        inst.params_json = json.dumps(merged)
     if body.capital_allocation is not None:
         inst.capital_allocation = body.capital_allocation
     if body.risk_limits is not None:
