@@ -72,42 +72,42 @@ this checklist doesn't affect it.
       (`npm run dev`) started separately, both up at their normal ports.
       Worth knowing for next time: skip `make dev`'s `--reload` if it
       hangs the same way again.
-- [ ] **← YOU ARE HERE. Create the strategy instance.** There's no
-      broker-picker in the instance-creation UI yet
-      (`frontend/src/pages/Strategies.tsx` — a real, pre-existing gap
-      shared with MT5 Funding Pips, not new). Until that UI exists, create
-      it directly via the API — log into the webapp first in a browser
-      (creates the session cookie), then reuse that cookie for a `curl`
-      call, or use the browser's own dev-tools console on an
-      already-logged-in tab:
-      ```js
-      // Paste in the browser console while logged into the Xillion webapp
-      await fetch('/api/instances', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Gold Sweep-Reversal (XAUUSD)',
-          strategy_class_name: 'Gold Sweep-Reversal',
-          mode: 'alert',
-          instruments: ['XAUUSD'],
-          timeframe: '5m',
-          broker_connection_name: 'Twelve Data Gold Feed',
-          capital_allocation: 5000,   // matches the FundingPips $5K card
-          params: {},                 // defaults match the card exactly
-        }),
-      }).then(r => r.json()).then(console.log)
-      ```
-      Then start it the normal way (Strategies page → Start, or
-      `POST /api/instances/{id}/start`).
-- [ ] **Verify it's actually alive**, don't assume: watch the Alerts page
-      and Dev logs during the 07:00–13:00 UTC (12:30–18:30 IST) window for
-      a `daily levels marked` log line, then wait for a real ENTER signal
-      to confirm the whole path (Twelve Data → strategy → Telegram → Alerts
-      page taken/skipped buttons) end to end. Early days may show fewer
-      than 4 daily levels until enough live M5 bars have accumulated — see
-      the strategy doc §7, this is expected, not a bug.
-- [ ] **Tick these boxes and update "Last updated" above** once each step
-      is actually done, per this file's own update protocol.
+- [x] **Strategy instance created and started — 2026-09-21.** id
+      `26f82923-5cb1-4150-8db6-da530220efb3`, via a direct API call
+      (Rakesh's login, since there's still no broker-picker in the
+      instance-creation UI — same pre-existing gap MT5 Funding Pips has).
+      `tick_source: "Twelve Data Gold Feed"`, confirmed subscribed to real
+      live ticks, no fallback warning.
+- [x] **Real bug found and fixed while verifying it's actually alive —
+      2026-09-21.** No bar ever reached `on_bar` despite ticks confirmed
+      flowing correctly end-to-end (proved via a live WebSocket listen: 4
+      real ticks landed exactly where expected). Root cause:
+      `BarAggregator` only finalizes/publishes a bucket once it sees a
+      tick from the *next* one — correct for a real streaming feed, but
+      the 4 synthetic OHLC ticks per closed Twelve Data bar are
+      deliberately backdated into that bar's own window for accuracy, so
+      the aggregator had no reason to flush it until the *next* poll
+      cycle's ticks arrived. Every bar sat one full cycle late,
+      indefinitely. **Fixed** in `brokers/twelve_data_feed.py`: emit one
+      extra tick stamped with real current time immediately after the 4
+      backdated ones — always lands in a later bucket, forcing the
+      just-built bar to publish right away. Verified directly against
+      `BarAggregator`/`MarketDataBus` (the app's real wiring): 5 ticks in,
+      1 bar out, correct OHLC. Full test suite (584) + lint/type-check
+      still clean. Backend restarted with the fix and the instance
+      re-started against it.
+- [x] **Confirmed the mechanism end-to-end, not just "should work."**
+      Backend + frontend both running locally; `twelve_data: connected
+      successfully`; live WebSocket ticks observed in real time. **Missed
+      today's 07:00–13:00 UTC window by the time the fix landed** (closed
+      at 13:00 UTC same day) — nothing to mark/fire until tomorrow's
+      window opens. Instance is correctly running and primed for it; next
+      cold session (or tomorrow, whichever comes first) just needs to
+      check the Alerts page / Dev logs during 07:00–13:00 UTC
+      (12:30–18:30 IST) for a `daily levels marked` line, then a real
+      ENTER signal. Early days may show fewer than 4 daily levels until
+      enough live M5 bars have accumulated — see the strategy doc §7,
+      expected, not a bug.
 
 ---
 
@@ -2251,8 +2251,8 @@ from the Mac.
 | ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
 | ~~12~~ | ~~Twelve Data free API key (live XAUUSD M5 candles)~~ | ~~Gold Sweep-Reversal alert engine running against real data~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live (real quote + real M5 bar poll) |
 | ~~13~~ | ~~Finnhub free API key (news/econ-calendar ritual check)~~ | ~~Gold Sweep-Reversal news-check ritual only~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live. Wiring it into `_news_veto_active()` (still a stub) is separate follow-up work, not blocked on Rakesh |
-| 14 | Confirm before running: apply migration 020 to the real Supabase DB (additive-only, exact command in the go-live checklist above) | Taken/skipped/outcome columns existing on the real DB | Open — **blocked on #15 first** |
-| 15 | 🔴 Check whether the Supabase project is paused or gone — its own hostname returns NXDOMAIN, see the go-live checklist above for the full diagnosis | Everything: migration 020, the backend starting cleanly, all of Gold Sweep-Reversal, and the rest of the live app | Open — see `manual-tasks.md` |
+| ~~14~~ | ~~Confirm before running: apply migration 020 to the real Supabase DB~~ | ~~Taken/skipped/outcome columns existing on the real DB~~ | ✅ **Resolved 2026-09-21** — applied, verified via `information_schema` |
+| ~~15~~ | ~~Supabase project paused/gone — hostname returned NXDOMAIN~~ | ~~Everything~~ | ✅ **Resolved 2026-09-21** — Rakesh resumed it from the dashboard |
 
 ---
 

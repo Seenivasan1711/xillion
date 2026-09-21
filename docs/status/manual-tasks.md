@@ -13,24 +13,15 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-21 (Supabase project resumed, migration 020
-applied and verified, backend + frontend running locally, Twelve Data
-confirmed connected. One thing left: log in and create the instance — see
-the 🔴 item at the top of Open.)
+**Last updated:** 2026-09-21 (Gold Sweep-Reversal instance created,
+started, and confirmed genuinely alive end-to-end — a real bug that was
+silently dropping every bar got found and fixed along the way. Missed
+today's trading window by the time the fix landed; correctly primed for
+tomorrow's. Nothing open for Rakesh on Gold right now.)
 
 ---
 
 ## Open
-
-- [ ] **🔴 Log into the webapp and create the Gold Sweep-Reversal
-      instance.** Everything else is done — backend + frontend are running
-      locally right now (`localhost:5174`), Twelve Data confirmed
-      connected. The one piece I can't do without your login: there's no
-      broker-picker in the instance-creation UI yet, so it needs a direct
-      API call from an authenticated browser tab (exact paste-in-console
-      snippet in task-tracker.md's checklist, or just tell me your
-      password and I'll do it from here). **Blocks:** the instance
-      existing and being started at all. **Cost:** none — 2 minutes.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
@@ -71,6 +62,16 @@ the 🔴 item at the top of Open.)
 
 ## Done
 
+- [x] **Gold Sweep-Reversal instance — created, started, and verified
+      genuinely alive 2026-09-21.** Confirmed via a live WebSocket listen
+      that real XAUUSD ticks were flowing through the app, which surfaced
+      a real bug (bars were being silently dropped a full cycle late,
+      never reaching the strategy) — found and fixed in
+      `brokers/twelve_data_feed.py`, verified against the app's real
+      wiring, full test suite still green. Instance is running and
+      correctly primed; missed today's 07:00-13:00 UTC window by the time
+      the fix landed, so the first real signal (if any) comes during
+      tomorrow's window.
 - [x] **Supabase project — was paused, resumed 2026-09-21.** Found via a
       hard connection failure (project hostname returned NXDOMAIN) while
       applying migration 020; you resumed it from the dashboard and it
