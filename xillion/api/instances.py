@@ -78,7 +78,9 @@ async def _strategy_name_for(inst: StrategyInstance, db: AsyncSession) -> str:
     return sc.name if sc else str(inst.strategy_class_id)
 
 
-async def _ensure_broker_connection(db: AsyncSession, mode: str, request: Request) -> int:
+async def _ensure_broker_connection(
+    db: AsyncSession, mode: str, request: Request, preferred_connection_name: str | None = None
+) -> int:
     """Return a BrokerConnection.id for whichever real broker is actually
     connected right now (app.state.broker_instances), creating its DB row
     on first use. Falls back to a "Default Paper" placeholder only when
@@ -94,8 +96,56 @@ async def _ensure_broker_connection(db: AsyncSession, mode: str, request: Reques
     start_instance_core's tick-subscription lookup and _resolve_broker
     both fail to find a live source -- "No live tick source" even with a
     genuinely-connected, genuinely-configured Dhan account. Found
-    2026-08-26 on a real paper instance stuck exactly this way."""
+    2026-08-26 on a real paper instance stuck exactly this way.
+
+    2026-09-21: the Zerodha/Dhan priority fallback below only ever knew
+    about those two connection names -- any other connected broker (MT5
+    Funding Pips, and now Twelve Data Gold Feed) had no way to become an
+    instance's broker_connection_id at all through this endpoint. A
+    strategy that isn't Nifty/Sensex-index-shaped needs to say explicitly
+    which connection it wants; `preferred_connection_name` (from
+    CreateInstanceRequest.broker_connection_name) is tried first, same
+    get-or-create shape as the Zerodha/Dhan loop, before falling through to
+    that loop and finally the Default Paper placeholder."""
     broker_instances = getattr(request.app.state, "broker_instances", {})
+
+    if preferred_connection_name is not None:
+        info = broker_instances.get(preferred_connection_name)
+        if not info or info.get("status") != "connected":
+            raise HTTPException(
+                400,
+                f"{preferred_connection_name} is not connected -- connect it first "
+                "(Configuration) before creating an instance against it.",
+            )
+        result = await db.execute(
+            select(BrokerConnection).where(BrokerConnection.name == preferred_connection_name)
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+        bc_result = await db.execute(
+            select(BrokerClass).where(BrokerClass.name == info["broker_name"])
+        )
+        bc = bc_result.scalar_one_or_none()
+        if bc is None:
+            raise HTTPException(
+                503, f"{info['broker_name']} plugin not synced to DB yet -- reload plugins first."
+            )
+        now = _now()
+        conn = BrokerConnection(
+            broker_class_id=bc.id,
+            name=preferred_connection_name,
+            credentials_ref=preferred_connection_name,
+            is_active=True,
+            last_connected_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(conn)
+        await db.commit()
+        await db.refresh(conn)
+        return conn.id
+
     for name in ("Zerodha Primary", "Dhan Primary"):
         info = broker_instances.get(name)
         if not info or info.get("status") != "connected":
@@ -171,6 +221,10 @@ class CreateInstanceRequest(BaseModel):
     params: dict = {}
     capital_allocation: float = 100000.0
     risk_limits: dict = {}
+    # 2026-09-21: explicit broker connection name (e.g. "Twelve Data Gold
+    # Feed"), for strategies that don't want the Zerodha/Dhan/Paper default
+    # priority in _ensure_broker_connection. None keeps the old behaviour.
+    broker_connection_name: str | None = None
 
 
 @router.get("")
@@ -216,7 +270,9 @@ async def create_instance(
             f"Strategy '{body.strategy_class_name}' has no DB record — reload plugins first.",
         )
 
-    broker_conn_id = await _ensure_broker_connection(db, body.mode, request)
+    broker_conn_id = await _ensure_broker_connection(
+        db, body.mode, request, preferred_connection_name=body.broker_connection_name
+    )
     now = _now()
     inst = StrategyInstance(
         id=str(uuid4()),

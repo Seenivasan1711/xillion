@@ -309,6 +309,56 @@ async def _try_connect_mt5(app: FastAPI) -> None:
         }
 
 
+async def _try_connect_twelve_data(app: FastAPI) -> None:
+    """Gold Sweep-Reversal alert engine's live price feed -- see
+    brokers/twelve_data_feed.py's module docstring for why this is a
+    separate "broker" from MT5 Funding Pips above (data-only, no orders,
+    no Wine/bridge dependency). Gated on settings.twelve_data_api_key so it
+    doesn't silently appear as a usable broker for everyone by default,
+    same pattern as _try_connect_mt5."""
+    if not settings.twelve_data_api_key:
+        app.state.broker_instances.pop("Twelve Data Gold Feed", None)
+        return
+
+    try:
+        from brokers.twelve_data_feed import TwelveDataBroker
+
+        broker = TwelveDataBroker()
+        await broker.connect({"api_key": settings.twelve_data_api_key})
+        app.state.broker_instances["Twelve Data Gold Feed"] = {
+            "name": "Twelve Data Gold Feed",
+            "broker_name": "Twelve Data (Gold Feed)",
+            "instance": broker,
+            "status": "connected",
+            "last_error": None,
+            "connected_at": datetime.now(UTC).isoformat(),
+        }
+        logger.info("twelve_data: connected successfully")
+
+        # Same broadcaster every other broker uses (broker-agnostic -- see
+        # _tick_broadcaster) -- without this, TwelveDataBroker.tick_stream()
+        # is never drained and its ticks never reach app.state.bus, so the
+        # Gold Sweep-Reversal instance never sees a bar even once connected.
+        old = getattr(app.state, "twelve_data_broadcaster", None)
+        if old is not None:
+            old.cancel()
+        app.state.twelve_data_broadcaster = supervise(
+            "twelve_data_tick_broadcaster",
+            lambda: _tick_broadcaster(broker, app.state.bus),
+            notifier=app.state.telegram,
+        )
+    except Exception as exc:
+        logger.error("twelve_data: failed to connect", error=str(exc))
+        app.state.broker_instances["Twelve Data Gold Feed"] = {
+            "name": "Twelve Data Gold Feed",
+            "broker_name": "Twelve Data (Gold Feed)",
+            "instance": None,
+            "status": "error",
+            "last_error": str(exc),
+            "connected_at": None,
+        }
+
+
 async def _daily_dhan_refresh(app: FastAPI) -> None:
     """CP15: at 6:30 AM IST (15 min after Zerodha's, avoiding a startup
     thundering-herd on both brokers' auth endpoints at once), re-run Dhan
@@ -511,6 +561,7 @@ async def lifespan(app: FastAPI):
     await _try_connect_zerodha(app)
     await _try_connect_dhan(app)  # CP15 -- no-ops cleanly if not configured
     await _try_connect_mt5(app)  # Gold Lane B1 -- no-ops cleanly if not enabled
+    await _try_connect_twelve_data(app)  # Gold Sweep-Reversal alert feed -- no-ops if no key
 
     # Schedule daily token + instrument-dump refresh
     refresh_task = supervise(

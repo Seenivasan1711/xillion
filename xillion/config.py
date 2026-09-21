@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     # register the broker at all. See brokers/mt5_funding_pips.py.
     mt5_funding_pips_enabled: bool = False
 
+    # Gold Sweep-Reversal alert engine: live XAUUSD M5 candles via Twelve
+    # Data's free tier (twelvedata.com), deliberately separate from the MT5
+    # broker above -- this strategy runs alert-only for v1 (no order
+    # placement), so it needs a price feed, not an execution path. Empty
+    # means the broker doesn't register at startup, same pattern as
+    # mt5_funding_pips_enabled. See brokers/twelve_data_feed.py.
+    twelve_data_api_key: str = ""
+
+    # Gold Sweep-Reversal's news/econ-calendar "ritual" check only -- via
+    # Finnhub's free tier (finnhub.io). Empty means that one check is
+    # skipped (logged, not silently faked); the rest of the alert pipeline
+    # (data feed, signal logic, Telegram) doesn't depend on this.
+    finnhub_api_key: str = ""
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

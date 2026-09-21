@@ -1865,6 +1865,33 @@ BSE-listed, out of reach of this provider). S4 (Live) is blocked on the
 CP11 bracket/GTT gap (software stops now survive a restart via CP12, but
 that's not the same as a fully independent crash-watchdog — see CP12).
 
+**2026-09-21, continued: Sweep-Reversal alert engine's data feed built
+(G1).** `brokers/twelve_data_feed.py` — a data-only "broker" plugin
+(Twelve Data's free tier, `TWELVE_DATA_API_KEY`) that supplies live XAUUSD
+M5 candles without any Wine/MT5 dependency: polls `/time_series` every 30s,
+and when a new 5-min bar closes, replays it as 4 time-ordered synthetic
+ticks through the existing `tick_stream()` -> `MarketDataBus` ->
+`BarAggregator` path so the resulting Bar matches Twelve Data's own OHLC
+exactly (not a polling approximation). Every order-placement method raises
+`NotImplementedError` — structurally no execution, same guarantee as the
+MCP server's missing order-placement tool. Wired into startup via
+`_try_connect_twelve_data` in `xillion/main.py` (mirrors
+`_try_connect_dhan`/`_try_connect_mt5`, gated on the key being set, non-
+fatal if missing). **Real gap found and fixed along the way:**
+`api/instances.py`'s `_ensure_broker_connection` only ever knew about
+"Zerodha Primary"/"Dhan Primary" as broker-connection names — any other
+connected broker (MT5 Funding Pips, and now this) had no way to become an
+instance's `broker_connection_id` at all. Added an explicit
+`broker_connection_name` field to `CreateInstanceRequest`, tried first
+before the old priority fallback. Plugin discovery confirmed clean (zero
+errors, broker shows up in the registry); `mypy xillion` (CI's actual
+scope), `ruff`, `black` all clean; full test suite (575) still green — but
+**this whole broker is unverified against the real Twelve Data API**, no
+key exists in this sandbox yet (see manual-tasks.md item just added).
+`get_history()`/`get_quote()` also implemented for symmetry (Stage 2
+backtest could use this same feed later, though Twelve Data's free-tier
+history depth for M5 is unconfirmed — another honest unknown, not assumed).
+
 **2026-09-21: Gold Lane B1's first named strategy, Sweep-Reversal, Stage 1
 rules encoded.** User-provided session-sweep-fade card (4 daily levels —
 Asian high/low + prior-day high/low, M5 close-back-inside trigger, fixed
