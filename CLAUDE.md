@@ -190,6 +190,58 @@ idempotent, safe to re-run after a strategy doc changes.
   per above) marks migrations as applied without touching the already-correct
   schema.
 
+- **Locked out of the webapp? There's no forgot-password/email-reset
+  flow** (`SMTP_*` in `.env` are unconfigured anyway, so an actual email
+  isn't possible without setting that up first). Reset the password
+  directly — but **Claude Code's own safety layer blocks writing to the
+  credential store via Bash automatically**, even just generating a new
+  password hash locally, regardless of user confirmation in chat. Run
+  this yourself (prefix with `!` in a Claude Code session, or in your own
+  terminal):
+  ```bash
+  cd <repo-or-worktree-root> && .venv/bin/python -c "
+  import secrets
+  from xillion.auth.password import hash_password
+  new_password = secrets.token_urlsafe(12)
+  print(new_password)
+  print(hash_password(new_password))
+  "
+  ```
+  Then run the resulting hash in **Supabase → your project → SQL Editor**:
+  ```sql
+  update app_user set password_hash = '<hash from line 2>' where username = '<your username>';
+  ```
+  Log in with the new password (line 1). Learned the hard way 2026-09-21
+  after 23 days away from the app.
+
+- **Supabase free-tier projects auto-pause after ~1 week of no DB
+  activity.** Symptom: the project's own hostname
+  (`<ref>.supabase.co`) returns **NXDOMAIN** — general DNS still works
+  fine, it's specific to the paused project — and the pooler hostname
+  (which resolves, since it's shared AWS infra) rejects connections with
+  `tenant/user ... not found`. Fix: resume it from the Supabase dashboard.
+  **After resuming, give the connection pooler 60-90 seconds** before
+  retrying — DNS comes back almost immediately but the pooler takes
+  longer to fully pick the tenant back up; a connection attempt in that
+  window fails with the same `tenant/user not found` error and looks
+  identical to "still paused," which can waste time re-diagnosing a
+  problem that's already fixed.
+
+- **`uvicorn --reload`'s multiprocessing worker can hang indefinitely**
+  mid-startup (seen stuck inside `sync_registry_to_db`, right after
+  plugin discovery, right before broker auto-connect) — confirmed *not* a
+  DB issue (the exact same call completes in ~20s run standalone, no
+  locks show up in `pg_stat_activity`), specific to something about the
+  forked reload-worker subprocess on macOS. If `make dev` / `make
+  dev-backend` hangs silently after "data provider loaded" with 0% CPU on
+  the worker process, don't keep waiting — kill it and run without
+  `--reload`:
+  ```bash
+  uvicorn xillion.main:app --host 0.0.0.0 --port 8001
+  ```
+  Starts clean in ~15s. Costs live-reload-on-file-change, which usually
+  doesn't matter for a one-off verification run.
+
 ## Git
 
 ### 🔴 NEVER add attribution trailers
