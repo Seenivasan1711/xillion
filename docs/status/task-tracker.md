@@ -4,6 +4,97 @@
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
 
+---
+
+## 🔴 NEXT UP: Gold Sweep-Reversal go-live checklist (resume here)
+
+Everything below is code-complete and committed on `feat/track-b-pipelines`
+(worktree: `.claude/worktrees/track-b-pipelines`) as of 2026-09-21 — 584/584
+tests passing, ruff/black/mypy clean, frontend `tsc`+`build` clean. **What's
+left is entirely manual setup + one confirm-before-running DB step, not more
+engineering.** Full context/rationale for all of this:
+[docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md).
+Options work (credit-spread-weekly) is untouched and resumable separately —
+this checklist doesn't affect it.
+
+- [x] **G1 — Live data feed.** `brokers/twelve_data_feed.py` (Twelve Data,
+      no MT5/Wine needed — alert-only, no order placement).
+- [x] **G2 — Strategy logic.** `strategies/gold_sweep_reversal.py`, encodes
+      the card exactly (4 daily levels, sweep+M5-reclaim trigger, fixed
+      sizing, 2 trades/day, 10-min cooldown). 5 tests, math hand-verified.
+- [x] **G3 — Rituals.** Session-window gate is real; news/econ-calendar veto
+      is a stub (`_news_veto_active`, always False) until the Finnhub key
+      below exists.
+- [x] **G4 — Telegram reasoning.** Free ride on G2's `OrderRequest.reason`
+      field → `_handle_alert_signal` → existing Telegram notifier.
+- [x] **G5 — Taken/Skipped + outcome tracking.** Migration 020, `PUT
+      /journal/signal-action` / `/journal/signal-outcome`, Alerts page has
+      "I took this"/"Skipped" buttons + a Win/Loss/Breakeven picker + an
+      expandable reasoning row.
+- [x] **G6 — Weekly review.** Extends the existing Sunday 6pm IST digest
+      with taken/skipped counts + win rate for the period.
+
+**What's actually left, in order:**
+
+- [ ] **Get a free Twelve Data API key** — [twelvedata.com](https://twelvedata.com),
+      no card. Add to `.env`: `TWELVE_DATA_API_KEY=...` (placeholder already
+      in `.env.example`). Blocks: the data feed running against real prices.
+- [ ] **(Optional) get a free Finnhub API key** — [finnhub.io](https://finnhub.io),
+      no card. Add to `.env`: `FINNHUB_API_KEY=...`. Blocks: only the news-
+      veto ritual check — everything else works without it.
+- [ ] **Apply migration 020 to the real Supabase DB** — this repo's `.env`
+      `DATABASE_URL` points at the same DB Render uses (per this file's
+      "Deploy workflow" section in CLAUDE.md), so **confirm with Rakesh
+      before running this**, even though it's additive-only (6 nullable
+      columns + 1 index on `signal_log`, no data touched):
+      ```bash
+      export DATABASE_URL=$(grep '^DATABASE_URL=' .env | cut -d= -f2-)
+      alembic upgrade head
+      ```
+- [ ] **Restart the backend** (`make dev` or `make dev-backend`) so
+      `_try_connect_twelve_data` (in `xillion/main.py`) registers the
+      broker at startup. Confirm via the Dev page / logs: look for
+      `twelve_data: connected successfully`. If it logs an error instead,
+      the key is probably wrong — `TwelveDataBroker.connect()` does a real
+      `/quote` call and raises on any API error response.
+- [ ] **Create the strategy instance.** There's no broker-picker in the
+      instance-creation UI yet (`frontend/src/pages/Strategies.tsx` — a
+      real, pre-existing gap shared with MT5 Funding Pips, not new). Until
+      that UI exists, create it directly via the API — log into the
+      webapp first in a browser (creates the session cookie), then reuse
+      that cookie for a `curl` call, or use the browser's own dev-tools
+      console on an already-logged-in tab:
+      ```js
+      // Paste in the browser console while logged into the Xillion webapp
+      await fetch('/api/instances', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Gold Sweep-Reversal (XAUUSD)',
+          strategy_class_name: 'Gold Sweep-Reversal',
+          mode: 'alert',
+          instruments: ['XAUUSD'],
+          timeframe: '5m',
+          broker_connection_name: 'Twelve Data Gold Feed',
+          capital_allocation: 5000,   // matches the FundingPips $5K card
+          params: {},                 // defaults match the card exactly
+        }),
+      }).then(r => r.json()).then(console.log)
+      ```
+      Then start it the normal way (Strategies page → Start, or
+      `POST /api/instances/{id}/start`).
+- [ ] **Verify it's actually alive**, don't assume: watch the Alerts page
+      and Dev logs during the 07:00–13:00 UTC (12:30–18:30 IST) window for
+      a `daily levels marked` log line, then wait for a real ENTER signal
+      to confirm the whole path (Twelve Data → strategy → Telegram → Alerts
+      page taken/skipped buttons) end to end. Early days may show fewer
+      than 4 daily levels until enough live M5 bars have accumulated — see
+      the strategy doc §7, this is expected, not a bug.
+- [ ] **Tick these boxes and update "Last updated" above** once each step
+      is actually done, per this file's own update protocol.
+
+---
+
 **Last updated:** 2026-09-21
 **Current position:** **2026-09-21: Options work paused by Rakesh's explicit
 call — full focus shifts to Gold Lane B1.** Rakesh brought a specific XAUUSD
@@ -2144,6 +2235,7 @@ from the Mac.
 | ~~11~~ | ~~Telegram bot~~ | ~~Alerts, kill-switch notifications~~ | ✅ **Resolved 2026-08-26** — connected live on Render, "Send test message" verified working |
 | 12 | Twelve Data free API key (live XAUUSD M5 candles) | Gold Sweep-Reversal alert engine running against real data | Open — see `manual-tasks.md` |
 | 13 | Finnhub free API key (news/econ-calendar ritual check) | Gold Sweep-Reversal news-check ritual only | Open — see `manual-tasks.md` |
+| 14 | Confirm before running: apply migration 020 to the real Supabase DB (additive-only, exact command in the go-live checklist above) | Taken/skipped/outcome columns existing on the real DB | Open — see `manual-tasks.md` |
 
 ---
 

@@ -13,9 +13,11 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-21 (Gold Sweep-Reversal alert engine build started
-— two new free-API-key items added, Twelve Data for live candles and
-Finnhub for the news/econ-calendar ritual check; see task-tracker.md)
+**Last updated:** 2026-09-21 (Gold Sweep-Reversal alert engine is fully
+code-complete — G1-G6 all built and committed on `feat/track-b-pipelines`.
+**Everything left to go live is on this list or in task-tracker.md's "🔴
+NEXT UP" checklist at the very top of that file** — read that checklist
+first, it has exact commands for every step below.)
 
 ---
 
@@ -23,19 +25,33 @@ Finnhub for the news/econ-calendar ritual check; see task-tracker.md)
 
 - [ ] **Twelve Data free API key — signup at twelvedata.com, no card.**
       Free tier (800 req/day, 8/min) supplies live XAUUSD M5 candles for the
-      Gold Sweep-Reversal alert engine being built now (see
-      `docs/strategies/gold-xauusd-sweep-reversal.md`) — deliberately not
-      using the Funding Pips MT5 bridge for this, so no Wine/MT5 terminal
-      needed for alert-only mode.
-      **Blocks:** the alert engine running against real data (falls back to
-      stubbed/backtest data until this key exists). **Cost:** free.
+      Gold Sweep-Reversal alert engine, which is fully built and waiting on
+      this (see `docs/strategies/gold-xauusd-sweep-reversal.md` and
+      task-tracker.md's go-live checklist) — deliberately not using the
+      Funding Pips MT5 bridge for this, so no Wine/MT5 terminal needed for
+      alert-only mode. Add to `.env` as `TWELVE_DATA_API_KEY`.
+      **Blocks:** the alert engine running against real data — everything
+      else (strategy logic, Telegram, take/skip tracking, weekly digest)
+      is already built and tested, just waiting on real prices to act on.
+      **Cost:** free.
 
 - [ ] **Finnhub free API key — signup at finnhub.io, no card.**
       Free tier covers both market news headlines and an economic calendar,
       used for the pre-signal "ritual" check (the strategy's own rule: no
-      entry within 15 min of a red-folder USD release).
-      **Blocks:** only the news-check ritual specifically — data feed,
-      signal logic, and Telegram alerts don't depend on it. **Cost:** free.
+      entry within 15 min of a red-folder USD release). Add to `.env` as
+      `FINNHUB_API_KEY`.
+      **Blocks:** only the news-check ritual specifically (currently a
+      stub that never vetoes) — data feed, signal logic, taken/skipped
+      tracking, and Telegram alerts don't depend on it. **Cost:** free.
+
+- [ ] **Confirm before running: apply migration 020 to the real Supabase
+      DB** (`alembic upgrade head` with `DATABASE_URL` exported from
+      `.env` — exact command in task-tracker.md's checklist). Additive-only
+      (6 nullable columns + 1 index on `signal_log`, no data touched), but
+      it's the same DB Render uses, so this needs an explicit go-ahead each
+      time, not just running it. **Blocks:** the taken/skipped/outcome
+      tracking columns existing on the real DB at all. **Cost:** none —
+      a confirmation, then one command.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
