@@ -31,6 +31,12 @@
 | Sensibull / Opstra | Analytics products, not raw data feeds. Useful for manual validation, not for our engine | You want a second opinion on payoff/greeks, manually |
 | Offshore retail forex/CFD brokers | FEMA grey-to-prohibited for Indian residents. Funding Pips prop model chosen instead | Never, unless the regulatory position changes materially |
 
+## Automation platform
+
+| Item | Why deferred | Revisit when |
+|---|---|---|
+| DB/UI-configurable Twelve Data + Finnhub credentials | Shipped 2026-09-21 as `.env`-only (`TWELVE_DATA_API_KEY`, `FINNHUB_API_KEY`) to get real Gold data flowing fast — same shortcut `MT5_FUNDING_PIPS_ENABLED` uses. Dhan/Zerodha/MT5 all have the proper DB-backed Settings-page pattern; these two don't yet. Not urgent for a single-user local setup (edit `.env` + restart). Real fix: a Settings → Data Providers card + `POST/GET /settings/twelve-data` mirroring Dhan's single-field shape | Rakesh wants to rotate/change either key without editing `.env`, or a second person/machine needs its own key |
+
 ## Engine features
 
 | Item | Why deferred | Revisit when |
