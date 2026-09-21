@@ -203,6 +203,8 @@ class _StrategyContextImpl(StrategyContext):
             message += f"\ntarget: {request.target_price}"
         if request.stop_loss_price is not None:
             message += f"\nstop-loss: {request.stop_loss_price}"
+        if request.reason:
+            message += f"\n\n{request.reason}"
 
         parent_signal_id = None
         if self._db_factory:

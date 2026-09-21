@@ -83,6 +83,13 @@ class OrderRequest:
     signal_type: str | None = None
     target_price: Decimal | None = None
     stop_loss_price: Decimal | None = None
+    # 2026-09-21: free-form "why this entry" explanation for the Telegram
+    # alert and SignalLog.message -- the templated header (side/symbol/tag/
+    # price/target/stop) alone doesn't answer "why," which Gold Sweep-
+    # Reversal's alert needs (which of the 4 lines swept, at what level, why
+    # the fade). Optional so existing alert strategies (credit-spread-weekly)
+    # need no change.
+    reason: str | None = None
 
 
 @dataclass

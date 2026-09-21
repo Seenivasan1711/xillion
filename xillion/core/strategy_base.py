@@ -131,6 +131,7 @@ class StrategyContext(ABC):
         target: Decimal | None = None,
         stop_loss: Decimal | None = None,
         tag: str | None = None,
+        reason: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -143,6 +144,7 @@ class StrategyContext(ABC):
                 signal_type="ENTER",
                 target_price=target,
                 stop_loss_price=stop_loss,
+                reason=reason,
             )
         )
 
@@ -153,6 +155,7 @@ class StrategyContext(ABC):
         *,
         price: Decimal | None = None,
         tag: str | None = None,
+        reason: str | None = None,
     ) -> Order:
         return await self.place_order(
             OrderRequest(
@@ -163,6 +166,7 @@ class StrategyContext(ABC):
                 price=price,
                 tag=tag,
                 signal_type="EXIT",
+                reason=reason,
             )
         )
 

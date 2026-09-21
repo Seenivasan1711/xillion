@@ -1865,6 +1865,35 @@ BSE-listed, out of reach of this provider). S4 (Live) is blocked on the
 CP11 bracket/GTT gap (software stops now survive a restart via CP12, but
 that's not the same as a fully independent crash-watchdog — see CP12).
 
+**2026-09-21, continued: Sweep-Reversal strategy logic built (G2) --
+`strategies/gold_sweep_reversal.py`.** The exact card, mechanically: 4
+daily levels (Asian session H/L from live M5 bars, previous trading day
+H/L walking back over closed weekends), sweep-then-M5-reclaim trigger,
+fixed sizing (min-3pt/0.5pt-buffer SL, 7.5pt TP), 2 trades/day cap, a
+10-min cooldown after any entry (the card's own FundingPips-rule mapping),
+trading-window gate. Runs alert-only via `ctx.alert_entry` -- **new
+`reason` field added to `OrderRequest`/`alert_entry`/`alert_exit`**
+(`xillion/core/events.py`, `strategy_base.py`,
+`strategy_engine.py:_handle_alert_signal`) so the Telegram alert and
+`SignalLog.message` carry a real "why this entry" explanation (which line
+swept, at what price, R:R, trade N/max today, the card's own discipline
+reminders), not just the existing generic side/price/target/stop template
+-- optional, so credit-spread-weekly needs no change. 5 new tests
+(`test_gold_sweep_reversal.py`) against a hand-built fake context, verified
+by hand: exact SHORT/LONG math, session-window gate, daily cap, cooldown.
+**Two real bugs found by writing these tests, not assumed correct:** (1)
+`ctx.log(..., level=level_name, ...)` collided with `log()`'s own `level`
+severity parameter -- `TypeError` on every fired signal, would have crash-
+looped the instance in production; (2) gating the sweep/reclaim tracking
+itself on the cooldown (not just the firing) silently dropped a sweep that
+started during the cooldown window, so the bar right at the cooldown
+boundary looked like a fresh one-bar sweep+reclaim instead of continuing
+one already in progress -- restructured so cooldown/daily-cap/news-veto
+only suppress firing, never the underlying level tracking. Plugin
+discovery clean, `mypy xillion` (CI scope)/`ruff`/`black` (repo-wide, both
+CI scope) all clean, 580/580 tests passing. **Not yet run against live
+data** -- still needs the Twelve Data key (G1) to actually see a bar.
+
 **2026-09-21, continued: Sweep-Reversal alert engine's data feed built
 (G1).** `brokers/twelve_data_feed.py` — a data-only "broker" plugin
 (Twelve Data's free tier, `TWELVE_DATA_API_KEY`) that supplies live XAUUSD
