@@ -1,6 +1,6 @@
 .PHONY: setup install dev dev-backend dev-frontend lint format type-check test \
         db-init db-upgrade render-build render-start docker-build docker-run backup \
-        backup-warehouse restore-warehouse clean
+        backup-warehouse restore-warehouse backup-xauusd-research restore-xauusd-research clean
 
 # ── First-time setup ───────────────────────────────────────────────────────────
 
@@ -97,6 +97,12 @@ backup-warehouse: ## Snapshot+gzip the backtest warehouse DB (bar/option chain) 
 
 restore-warehouse: ## Restore the warehouse DB from a backup: make restore-warehouse FILE=path/to/warehouse_*.db.gz
 	./scripts/restore_warehouse.sh "$(FILE)"
+
+backup-xauusd-research: ## Archive the XAUUSD M1 research data (research/xauusd_scalping/data/xauusd/) for offline storage (e.g. Drive)
+	./scripts/backup_xauusd_research.sh
+
+restore-xauusd-research: ## Restore XAUUSD research data from a backup: make restore-xauusd-research FILE=path/to/xauusd_m1_*.tar.gz
+	./scripts/restore_xauusd_research.sh "$(FILE)"
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 

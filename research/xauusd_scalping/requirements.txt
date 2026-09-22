@@ -1,0 +1,3 @@
+# Research-pipeline-only deps, on top of what xillion's main pyproject.toml
+# already provides (httpx, pandas, numpy, pytest are all already installed).
+pyarrow>=18.0.0

@@ -37,6 +37,16 @@ data/.encryption_key
 # all, so `git add -A` would have staged a 241MB blob.
 data/backups/
 
+# XAUUSD scalping research pipeline's downloaded M1 data + backup archives
+# (research/xauusd_scalping/data/xauusd/, .../data/backups/) -- same
+# "regenerable from a free source, meant for Drive not git history" spirit
+# as data/backups/ above, found proactively 2026-09-22 before this grew
+# into a real accidental-commit risk (a full 3-year M1 backfill is
+# meaningfully large). The rest of research/xauusd_scalping/ (code,
+# markdown deliverables) is real project work and stays tracked.
+research/xauusd_scalping/data/xauusd/
+research/xauusd_scalping/data/backups/
+
 # Testing & coverage
 .pytest_cache/
 .coverage
