@@ -20,9 +20,34 @@ ahead. If genuinely unsure how an item should behave, ask — don't guess.**
 Check items off (⬜ → ✅) as they land, in this same file, in the same
 session, per this repo's update protocol.
 
-1. ⬜ **Gold strategy not visible/selectable in the Strategies UI** — Rakesh
-   can't currently find/select Gold Sweep-Reversal from the Strategies page
-   to create or manage an instance the way other strategies work.
+1. ✅ **Gold strategy not visible/selectable in the Strategies UI —
+   investigated and fixed, 2026-09-22.** Verified first, not assumed: ran
+   the real `PluginLoader.discover_all()` directly — `Gold Sweep-Reversal`
+   loads with zero errors, so it was never a backend discovery bug. The
+   real problem was in `frontend/src/pages/Strategies.tsx`'s "New instance"
+   form, which was written Zerodha/NIFTY/₹-only and silently wrong for
+   every non-NIFTY strategy, Gold worst of all:
+   - `instruments` defaulted to hardcoded `'NIFTY'` regardless of the
+     selected strategy's own declared instruments — now defaults to
+     `strategy.instruments.join(', ')`.
+   - Alert mode's helper text said "Requires a connected Zerodha broker,"
+     which is simply false for Gold (Twelve Data feed, no Zerodha
+     involved) — now generic, names the strategy's actual instrument(s).
+   - The Capital field's label hardcoded `₹` — now `$` for
+     XAU/USD-instrument strategies, same symbol-sniffing rule
+     `Alerts.tsx`'s `fmtPrice()` already established for the same bug
+     class found earlier this session.
+   - The Classes tab's strategy cards showed timeframe/params/author but
+     never the instrument(s) traded — now shows a badge per instrument, so
+     Gold is visually distinguishable from NIFTY strategies at a glance.
+   - **Also found and fixed**: `StrategyClass` in `frontend/src/lib/api.ts`
+     didn't declare `instruments` at all, even though the backend API has
+     always sent it — a real frontend/backend type drift, not just a UI
+     copy issue.
+   `tsc --noEmit` and `vite build` both clean. **Not yet visually confirmed
+   in a logged-in browser session** (same caveat as every other
+   Configuration-panel UI change this session) — structurally verified,
+   not proven in the browser.
 2. ⬜ **Backtest results UI + comparison dashboard** — after a backtest run:
    a results view (trades, outcomes, overall stats), and a way to compare
    two runs side by side (e.g. before/after a rule change) so a parameter or

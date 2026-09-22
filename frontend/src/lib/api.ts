@@ -337,6 +337,7 @@ export interface StrategyClass {
   description: string
   author: string
   timeframe: string
+  instruments: string[]
   params_schema: ParamSpec[]
   code_hash: string
 }

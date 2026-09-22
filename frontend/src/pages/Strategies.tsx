@@ -166,6 +166,7 @@ export default function Strategies() {
                   {s.description || 'No description'}
                 </p>
                 <div className="row" style={{ gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                  {s.instruments.map(i => <Badge key={i}>{i}</Badge>)}
                   <Badge>{s.timeframe}</Badge>
                   <Badge>{s.params_schema.length} params</Badge>
                   {s.author && <Badge>{s.author}</Badge>}
@@ -311,7 +312,12 @@ function NewInstanceModal({
 }) {
   const [name, setName] = useState(`${strategy.name} — Paper`)
   const [mode, setMode] = useState<'paper' | 'live' | 'alert'>('paper')
-  const [instruments, setInstruments] = useState('NIFTY')
+  // Default to the strategy's own declared instruments, not a hardcoded
+  // 'NIFTY' -- was silently wrong for every non-NIFTY strategy (found
+  // 2026-09-22 chasing why Gold Sweep-Reversal's instance form looked
+  // broken; XAUUSD strategies were getting a NIFTY default with no
+  // indication anything was off).
+  const [instruments, setInstruments] = useState(strategy.instruments.join(', '))
   const [timeframe, setTimeframe] = useState(strategy.timeframe)
   const [capital, setCapital] = useState('100000')
   const [params, setParams] = useState<Record<string, unknown>>(
@@ -391,7 +397,8 @@ function NewInstanceModal({
               <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
                 Alert mode never places a real or simulated order — it only sends a
                 Telegram notification and logs the signal. Requires a connected
-                Zerodha broker for live market data.
+                broker or data feed providing live market data for{' '}
+                {strategy.instruments.join('/') || 'this instrument'}.
               </div>
             )}
           </div>
@@ -409,7 +416,13 @@ function NewInstanceModal({
               </select>
             </div>
             <div className="field">
-              <label>Capital (₹)</label>
+              {/* XAUUSD/USD-instrument strategies are $, everything else (NIFTY,
+                  options, etc.) is ₹ -- same symbol-sniffing rule as
+                  Alerts.tsx's fmtPrice(), which had the same hardcoded-₹ bug. */}
+              <label>
+                Capital (
+                {strategy.instruments.some(i => /XAU|USD/i.test(i)) ? '$' : '₹'})
+              </label>
               <input className="input" type="number" value={capital} onChange={e => setCapital(e.target.value)} min={1000} />
             </div>
           </div>
