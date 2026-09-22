@@ -158,6 +158,17 @@ services:
       # Gold Lane B1 — no credentials here by design, see mt5_bridge/README.md.
       - key: MT5_FUNDING_PIPS_ENABLED
         value: "false"
+      # Gold Sweep-Reversal's live alert feed (brokers/twelve_data_feed.py) --
+      # free key, no card, from twelvedata.com. Required for the alert
+      # engine to connect on Render; the strategy itself still runs
+      # (idles) without it, same as any other unconfigured broker.
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      # Gold Sweep-Reversal's news/econ-calendar ritual check only -- free
+      # key, no card, from finnhub.io. Optional; the check is a stub
+      # either way until it's wired in (see the strategy doc).
+      - key: FINNHUB_API_KEY
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
