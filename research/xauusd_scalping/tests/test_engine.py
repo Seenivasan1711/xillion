@@ -231,6 +231,64 @@ def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
     # (-$20 cumulative) cross the -$15 cap; a third never gets a chance.
     assert len(day1_trades) == 2
     assert sum(t.pnl_usd for t in day1_trades) == -20.0
+    # Day 2 must still get its own fresh trade -- proves the halt is a
+    # daily circuit breaker, not permanent for the rest of the backtest.
+    assert len(day2_trades) >= 1
+
+
+def test_consecutive_loss_halt_resets_on_a_new_day():
+    """Mirrors test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day
+    but for `consecutive_loss_halt`. Found 2026-09-22 while running P3's
+    real backtests: EVERY strategy showed a near-identical, tiny (2-3)
+    trade count across a 20k-bar dataset regardless of the strategy's own
+    logic -- the tell that a shared halt was firing almost immediately and
+    never releasing. Root cause: `consecutive_losses` was reset nowhere,
+    so once a strategy hit the threshold ANYWHERE in the run, every
+    subsequent day was permanently halted (unlike its sibling
+    `daily_loss_cap_usd`, which is documented and tested above as a
+    per-day reset). Fixed by resetting `consecutive_losses = 0` on day
+    rollover, matching the other risk limits' daily-circuit-breaker
+    semantics.
+    """
+
+    class _AlwaysLosesStrategy:
+        def on_bar(self, bar, ctx):
+            if ctx.has_open_position:
+                return None
+            return Signal(side=Side.LONG, stop_price=bar.close - 10, target_price=bar.close + 1000)
+
+    from research.xauusd_scalping.engine.backtest_engine import RiskLimits
+
+    day1 = datetime(2026, 1, 5, 9, tzinfo=UTC)
+    day2 = datetime(2026, 1, 6, 9, tzinfo=UTC)
+    bars = []
+    price = 2000.0
+    ts = day1
+    for _ in range(20):
+        bars.append(_bar(ts, price, price, price - 10, price - 10))
+        price -= 10
+        ts += timedelta(minutes=1)
+    bars.append(_bar(day2, price, price, price, price))
+    bars.append(_bar(day2 + timedelta(minutes=1), price, price, price - 10, price - 10))
+
+    strategy = _AlwaysLosesStrategy()
+    engine = BacktestEngine(
+        cost_model=CostModel.zero(),
+        sizing=SizingConfig(fixed_lots=1.0),
+        risk=RiskLimits(consecutive_loss_halt=2),
+    )
+
+    result = engine.run(bars, strategy, initial_equity=5000.0)
+
+    day1_trades = [t for t in result.trades if t.entry_ts.date().isoformat() == "2026-01-05"]
+    day2_trades = [t for t in result.trades if t.entry_ts.date().isoformat() == "2026-01-06"]
+
+    assert "2026-01-05" in result.halted_days
+    assert len(day1_trades) == 2  # two straight losses trips the halt
+    # Day 2 must get its own fresh attempt -- if this fails, the halt is
+    # leaking across days again.
+    assert len(day2_trades) >= 1
+    assert "2026-01-06" not in result.halted_days
     assert all(t.pnl_usd == -10.0 for t in day1_trades)
     # Day 2 is a fresh day -- the halt must not carry over.
     assert len(day2_trades) == 1

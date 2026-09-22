@@ -44,23 +44,27 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
-- 🟡 **P3 (implement + backtest all 10) — toolkit + all 10 strategies done
-  and verified; the actual backtest run is in progress.** Redirected from
-  the original spec's "10 independent modules" shape into a composable
-  signal-toolkit architecture per Rakesh's explicit instruction (D23) —
-  `signals/price_action.py`, `signals/indicators.py`,
-  `signals/confidence.py`, each of the 10 strategies a thin composition of
-  those calls, so a later JEV/LLM orchestrator can call the same
-  primitives directly rather than pick from 10 fixed pipelines. 19 new
-  synthetic-data tests, all genuinely passing (re-verified directly:
-  `pytest tests/ research/xauusd_scalping/tests/` → 673 passed, 649
-  production + 24 research, no collisions). **First run of this stage hit
-  a session rate limit mid-work**; the exact bug it was fixing (a bare-
-  import path issue breaking pytest collection from the repo root) was
-  fixed directly rather than re-delegated, and a second background agent
-  resumed from there — instructed not to redo the toolkit/strategies,
-  only to run the actual backtests against real accumulated data and
-  produce `03_results.md`.
+- 🔴 **P3 (implement + backtest all 10) — done, but the verdict is "not
+  ready for P4," not a strategy ranking.** Backtest actually run against
+  all real data on disk (`research/xauusd_scalping/run_backtests.py` →
+  `03_results.md`, full detail there). Headline: **zero of the 10
+  candidates are recommendable yet** — every one is far below the
+  200-trade underpowered threshold (max 42 trades, only ~16 real calendar
+  days exist on disk across two windows 6 months apart), and 5 of the 10
+  show a suspicious exact 0.0% win rate traced to stop/target distances
+  sized off raw `bar.close` being smaller than the session/vol-bucket cost
+  markup the engine independently applies — the target ends up on the
+  losing side of the real fill before the trade is even placed. Also found
+  and fixed a real engine bug while diagnosing this: `consecutive_loss_halt`
+  never reset on day rollover (unlike its sibling `daily_loss_cap_usd`),
+  so once tripped anywhere in a run it silently killed every subsequent
+  day for good — new regression test
+  `test_consecutive_loss_halt_resets_on_a_new_day` locks in the fix.
+  `pytest tests/ research/xauusd_scalping/tests/` → 674 passed. **Before
+  P4 can mean anything**: more backfilled data (still running, PID 27860),
+  stop/target sizing revisited relative to the cost model, and S02/S04's
+  zero-signal root cause (not yet distinguished from "correctly strict" vs
+  "broken").
 - ✅ **P1 v2 (price-action/liquidity-led, top 10)** —
   `research/xauusd_scalping/01_shortlist_v2.md`. Re-run after Rakesh's
   review of v1 found it too indicator-led (D22) — 20 candidates evaluated,

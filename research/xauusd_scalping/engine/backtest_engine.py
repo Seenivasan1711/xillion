@@ -180,6 +180,7 @@ class BacktestEngine:
                 trades_today = 0
                 daily_pnl = 0.0
                 halted_today = False
+                consecutive_losses = 0
 
             # ── Manage an open position first, using THIS bar's range ──
             if position is not None:
