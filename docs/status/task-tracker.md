@@ -6,7 +6,33 @@
 
 ---
 
-## 🔴 SESSION SPRINT, 2026-09-22 (started this session) — do these in order, one at a time
+## 🔴 NEXT PHASE, decided 2026-09-22 (after the SESSION SPRINT below finished)
+
+The 17-item sprint below is done — every item ✅. Rakesh set the next
+priority order the same day, explicitly:
+
+1. **Gold Sweep-Reversal: keep fine-tuning until a profitable
+   configuration is found — top priority, starting now.** Not "give up
+   after 160+ net-negative combos" — his call was to keep iterating (new
+   ideas, not just re-running the same sweeps) until something actually
+   works, and only then move to real paper trading. See
+   `docs/status/manual-tasks.md`'s Done section for the exact decision
+   wording.
+2. **MongoDB + Notion — done and verified live same day**, unblocking
+   everything downstream that depends on them (see items 15/16 above,
+   updated with the real verification results).
+3. **JEV / LLM integration is deliberately last**, by Rakesh's own
+   explicit sequencing: "manual automation working well with all coded
+   logics" comes first, GenAI/JEV capability comes after — but **not
+   skipped or indefinitely deferred**. His words: "we need to do this for
+   next week E2E" — so JEV (item 17 above, already built structurally)
+   still needs a real end-to-end pass (an actual LLM in `prosper-engine`
+   calling `propose_parameter_change` for real) before next week, just
+   after items 1-2 land, not instead of them.
+
+---
+
+## 🔴 SESSION SPRINT, 2026-09-22 (started this session, now complete — all 17 items ✅) — do these in order, one at a time
 
 **Goal Rakesh set:** get to a state, ideally by end of this session, where he
 can enable/disable strategies, fine-tune them, see backtest/paper results,
@@ -314,8 +340,8 @@ session, per this repo's update protocol.
     total tests passing, ruff/black/mypy clean. Also added to
     `.env.example` and `render.yml` (both `sync: false`, same pattern as
     every other optional key).
-16. ✅ **Code built 2026-09-22; credentials provided same day, one
-    manual step still pending (manual-tasks.md).**
+16. ✅ **Code built 2026-09-22; credentials provided and fully verified
+    live the same day.**
     New `xillion/notifications/notion_log.py`: `log_action(title, details)`,
     best-effort/never-raises. **Doesn't assume the target database's
     schema** — every Notion database has exactly one title property, but
@@ -334,17 +360,19 @@ session, per this repo's update protocol.
     Empty `NOTION_API_TOKEN`/`NOTION_DATABASE_ID` means every call site's
     `log_action()` no-ops with a debug log line. 4 new tests
     (`tests/unit/test_notion_log.py`, httpx stubbed).
-    **Update, same day**: Rakesh provided a real integration token + page
-    ID, added to `.env`. Live-checked with a real API call — the token
-    itself is valid, but a `search` call with it came back **empty**:
-    nothing has actually been shared with the "Xillion" integration yet
-    (Notion's own error confirms this: "Make sure the relevant pages and
-    databases are shared with your integration"). One manual step left —
-    see manual-tasks.md's Open item — sharing the target page with the
-    integration via Notion's own "..." → Connections menu. Not a code
-    issue; verified by trying the real call rather than assuming the
-    credentials alone were enough. 649/649 total tests passing, ruff/
-    black/mypy clean. Added to `.env.example` and `render.yml`.
+    **Update, same day**: Rakesh provided a real integration token + a
+    database ID ("Backtest Journal"), added to `.env`. Verified in two
+    passes, not assumed: first pass found the token valid but a `search`
+    call came back empty (nothing shared with the integration yet, per
+    Notion's own error); after Rakesh added the share, re-verified by
+    actually running `notion_log.log_action()` against the real database
+    — it correctly auto-detected the database's real title property
+    (**"Trade"**, not a hardcoded "Name" — exactly the case this was
+    built to handle), the page landed (confirmed via a direct query), and
+    the test page was then archived to leave the database clean. **The
+    Notion action log is now genuinely live**, not just code-complete.
+    649/649 total tests passing, ruff/black/mypy clean. Added to
+    `.env.example` and `render.yml`.
 17. ✅ **JEV / LLM-based decision-making — built 2026-09-22, the full
     propose → notify → approve/reject loop, end to end.** Scope was
     Rakesh's own words: read + guarded control (CP7's existing MCP

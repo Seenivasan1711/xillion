@@ -26,53 +26,16 @@ strategy's parameters. Since then: the full 17-item SESSION SPRINT
 (UI fixes, Telegram control surface, DB-configurable credentials, MongoDB +
 Notion integrations, and JEV's propose/approve loop) is now complete —
 see `task-tracker.md` for the full writeup of each item. Rakesh provided
-MongoDB + Notion credentials same day: Mongo is fully live and verified
-(a real bug found and fixed along the way); Notion's token is valid but
-the target page still needs to be shared with the integration — see the
-🔴-equivalent Open item below, it's a one-click fix on Notion's side.)
+MongoDB + Notion credentials same day, both now fully live and verified
+(a real Mongo bug found and fixed along the way; Notion needed one
+share-with-integration step, done and re-verified end to end). Also:
+Rakesh decided how to proceed on Gold Sweep-Reversal — keep fine-tuning
+until a profitable configuration is found, now the top priority, ahead
+of JEV/LLM work which he's deliberately sequencing last.)
 
 ---
 
 ## Open
-
-- [ ] **Notion: share the target page with the "Xillion" integration.**
-      Token + page ID both provided 2026-09-22 and are in `.env`
-      (`NOTION_API_TOKEN`, `NOTION_DATABASE_ID`) — the token itself is
-      valid, verified live, but a real `search` call with it came back
-      **empty**: nothing has actually been shared with the integration
-      yet, so every real call 404s ("Make sure the relevant pages and
-      databases are shared with your integration \"Xillion\""). Fix: open
-      the page at the URL you gave me
-      (`notion.so/.../8260ac9d60f34ae58bc9d443f47af0a6`) → **"..." menu
-      (top right) → Connections → Add connections** → pick **"Xillion"**.
-      That's the one step still missing — no new token/ID needed. Once
-      done, tell me and I'll re-verify with a real API call before
-      considering this closed. **Blocks:** the Notion action-log
-      integration specifically — nothing else depends on it. **Cost:**
-      free.
-      — nothing else in today's list depends on it, so it's fine for this
-      to land
-      after everything else. **Cost:** free.
-
-- [ ] **🔴 Gold Sweep-Reversal: decide how to proceed — the full analysis
-      queue is now exhausted, 2026-09-22.** Six independent analyses this
-      session (2 original SL/TP sweeps, session-window sweep,
-      richer-level-data sweep, 2 finer SL/TP sweeps) — **160+ backtest
-      combinations total, zero profitable** on the real 6-month sample.
-      First backtest: -$12,705.76 on a $5,000 account despite a 47.8% win
-      rate (real R:R ~0.46:1 vs. the card's assumed 2.5:1). Every
-      time-of-day window, every richer level set, and every finer SL/TP
-      grid point tried since is also net-negative. Full numbers:
-      `docs/strategies/gold-xauusd-sweep-reversal.md` §3. **This is no
-      longer "keep looking" — you asked to run the queue in full before
-      deciding, and it's now fully run.** Options: (a) treat this exact
-      mechanical rule as dead on this data and think about what to try
-      next (a different regime/symbol/window, or a genuinely different
-      signal idea), (b) something else entirely. **Blocks:** real paper
-      trading (no real capital risk taken until this is resolved either
-      way). **Cost:** none — a decision, whenever you've had time to think
-      about it. Not urgent — the alert instance keeps running and costs
-      nothing while you decide.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
@@ -112,6 +75,32 @@ the target page still needs to be shared with the integration — see the
 ---
 
 ## Done
+
+- [x] **Gold Sweep-Reversal: decided 2026-09-22 — keep fine-tuning until a
+      profitable configuration is found, high priority next.** After the
+      full analysis queue came back 160+ combinations / zero profitable
+      (session-window, richer-level-data, finer SL/TP sweeps — see
+      `docs/strategies/gold-xauusd-sweep-reversal.md` §3), Rakesh's call
+      was explicit: don't abandon this signal — keep iterating until a
+      profitable version is found, and treat that as the next high-priority
+      task (ahead of JEV/LLM work, which comes last per his own ordering).
+      Not "paper trade the current losing config" — the plan is to find a
+      configuration that's actually profitable in backtest first. Real
+      paper trading with capital risk still doesn't start until that's
+      found.
+
+- [x] **Notion integration token + target database — done and verified
+      live, 2026-09-22.** Token + database ID provided, added to `.env`.
+      Verified in two stages, not assumed: first check found the token
+      valid but nothing shared with the integration yet (a real `search`
+      call came back empty); after Rakesh added the share, re-verified
+      with the actual `xillion/notifications/notion_log.py` code path —
+      wrote a real test page to the shared database ("Backtest Journal"),
+      confirmed it landed via a direct query, correctly auto-detected the
+      database's real title property (**"Trade"**, not a hardcoded
+      "Name" — exactly the scenario this was built to handle), then
+      archived the test page to leave the database clean. The Notion
+      action log is now genuinely live, not just code-complete.
 
 - [x] **MongoDB Atlas free-tier cluster + connection string — done and
       verified live, 2026-09-22.** Connection string provided, added to
