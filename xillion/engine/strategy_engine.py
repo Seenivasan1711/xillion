@@ -788,6 +788,20 @@ class _StrategyContextImpl(StrategyContext):
                 error=str(exc),
             )
 
+        # Mongo context store (2026-09-22) -- best-effort, no-op if
+        # unconfigured, deliberately outside the try/except above so a
+        # Mongo failure is never mistaken for a Postgres persistence
+        # failure (they're independent stores with independent fates).
+        from xillion.data.mongo_context_store import record_trade
+
+        await record_trade(
+            {
+                "strategy_instance_id": self.instance_id,
+                "mode": self.mode,
+                **closed,
+            }
+        )
+
     async def _persist_state(self) -> None:
         """Write ctx.state to StrategyInstance.state_blob (CP12). Called
         fire-and-forget after every on_bar (crash resilience -- a process

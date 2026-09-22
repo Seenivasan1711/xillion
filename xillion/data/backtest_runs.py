@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from xillion.data.mongo_context_store import record_backtest_run
 from xillion.db.models import BacktestRun, BacktestTrade, StrategyClass
 from xillion.engine.backtest_engine import BacktestResult
 
@@ -77,6 +78,31 @@ async def persist_backtest_run(
             )
 
         await session.commit()
+
+        # Mongo context store (2026-09-22) -- best-effort, no-op if
+        # unconfigured, never affects this function's own success/failure.
+        # One self-contained document per run (params + metrics + trades
+        # together), unlike Postgres's normalized tables above -- the shape
+        # a later RAG-style context feed wants.
+        await record_backtest_run(
+            {
+                "run_id": result.run_id,
+                "strategy_name": result.strategy_name,
+                "strategy_class_version": strategy_row.version,
+                "params": result.params,
+                "instruments": result.instruments,
+                "timeframe": result.timeframe,
+                "from_ts": result.from_ts.isoformat(),
+                "to_ts": result.to_ts.isoformat(),
+                "initial_capital": result.initial_capital,
+                "slippage_bps": result.slippage_bps,
+                "metrics": result.metrics,
+                "status": result.status,
+                "error": result.error,
+                "trades": result.trades,
+                "recorded_at": now,
+            }
+        )
         return True
 
 

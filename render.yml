@@ -165,13 +165,22 @@ services:
       - key: TWELVE_DATA_API_KEY
         sync: false
       # Gold Sweep-Reversal's news/econ-calendar ritual check only -- free
-      # key, no card, from finnhub.io. Optional; the check is a stub
-      # either way until it's wired in (see the strategy doc).
+      # key, no card, from finnhub.io. Optional; confirmed 2026-09-22 that
+      # Finnhub's free tier doesn't include the economic-calendar endpoint
+      # this needs, so the check fails open either way (see the strategy
+      # doc) -- this key can also be configured via Settings -> Finnhub
+      # instead of here.
       - key: FINNHUB_API_KEY
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
+        sync: false
+      # Context store for trades + backtest results, for later JEV/local-LLM
+      # context feeding -- a separate MongoDB, not the main app DB above.
+      # Free tier, no card: mongodb.com/cloud/atlas/register. Optional; the
+      # store no-ops entirely if unset.
+      - key: MONGODB_URI
         sync: false
 
 # ────────────────────────────────────────────────────────────────────────────────

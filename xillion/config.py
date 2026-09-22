@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     # (data feed, signal logic, Telegram) doesn't depend on this.
     finnhub_api_key: str = ""
 
+    # Context store for trades + backtest results (2026-09-22, task-tracker's
+    # SESSION SPRINT item 15) -- a separate MongoDB, not the main Postgres
+    # DB, Rakesh's explicit call for the JEV/local-LLM context-feeding use
+    # case. Empty means xillion/data/mongo_context_store.py no-ops (logged,
+    # not silently faked) -- the rest of the app has zero dependency on this
+    # existing. Free-tier Atlas is the natural pick, same "free, no card"
+    # pattern as every other optional integration here.
+    mongodb_uri: str = ""
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

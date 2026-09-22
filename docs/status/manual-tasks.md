@@ -28,15 +28,16 @@ strategy's parameters.)
 
 ## Open
 
-- [ ] **MongoDB Atlas free-tier cluster + connection string** — needed for
-      the new trades/backtest-results context store (session-sprint item
-      #15, 2026-09-22, Rakesh's explicit call over reusing Postgres).
-      Sign up free at mongodb.com/cloud/atlas/register (no card for the
-      free M0 tier), create a cluster, get the connection string
-      (`mongodb+srv://...`), then paste it in as `MONGODB_URI` — following
-      the same `.env` pattern as Twelve Data/Finnhub for now (a Settings UI
-      card is a later nice-to-have, not blocking). **Blocks:** the
-      trades/backtest-results store (item #15) and, downstream, JEV's
+- [ ] **MongoDB Atlas free-tier cluster + connection string.** The code
+      side is done as of 2026-09-22 — `xillion/data/mongo_context_store.py`
+      already writes every closed trade and backtest run, and just needs
+      `MONGODB_URI` to activate; it's a real no-op (not a broken feature)
+      until then. Sign up free at mongodb.com/cloud/atlas/register (no
+      card for the free M0 tier), create a cluster, get the connection
+      string (`mongodb+srv://...`), then paste it in as `MONGODB_URI` in
+      `.env` (a Settings UI card is a later nice-to-have, not blocking).
+      **Blocks:** the trades/backtest-results store actually collecting
+      data, and, downstream, JEV's
       context-feeding. **Cost:** free (M0 tier).
 
 - [ ] **Notion integration token + target page/database** — needed for

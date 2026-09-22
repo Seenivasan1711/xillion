@@ -281,15 +281,33 @@ session, per this repo's update protocol.
     broker (structural — needs a new instance, by design).
     `tsc --noEmit` + `vite build` clean; 631/631 backend tests unaffected
     (frontend-only change, no backend endpoint changed).
-15. ⬜ **A persistent trades/backtest-results store, in MongoDB** — decided
-    2026-09-22 (Rakesh's explicit call, after I flagged reusing Postgres as
-    an alternative — he wants Mongo specifically for the context-feeding use
-    case). New infra dependency: needs a Mongo instance (free-tier Atlas is
-    the natural pick, same free-signup pattern as Twelve Data/Finnhub — see
-    manual-tasks.md), a driver (`motor` for async), and a `MONGODB_URI`
-    secret. Stores trades + backtest results, queryable later by JEV/a local
-    LLM for context — same spirit as `prosper-engine`'s existing RAG ingest
-    (CP8), a new store rather than reusing that one.
+15. ✅ **Code built 2026-09-22 — blocked on Rakesh's MongoDB Atlas signup to
+    actually go live** (manual-tasks.md item, not yet done as of this
+    writing). New `xillion/data/mongo_context_store.py`: `motor` (added to
+    `pyproject.toml`) async client, lazily built from `settings.mongodb_uri`
+    and rebuilt if the URI changes without a restart (same "applied
+    immediately" contract as `TelegramNotifier.configure()`). Two
+    functions, both best-effort/never-raises (a Mongo outage must never
+    affect real trading, same principle as `TelegramNotifier.send()`):
+    - `record_trade()` — one document per closed trade, called from
+      `_persist_trade_close` in `strategy_engine.py`, deliberately outside
+      that function's own try/except so a Mongo failure is never confused
+      with a Postgres persistence failure.
+    - `record_backtest_run()` — one **self-contained** document per run
+      (params + metrics + full trade list together, unlike Postgres's
+      normalized `BacktestRun`/`BacktestTrade` tables) — the shape a later
+      RAG-style context feed actually wants: "everything about this one
+      run," not a join. Called from `persist_backtest_run()` in
+      `xillion/data/backtest_runs.py`.
+    Empty `MONGODB_URI` (still the case right now) means both functions
+    no-op with a debug log line — zero behavior change for anyone who
+    hasn't set this up yet. 5 new tests (`tests/unit/test_mongo_context_store.py`,
+    motor client stubbed, no real MongoDB touched) — **structurally
+    verified only, not live-verified against a real Mongo instance**,
+    honestly, since no `MONGODB_URI` exists to test against yet. 636/636
+    total tests passing, ruff/black/mypy clean. Also added to
+    `.env.example` and `render.yml` (both `sync: false`, same pattern as
+    every other optional key).
 16. ⬜ **Notion integration for live-action logging** — save every action
     taken on a live/fine-tuned strategy to Notion, for later LLM context
     feeding. **Needs a real Notion integration token + target
