@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
+from signals.risk_floor import apply_floor
 
 ind = IndicatorSignals()
 
@@ -103,18 +104,22 @@ class ValueAreaRotationStrategy:
         entry = bar.close
         if bar.high >= vah:
             stop = max(bar.high + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
+            target = poc
+            stop, target = apply_floor(entry, stop, target, Side.SHORT)
             return Signal(
                 side=Side.SHORT,
                 stop_price=stop,
-                target_price=poc,
+                target_price=target,
                 reason=f"faded VAH {vah:.2f} toward POC {poc:.2f} (balance day, ADX {adx:.0f})",
             )
         if bar.low <= val:
             stop = min(bar.low - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
+            target = poc
+            stop, target = apply_floor(entry, stop, target, Side.LONG)
             return Signal(
                 side=Side.LONG,
                 stop_price=stop,
-                target_price=poc,
+                target_price=target,
                 reason=f"faded VAL {val:.2f} toward POC {poc:.2f} (balance day, ADX {adx:.0f})",
             )
         return None

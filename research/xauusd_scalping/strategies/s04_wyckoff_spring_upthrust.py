@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.price_action import Direction, PriceActionSignals
+from signals.risk_floor import apply_floor
 
 from ._common import daily_bars_from_m1
 
@@ -59,4 +60,5 @@ class WyckoffSpringUpthrustStrategy:
             stop = max(bars[-1].high + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
             target = result.range_low
         reason = f"{result.reason}, range {result.range_low:.2f}-{result.range_high:.2f}, reclaimed"
+        stop, target = apply_floor(entry, stop, target, side)
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

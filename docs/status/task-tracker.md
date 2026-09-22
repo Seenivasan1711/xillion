@@ -44,27 +44,35 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
-- 🔴 **P3 (implement + backtest all 10) — done, but the verdict is "not
-  ready for P4," not a strategy ranking.** Backtest actually run against
-  all real data on disk (`research/xauusd_scalping/run_backtests.py` →
-  `03_results.md`, full detail there). Headline: **zero of the 10
-  candidates are recommendable yet** — every one is far below the
-  200-trade underpowered threshold (max 42 trades, only ~16 real calendar
-  days exist on disk across two windows 6 months apart), and 5 of the 10
-  show a suspicious exact 0.0% win rate traced to stop/target distances
-  sized off raw `bar.close` being smaller than the session/vol-bucket cost
-  markup the engine independently applies — the target ends up on the
-  losing side of the real fill before the trade is even placed. Also found
-  and fixed a real engine bug while diagnosing this: `consecutive_loss_halt`
-  never reset on day rollover (unlike its sibling `daily_loss_cap_usd`),
-  so once tripped anywhere in a run it silently killed every subsequent
-  day for good — new regression test
-  `test_consecutive_loss_halt_resets_on_a_new_day` locks in the fix.
-  `pytest tests/ research/xauusd_scalping/tests/` → 674 passed. **Before
-  P4 can mean anything**: more backfilled data (still running, PID 27860),
-  stop/target sizing revisited relative to the cost model, and S02/S04's
-  zero-signal root cause (not yet distinguished from "correctly strict" vs
-  "broken").
+- 🔴 **P3 (implement + backtest all 10) — done (v2), verdict is "not ready
+  for P4," not a strategy ranking.** Backtest run twice against real data
+  on disk (`research/xauusd_scalping/run_backtests.py` → `03_results.md`,
+  full detail + v1-vs-v2 diff there). v1 had two real bugs, found by
+  distrusting an implausible pattern rather than trusting the numbers:
+  (1) engine bug — `consecutive_loss_halt` never reset on day rollover
+  (unlike its tested sibling `daily_loss_cap_usd`), so once tripped
+  anywhere in a run it silently killed every subsequent day for good,
+  fixed with a new regression test
+  `test_consecutive_loss_halt_resets_on_a_new_day`; (2) strategy bug —
+  all 10 strategies sized stop/target off raw `bar.close` while the
+  engine independently marks up the real fill by the session/vol-bucket
+  cost, so 5 of 10 showed an exact 0.0% win rate (target on the losing
+  side of the fill before the trade was placed), fixed with a new shared
+  `signals/risk_floor.py` (`apply_floor`, widen-only, applied at all 10
+  strategies' signal-construction sites, floor values read off the cost
+  table not tuned to a result). **v2 result after both fixes: still zero
+  of 10 keep/keep-with-caveats** — win rates now a believable 21-56%
+  range (proof the fix addressed a real defect) but every strategy is
+  net-negative on PF. S06 (OTE Fib) is the one worth revisiting first —
+  best PF (0.86) and smallest sample (n=16) of the 10, most likely to be
+  sample-size noise rather than real negative edge. `pytest tests/
+  research/xauusd_scalping/tests/` → 674 passed both times. **Before P4
+  can mean anything**: more backfilled data (still running, PID 27860 —
+  grew mid-session from 23k to 53k bars already), S02/S04's zero-signal
+  explanation confirmed only by code-reading not a traced near-miss, and
+  the fixed `min_sl_pts=40`/`min_target_pts=80` floor is probably too
+  conservative for low-spread sessions (LONDON/LONDON_NY_OVERLAP) — a
+  session-aware floor is the natural next refinement.
 - ✅ **P1 v2 (price-action/liquidity-led, top 10)** —
   `research/xauusd_scalping/01_shortlist_v2.md`. Re-run after Rakesh's
   review of v1 found it too indicator-led (D22) — 20 candidates evaluated,

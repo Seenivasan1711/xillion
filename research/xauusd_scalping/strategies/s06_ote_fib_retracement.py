@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
+from signals.risk_floor import apply_floor
 
 ind = IndicatorSignals()
 
@@ -80,6 +81,7 @@ class OteFibRetracementStrategy:
                 entry = bar.close
                 stop = min(level_deep - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
                 target = swing_high + self.p.target_r_mult * swing_range
+                stop, target = apply_floor(entry, stop, target, Side.LONG)
                 return Signal(
                     side=Side.LONG,
                     stop_price=stop,
@@ -97,6 +99,7 @@ class OteFibRetracementStrategy:
                 entry = bar.close
                 stop = max(level_deep + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
                 target = swing_low - self.p.target_r_mult * swing_range
+                stop, target = apply_floor(entry, stop, target, Side.SHORT)
                 return Signal(
                     side=Side.SHORT,
                     stop_price=stop,

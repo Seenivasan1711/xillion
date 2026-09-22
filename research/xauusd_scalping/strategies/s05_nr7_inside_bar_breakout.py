@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.price_action import PriceActionSignals
+from signals.risk_floor import apply_floor
 
 pa = PriceActionSignals()
 
@@ -72,4 +73,5 @@ class Nr7InsideBarBreakoutStrategy:
             stop = entry - self.p.min_sl_pts if side == Side.LONG else entry + self.p.min_sl_pts
         reason = f"NR7/inside bar {pend.bar_low:.2f}-{pend.bar_high:.2f} broken at {entry:.2f}"
         self._pending = None
+        stop, target = apply_floor(entry, stop, target, side)
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

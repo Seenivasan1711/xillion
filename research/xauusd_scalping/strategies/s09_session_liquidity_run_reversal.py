@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.price_action import Direction, PriceActionSignals
+from signals.risk_floor import apply_floor
 
 from ._common import session_levels
 
@@ -76,4 +77,5 @@ class SessionLiquidityRunReversalStrategy:
             target = min(untouched_opposite) if untouched_opposite else entry + 7.5
 
         reason = f"{run.reason}, displacement reversal at {entry:.2f}, targeting opposing pool {target:.2f}"
+        stop, target = apply_floor(entry, stop, target, side)
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

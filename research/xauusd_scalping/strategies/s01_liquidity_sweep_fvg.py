@@ -15,6 +15,7 @@ from engine.backtest_engine import Bar, Side, Signal
 from signals.confidence import ConfidenceComponent, ConfidenceScorer
 from signals.indicators import IndicatorSignals
 from signals.price_action import Direction, FVGResult, PriceActionSignals
+from signals.risk_floor import apply_floor
 
 from ._common import session_levels
 
@@ -129,4 +130,5 @@ class LiquiditySweepFvgStrategy:
             reason += f" | confidence {conf.score}/100 ({'; '.join(conf.reasons)})"
 
         self._pending = None
+        stop, target = apply_floor(entry, stop, target, side)
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

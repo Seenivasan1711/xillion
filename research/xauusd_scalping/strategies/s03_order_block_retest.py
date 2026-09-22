@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
 from signals.price_action import Direction, PriceActionSignals
+from signals.risk_floor import apply_floor
 
 pa = PriceActionSignals()
 ind = IndicatorSignals()
@@ -73,4 +74,5 @@ class OrderBlockRetestStrategy:
             target = entry - self.p.target_r_mult * dist_to_bos
         reason = f"BOS beyond {bos.swing_broken_price:.2f}, order block retest {ob.zone_low:.2f}-{ob.zone_high:.2f}"
         self._bos_cache = None
+        stop, target = apply_floor(entry, stop, target, side)
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

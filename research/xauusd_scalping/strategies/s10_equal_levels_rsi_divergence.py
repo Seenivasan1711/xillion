@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
 from signals.price_action import PriceActionSignals
+from signals.risk_floor import apply_floor
 
 pa = PriceActionSignals()
 ind = IndicatorSignals()
@@ -85,5 +86,6 @@ class EqualLevelsRsiDivergenceStrategy:
                 f"{pool.reason} swept + reclaimed, RSI divergence {divergence:.1f} "
                 f"(gate {'bearish' if pool.is_high else 'bullish'} required)"
             )
+            stop, target = apply_floor(entry, stop, target, side)
             return Signal(side=side, stop_price=stop, target_price=target, reason=reason)
         return None
