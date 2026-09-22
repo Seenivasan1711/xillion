@@ -31,6 +31,15 @@ logger = structlog.get_logger(__name__)
 _client: Any = None
 _client_uri: str | None = None  # tracks which URI _client was built from
 
+# Explicit database name, not client.get_default_database() -- found live
+# 2026-09-22 against the real Atlas connection string Rakesh provided:
+# Atlas's own "Connect -> Drivers" UI generates a URI with no database name
+# in the path (just `mongodb+srv://.../?appName=Cluster0`), which makes
+# get_default_database() raise ConfigurationError. Picking the name
+# ourselves works with any URI, including the exact shape Atlas hands you
+# by default, rather than requiring the user to hand-edit the URI.
+_DB_NAME = "xillion"
+
 
 def _get_db() -> Any:
     """Lazily creates (or reuses) the Motor client for the currently
@@ -52,7 +61,7 @@ def _get_db() -> Any:
         _client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000)
         _client_uri = uri
 
-    return _client.get_default_database()
+    return _client[_DB_NAME]
 
 
 async def record_trade(doc: dict) -> None:

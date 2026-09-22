@@ -299,17 +299,23 @@ session, per this repo's update protocol.
       RAG-style context feed actually wants: "everything about this one
       run," not a join. Called from `persist_backtest_run()` in
       `xillion/data/backtest_runs.py`.
-    Empty `MONGODB_URI` (still the case right now) means both functions
-    no-op with a debug log line — zero behavior change for anyone who
-    hasn't set this up yet. 5 new tests (`tests/unit/test_mongo_context_store.py`,
-    motor client stubbed, no real MongoDB touched) — **structurally
-    verified only, not live-verified against a real Mongo instance**,
-    honestly, since no `MONGODB_URI` exists to test against yet. 636/636
+    Empty `MONGODB_URI` (no longer the case, see below) means both
+    functions no-op with a debug log line. 5 new tests
+    (`tests/unit/test_mongo_context_store.py`, motor client stubbed).
+    **Update, same day**: Rakesh provided a real Atlas connection string.
+    Live-verified, and a real bug found in the process — Atlas's own
+    "Connect → Drivers" UI generates a URI with no database name in the
+    path, which crashed `_get_db()`'s `get_default_database()` call with
+    `ConfigurationError`. Fixed to use an explicit database name
+    (`"xillion"`) instead of relying on the URI containing one — works
+    with any URI shape now. Re-verified after the fix with a real write +
+    read against the actual Atlas cluster (not mocked), then cleaned up.
+    **This store is now genuinely live**, not just code-complete. 649/649
     total tests passing, ruff/black/mypy clean. Also added to
     `.env.example` and `render.yml` (both `sync: false`, same pattern as
     every other optional key).
-16. ✅ **Code built 2026-09-22 — blocked on Rakesh's Notion integration
-    token + shared database** (manual-tasks.md item, not yet done).
+16. ✅ **Code built 2026-09-22; credentials provided same day, one
+    manual step still pending (manual-tasks.md).**
     New `xillion/notifications/notion_log.py`: `log_action(title, details)`,
     best-effort/never-raises. **Doesn't assume the target database's
     schema** — every Notion database has exactly one title property, but
@@ -325,13 +331,20 @@ session, per this repo's update protocol.
     - `set_signal_action_core` (Take/Skip, from both the webpage and
       Telegram — item 10)
     - `activate_kill_switch_core` (from either the web UI or Telegram)
-    Empty `NOTION_API_TOKEN`/`NOTION_DATABASE_ID` (still the case) means
-    every call site's `log_action()` no-ops with a debug log line — zero
-    behavior change until configured. 4 new tests
-    (`tests/unit/test_notion_log.py`, httpx stubbed, no real Notion API
-    touched) — **structurally verified only, not live-verified**, same
-    honest caveat as item 15's MongoDB store. 640/640 total tests passing,
-    ruff/black/mypy clean. Added to `.env.example` and `render.yml`.
+    Empty `NOTION_API_TOKEN`/`NOTION_DATABASE_ID` means every call site's
+    `log_action()` no-ops with a debug log line. 4 new tests
+    (`tests/unit/test_notion_log.py`, httpx stubbed).
+    **Update, same day**: Rakesh provided a real integration token + page
+    ID, added to `.env`. Live-checked with a real API call — the token
+    itself is valid, but a `search` call with it came back **empty**:
+    nothing has actually been shared with the "Xillion" integration yet
+    (Notion's own error confirms this: "Make sure the relevant pages and
+    databases are shared with your integration"). One manual step left —
+    see manual-tasks.md's Open item — sharing the target page with the
+    integration via Notion's own "..." → Connections menu. Not a code
+    issue; verified by trying the real call rather than assuming the
+    credentials alone were enough. 649/649 total tests passing, ruff/
+    black/mypy clean. Added to `.env.example` and `render.yml`.
 17. ✅ **JEV / LLM-based decision-making — built 2026-09-22, the full
     propose → notify → approve/reject loop, end to end.** Scope was
     Rakesh's own words: read + guarded control (CP7's existing MCP

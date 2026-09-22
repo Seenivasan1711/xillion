@@ -25,34 +25,31 @@ Rakesh; that decision item is about whether/how to keep iterating on this
 strategy's parameters. Since then: the full 17-item SESSION SPRINT
 (UI fixes, Telegram control surface, DB-configurable credentials, MongoDB +
 Notion integrations, and JEV's propose/approve loop) is now complete —
-see `task-tracker.md` for the full writeup of each item.)
+see `task-tracker.md` for the full writeup of each item. Rakesh provided
+MongoDB + Notion credentials same day: Mongo is fully live and verified
+(a real bug found and fixed along the way); Notion's token is valid but
+the target page still needs to be shared with the integration — see the
+🔴-equivalent Open item below, it's a one-click fix on Notion's side.)
 
 ---
 
 ## Open
 
-- [ ] **MongoDB Atlas free-tier cluster + connection string.** The code
-      side is done as of 2026-09-22 — `xillion/data/mongo_context_store.py`
-      already writes every closed trade and backtest run, and just needs
-      `MONGODB_URI` to activate; it's a real no-op (not a broken feature)
-      until then. Sign up free at mongodb.com/cloud/atlas/register (no
-      card for the free M0 tier), create a cluster, get the connection
-      string (`mongodb+srv://...`), then paste it in as `MONGODB_URI` in
-      `.env` (a Settings UI card is a later nice-to-have, not blocking).
-      **Blocks:** the trades/backtest-results store actually collecting
-      data, and, downstream, JEV's
-      context-feeding. **Cost:** free (M0 tier).
-
-- [ ] **Notion integration token + target page/database.** The code side is
-      done as of 2026-09-22 — `xillion/notifications/notion_log.py` already
-      logs param/capital edits, Take/Skip decisions, and kill-switch
-      activations, and just needs the token+database to activate; it's a
-      real no-op (not a broken feature) until then. Create an integration
-      at notion.so/my-integrations (free), then create (or pick) a
-      database and share it with that integration (Notion requires this
-      per-database share, it's not automatic account-wide access). Give
-      me: the integration token (`secret_...`) and the database ID (from
-      its URL). **Blocks:** the Notion action-log integration specifically
+- [ ] **Notion: share the target page with the "Xillion" integration.**
+      Token + page ID both provided 2026-09-22 and are in `.env`
+      (`NOTION_API_TOKEN`, `NOTION_DATABASE_ID`) — the token itself is
+      valid, verified live, but a real `search` call with it came back
+      **empty**: nothing has actually been shared with the integration
+      yet, so every real call 404s ("Make sure the relevant pages and
+      databases are shared with your integration \"Xillion\""). Fix: open
+      the page at the URL you gave me
+      (`notion.so/.../8260ac9d60f34ae58bc9d443f47af0a6`) → **"..." menu
+      (top right) → Connections → Add connections** → pick **"Xillion"**.
+      That's the one step still missing — no new token/ID needed. Once
+      done, tell me and I'll re-verify with a real API call before
+      considering this closed. **Blocks:** the Notion action-log
+      integration specifically — nothing else depends on it. **Cost:**
+      free.
       — nothing else in today's list depends on it, so it's fine for this
       to land
       after everything else. **Cost:** free.
@@ -115,6 +112,18 @@ see `task-tracker.md` for the full writeup of each item.)
 ---
 
 ## Done
+
+- [x] **MongoDB Atlas free-tier cluster + connection string — done and
+      verified live, 2026-09-22.** Connection string provided, added to
+      `.env` as `MONGODB_URI`. Found and fixed a real bug while verifying:
+      Atlas's own "Connect → Drivers" UI generates a URI with no database
+      name in it, which crashed `mongo_context_store.py`'s
+      `get_default_database()` call with `ConfigurationError` — fixed to
+      use an explicit database name (`"xillion"`) instead, which works
+      with any URI shape. Re-verified after the fix with a real write +
+      read against the actual Atlas cluster (not mocked), then cleaned up
+      the test document. The trades/backtest-results store is now
+      genuinely live, not just code-complete.
 
 - [x] **Gold Sweep-Reversal instance — created, started, and verified
       genuinely alive 2026-09-21.** Confirmed via a live WebSocket listen
