@@ -147,15 +147,53 @@ session, per this repo's update protocol.
    fully-informed one, not a "haven't looked hard enough yet" one. Paper
    trading itself is **not started** — same open decision as before,
    now with complete information behind it rather than partial.
-10. ⬜ **Telegram as a full control surface**, expanded scope beyond the
-    original taken/skipped buttons:
-    - Interactive Take/Skip buttons (replacing the webpage-only flow)
-    - Turn alerts on/off per instance from Telegram
-    - Enable/disable a strategy instance from Telegram
-    - Kill switch from Telegram (still always demands a fresh TOTP code,
-      per CLAUDE.md's MCP section — that gate is never bypassed, this is
-      just a second front door to the same guarded action, not a new
-      unguarded one)
+10. ✅ **Telegram as a full control surface — built 2026-09-22.** New
+    `xillion/notifications/telegram_commands.py`: long-polls Telegram's
+    `getUpdates` (no public webhook/port needed — same "poll out, not in"
+    shape as `mt5_bridge.py`, works identically in local dev and on
+    Render), registered as a supervised background task in `main.py`, only
+    when Telegram is actually configured.
+    - **Interactive Take/Skip buttons** — `_handle_alert_signal` now
+      attaches an inline keyboard to every ENTER alert once its
+      `signal_log` row exists (`TelegramNotifier.add_inline_buttons`,
+      called after the existing send-then-persist flow, not a reorder of
+      it). A button press calls the same `set_signal_action_core` the
+      Journal webpage already used (extracted from `journal.py`'s route so
+      both surfaces share one implementation), tags the action
+      `source="telegram"` (that field already anticipated this — see its
+      inline comment, "webpage | telegram" — never wired until now), and
+      edits the message to show the result instead of leaving live
+      buttons.
+    - **`/pause <name>` / `/resume <name>`** — enable/disable a strategy
+      instance from Telegram; covers both "turn alerts on/off" and
+      "enable/disable a strategy instance" from the original ask, since
+      for an alert-mode instance those are the same underlying action
+      (running vs. stopped). Reuses `start_instance_core`/
+      `stop_instance_core` (already shared with the API routes and the
+      market-hours auto-start scheduler) — no new instance-lifecycle code
+      path. Name matching requires an unambiguous case-insensitive
+      substring match; ambiguous/no match reports back rather than
+      guessing.
+    - **`/status`** — lists every instance with a running/idle indicator
+      (not originally asked for, added since `/pause`/`/resume` need
+      exact names anyway and this is how you'd find them).
+    - **`/killswitch <code>`** — still always demands a fresh TOTP code,
+      verified via the exact same `verify_totp_or_raise` the web UI's kill
+      switch route uses (extracted from `risk.py`'s route into a shared
+      function, alongside `activate_kill_switch_core` for the actual
+      stop-everything logic) — a second front door to the same guarded
+      action, never a new unguarded one.
+    - **Authorization**: every inbound update (message or button press) is
+      checked against the configured `TELEGRAM_CHAT_ID` before anything
+      happens; anything else is logged and dropped.
+    10 new tests (`tests/integration/test_telegram_commands.py`) — callback
+    handling (authorized + rejected), `/status`, ambiguous-name handling,
+    and all three TOTP paths (missing/wrong/valid, the valid path using a
+    real `pyotp`-generated code). 626/626 total tests passing, ruff/black/
+    mypy clean on every touched file. **Not yet exercised against a real
+    Telegram chat** (needs `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`
+    configured and a live poll cycle to see a button actually work
+    end-to-end) — structurally verified, not proven live.
 11. ⬜ **Broker-picker dropdown in the instance-creation UI** — the API/type
     (`broker_connection_name`) already exists; there's no actual `<select>`
     for it in `Strategies.tsx` yet, confirmed 2026-09-22.

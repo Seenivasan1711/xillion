@@ -51,6 +51,7 @@ from xillion.engine.market_scheduler import run_market_hours_scheduler
 from xillion.engine.reconciliation import unresolved_blocker_exists
 from xillion.engine.strategy_engine import StrategyEngine
 from xillion.notifications.telegram import TelegramNotifier
+from xillion.notifications.telegram_commands import poll_telegram_updates
 from xillion.observability.log_capture import capture_processor, run_log_persistence
 from xillion.observability.task_supervisor import supervise
 
@@ -593,6 +594,15 @@ async def lifespan(app: FastAPI):
     broker_health_task = supervise(
         "broker_health", lambda: run_broker_health_scheduler(app), notifier=telegram
     )
+    # Telegram control surface (2026-09-22) -- Take/Skip buttons, /pause,
+    # /resume, /killswitch. Only started when Telegram is actually
+    # configured, same guard as every other Telegram-dependent feature;
+    # long-polls rather than a webhook, see telegram_commands.py's docstring.
+    telegram_commands_task = None
+    if telegram._enabled:
+        telegram_commands_task = supervise(
+            "telegram_commands", lambda: poll_telegram_updates(app), notifier=telegram
+        )
 
     logger.info("xillion ready")
     yield
@@ -607,6 +617,8 @@ async def lifespan(app: FastAPI):
     square_off_task.cancel()
     reconciliation_task.cancel()
     broker_health_task.cancel()
+    if telegram_commands_task is not None:
+        telegram_commands_task.cancel()
     # Disconnect all brokers on shutdown
     for info in app.state.broker_instances.values():
         instance = info.get("instance")

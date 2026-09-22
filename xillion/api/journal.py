@@ -157,20 +157,28 @@ async def put_signal_action(
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
-    """Mark an ENTER alert as taken or skipped -- the Journal webpage path
-    (Telegram inline buttons are a later fast-follow, see
-    docs/status/manual-tasks.md). Re-callable: changing your mind and
-    re-marking overwrites the previous action rather than being rejected,
-    since this is a log of the current decision, not an audit trail of
-    every click."""
-    if body.action not in _VALID_USER_ACTIONS:
-        raise HTTPException(400, f"action must be one of {_VALID_USER_ACTIONS}")
-    row = await _get_entry_signal(db, "signal_log", body.source_id)
-    row.user_action = body.action
-    row.user_action_at = datetime.now(UTC).isoformat()
-    row.user_action_source = "webpage"
-    await db.commit()
+    """Mark an ENTER alert as taken or skipped -- the Journal webpage path.
+    Re-callable: changing your mind and re-marking overwrites the previous
+    action rather than being rejected, since this is a log of the current
+    decision, not an audit trail of every click."""
+    await set_signal_action_core(db, body.source_id, body.action, source="webpage")
     return {"saved": True}
+
+
+async def set_signal_action_core(
+    db: AsyncSession, source_id: str, action: str, source: str = "webpage"
+) -> None:
+    """Shared by the webpage route above and the Telegram inline-button
+    handler (xillion/notifications/telegram_commands.py, 2026-09-22) --
+    `source` records which surface the action actually came from, so the
+    Journal can show that honestly rather than always saying "webpage"."""
+    if action not in _VALID_USER_ACTIONS:
+        raise HTTPException(400, f"action must be one of {_VALID_USER_ACTIONS}")
+    row = await _get_entry_signal(db, "signal_log", source_id)
+    row.user_action = action
+    row.user_action_at = datetime.now(UTC).isoformat()
+    row.user_action_source = source
+    await db.commit()
 
 
 class SignalOutcomeRequest(BaseModel):

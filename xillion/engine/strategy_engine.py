@@ -251,9 +251,12 @@ class _StrategyContextImpl(StrategyContext):
                 )
 
         notified = False
+        sent_message_id: int | None = None
         if self._notifier is not None:
             try:
-                await self._notifier.alert(title=self._instance_name, body=message)
+                sent_message_id = await self._notifier.alert(
+                    title=self._instance_name, body=message
+                )
                 notified = True
             except Exception as exc:
                 logger.error("alert notify failed", instance_id=self.instance_id, error=str(exc))
@@ -297,6 +300,33 @@ class _StrategyContextImpl(StrategyContext):
             except Exception as exc:
                 logger.error(
                     "persist signal_log failed", instance_id=self.instance_id, error=str(exc)
+                )
+
+        # Take/Skip inline buttons (2026-09-22) -- ENTER signals only, and
+        # only once new_signal_id is known (callback_data needs it). Added
+        # after the alert already sent + row already persisted rather than
+        # reordering either of those, so this stays a pure addition to the
+        # existing flow, not a rewrite of it.
+        if (
+            signal_type == "ENTER"
+            and new_signal_id is not None
+            and sent_message_id is not None
+            and self._notifier is not None
+            and hasattr(self._notifier, "add_inline_buttons")
+        ):
+            try:
+                await self._notifier.add_inline_buttons(
+                    sent_message_id,
+                    [
+                        [
+                            {"text": "✅ Taken", "callback_data": f"taken:{new_signal_id}"},
+                            {"text": "⏭ Skipped", "callback_data": f"skipped:{new_signal_id}"},
+                        ]
+                    ],
+                )
+            except Exception as exc:
+                logger.error(
+                    "failed to attach Telegram buttons", signal_id=new_signal_id, error=str(exc)
                 )
 
         # Pre-trade AI confidence hook (CP8) -- ENTER signals only (an EXIT

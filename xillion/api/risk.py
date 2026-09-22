@@ -31,6 +31,19 @@ async def risk_status(
     return risk.status()
 
 
+def verify_totp_or_raise(user: AppUser, totp_code: str | None) -> None:
+    """Shared TOTP gate -- raises HTTPException on failure. Used by the
+    kill-switch route below and by the Telegram `/killswitch` command
+    (xillion/notifications/telegram_commands.py, 2026-09-22): that gate is
+    never bypassed regardless of which surface the request comes from."""
+    if user.totp_secret:
+        if not totp_code:
+            raise HTTPException(400, "TOTP code required to activate kill switch")
+        secret = decrypt_secret(user.totp_secret)
+        if not verify_code(secret, totp_code):
+            raise HTTPException(401, "Invalid TOTP code")
+
+
 @router.post("/kill-switch/activate")
 async def activate_kill_switch(
     body: KillSwitchRequest,
@@ -38,19 +51,21 @@ async def activate_kill_switch(
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
-    # TOTP gate if user has 2FA enabled
-    if user.totp_secret:
-        if not body.totp_code:
-            raise HTTPException(400, "TOTP code required to activate kill switch")
-        secret = decrypt_secret(user.totp_secret)
-        if not verify_code(secret, body.totp_code):
-            raise HTTPException(401, "Invalid TOTP code")
+    verify_totp_or_raise(user, body.totp_code)
+    return await activate_kill_switch_core(request.app, actor=user.username)
 
-    risk = getattr(request.app.state, "risk", None)
+
+async def activate_kill_switch_core(app, actor: str) -> dict:
+    """Core kill-switch logic -- stop every running strategy, cancel every
+    open order, flip the risk manager's flag, broadcast + notify. Assumes
+    the caller has ALREADY verified TOTP (verify_totp_or_raise above) --
+    this function itself does no auth, so never expose it directly without
+    that gate in front of it."""
+    risk = getattr(app.state, "risk", None)
     if risk is None:
         raise HTTPException(503, "Risk manager not available")
 
-    engine = getattr(request.app.state, "strategy_engine", None)
+    engine = getattr(app.state, "strategy_engine", None)
 
     # Stop all running strategies
     stopped = []
@@ -64,7 +79,7 @@ async def activate_kill_switch(
 
     # Cancel all open orders if Zerodha is connected
     cancelled_orders = 0
-    broker_instances = getattr(request.app.state, "broker_instances", {})
+    broker_instances = getattr(app.state, "broker_instances", {})
     for info in broker_instances.values():
         broker = info.get("instance")
         if broker and info.get("status") == "connected":
@@ -98,7 +113,7 @@ async def activate_kill_switch(
     await broadcast({"type": "kill_switch", "active": True})
 
     # Notify via Telegram
-    notifier = getattr(request.app.state, "telegram", None)
+    notifier = getattr(app.state, "telegram", None)
     if notifier:
         await notifier.alert(
             "Kill Switch Fired",
@@ -106,7 +121,7 @@ async def activate_kill_switch(
             "critical",
         )
 
-    logger.critical("kill switch activated via API", user=user.username)
+    logger.critical("kill switch activated", actor=actor)
     return {
         "activated": True,
         "strategies_stopped": len(stopped),
