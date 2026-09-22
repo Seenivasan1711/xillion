@@ -6,6 +6,29 @@
 
 ---
 
+## 🔴 Priority decision, 2026-09-22: Track B is now the main roadmap
+
+Rakesh's call: focus shifts to **completing Track B end-to-end and getting
+it fully usable from the UI/Telegram — not just runnable by reading code —
+targeting usable "from next week."** Track A gets touched only when it's
+genuinely blocking Track B work. Roadmap docs synced same day:
+[roadmap-summary.md](../product/roadmap-summary.md) (new — plain-language
+completion snapshot) and
+[roadmap-quantman-parity.md](../product/roadmap-quantman-parity.md)
+(checkboxes brought up to date — QP-2/6/7 now marked done, QP-4 split into
+done-for-Options / gap-found-for-Gold, see next paragraph).
+
+**New concrete gap found while syncing the roadmap, not yet fixed:** Gold's
+alert mode never sends an exit alert. `_fire_entry()` in
+`strategies/gold_sweep_reversal.py` sends the entry (with target/SL) via
+`ctx.alert_entry()`; nothing calls an equivalent exit alert when that
+target/SL is actually hit — you have to watch price yourself or wait for the
+weekly digest. Paper/live modes already handle this correctly via
+`on_tick()` + `ctx.notify()`; alert mode just never wires the two together.
+This is the most direct blocker to "usable from Telegram" for Gold
+specifically — worth fixing before/alongside the session-window analysis
+below.
+
 ## 🔴 NEXT UP: Gold Sweep-Reversal — session-window + level-richness analysis
 
 **The alert engine (G1-G6) is fully live and running** — real Supabase,
@@ -108,7 +131,11 @@ and killed before any of today's restarts.
 ---
 
 **Last updated:** 2026-09-22
-**Current position:** **2026-09-21: Options work paused by Rakesh's explicit
+**Current position:** **2026-09-22: Track B is now the main roadmap** (see
+the 🔴 Priority decision section immediately below) — the near-term goal is
+Gold Lane B1 fully usable end-to-end from UI/Telegram. Options work stays
+paused per Rakesh's 2026-09-21 call, resumable later, untouched.
+Earlier context: **2026-09-21: Options work paused by Rakesh's explicit
 call — full focus shifts to Gold Lane B1.** Rakesh brought a specific XAUUSD
 scalping strategy ("Sweep-Reversal," a session-liquidity-sweep fade) with
 exact entry/exit/sizing rules and a FundingPips 1 Step Flex $5K prop-rule

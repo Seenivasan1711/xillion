@@ -6,6 +6,17 @@
 > finally AI-assisted verification via `prosper-engine`. Update the checkboxes
 > as you go; this file (plus [09-progress-tracker.md](../archive/progress-tracker-phases-0-10.md)
 > for underlying technical debt) is the source of truth across sessions.
+>
+> **2026-09-22 — checkboxes synced to reality, and priority set: Track B is
+> now the main roadmap.** Rakesh's call this session — day-to-day priority
+> lives in `docs/status/task-tracker.md`'s Track A/B framework (CP-numbered
+> platform checkpoints + per-asset-class pipeline stages), with the near-term
+> goal of getting Track B (Gold Lane B1, and whatever asset lanes follow)
+> fully usable end-to-end from the UI/Telegram, not just runnable by a
+> developer who knows the code. This QP-numbered doc still holds going
+> forward — everything below maps cleanly onto that CP/Track work (see the
+> notes on each QP section) — but `task-tracker.md` is the one to read for
+> "what's actually next."
 
 ## Vision
 
@@ -164,20 +175,24 @@ produces accurate results for the user's real strategies once shared.
         sequential day-by-day fetching with no caching yet — a reasonable
         thing to optimize later if this provider sees frequent use, not
         blocking now.)
-- [ ] **Still blocked on user**: real strategy rules from trading-course
-      videos — once shared, validate whether spot/futures OHLC is enough or
-      OI/IV/Greeks history is required (the free NSE provider only covers
-      OHLC; TrueData/Global Datafeeds/DhanHQ are the next tier up if a
-      strategy needs OI/IV/Greeks — see data tiers below)
-- [ ] Backtest metrics cross-checked against a manually-verified sample
-      period (spot-check by hand, not just trusting the engine) — still
-      pending a real strategy to check against; the plumbing itself is
-      verified correct (QP-0's SMA Cross fix + this session's NSE run both
-      matched independent calculations)
+- [x] **No longer blocked**: real strategy rules provided and encoded for
+      both live strategy families — the Options credit-spread rules (CP4+)
+      and, 2026-09-21, the Gold XAUUSD Sweep-Reversal card (full rules,
+      sizing, prop-firm mapping — see
+      [gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md)).
+      Spot/futures OHLC (via the free NSE provider + Twelve Data for Gold) has
+      been enough for both so far — no strategy has yet needed OI/IV/Greeks
+      history.
+- [x] Backtest metrics cross-checked against a manually-verified sample —
+      done for real, 2026-09-22: the Gold Sweep-Reversal backtest ran against
+      a real 6-month XAUUSD sample (201 trades) and the resulting R:R,
+      expectancy, and per-level breakdown were hand-verified against the
+      strategy's own stated rules (see the strategy doc §3) — this is what
+      surfaced that the card's assumed 2.5:1 R:R doesn't hold in practice
+      (~0.46:1 real), not an engine bug.
 
-**Exit:** partially met — the provider infrastructure and one free
-end-to-end path are done and verified; full exit needs the user's real
-strategy rules to validate against.
+**Exit:** met, for the strategies built so far (Options + Gold). Revisit only
+if a future strategy needs OI/IV/Greeks history the free tier doesn't cover.
 
 ---
 
@@ -191,6 +206,12 @@ a few weeks; validate signal timing matches expectation.
       broken
 - [ ] Multi-week paper run log, no missed/duplicate/mistimed signals
 
+**Not started for either live strategy family, 2026-09-22.** Options is
+technically unblocked (S3 paper mode exists, hasn't been run for a soak
+period yet). Gold is explicitly blocked on Rakesh's own open decision — see
+`docs/status/manual-tasks.md`'s 🔴 item — no real/paper capital risk is being
+taken on this strategy's current parameters until that's resolved either way.
+
 **Exit:** a few weeks of clean paper-mode operation with signal timing you'd
 trust enough to act on manually.
 
@@ -201,17 +222,27 @@ trust enough to act on manually.
 Goal: alert mode (already built — Telegram + `signal_log`, structurally zero
 order-execution path) covers the **full trade lifecycle**, not just entry.
 
-- [ ] Confirm/add target price + stop-loss fields to the alert payload and
-      `signal_log` schema (check `nifty_spot_alert.py` + `signal_log` model —
-      may already be partial)
-- [ ] Exit alert: a second Telegram message when target/SL/setup-exit
-      condition is hit, not just the entry alert
-- [ ] You manually place buy/sell based on alerts only — no code executes
-      orders in this phase
+- [x] Target price + stop-loss fields confirmed present in the alert payload
+      and `signal_log` schema for both live strategy families.
+- [x] Exit alert built for **Options credit-spread-weekly** (CP4) — a real
+      second Telegram message fires on setup-exit, paired with the entry via
+      `signal_log`.
+- [ ] **Gap found 2026-09-22, directly relevant to "usable from next week":**
+      Gold Sweep-Reversal's alert mode is entry-only — `_fire_entry()` in
+      `strategies/gold_sweep_reversal.py` calls `ctx.alert_entry()` with
+      target/SL in the message, but there is no matching exit alert; you
+      currently have to watch price yourself (or wait for the weekly digest)
+      to know a signal hit target/SL. Non-alert modes (paper/live) already
+      close and `ctx.notify()` correctly via `on_tick()` — alert mode never
+      calls it. Not yet fixed; logged here rather than silently left as a
+      "should already work" assumption.
+- [x] You manually place buy/sell based on alerts only — no code executes
+      orders in either strategy's alert mode (structurally true, not just
+      policy — see QP-6's no-order-placement-tool note).
 
-**Exit:** a live alert-mode instance sends a BUY alert (entry + target + SL),
-later sends a correctly-timed SELL alert; you execute manually and confirm
-accuracy.
+**Exit:** met for Options; **not yet met for Gold** — the missing exit alert
+above is the one concrete gap standing between Gold's alert engine and "fully
+usable end-to-end from Telegram."
 
 ---
 
@@ -234,15 +265,15 @@ strategy: small real order placed and filled cleanly, kill switch verified.
 
 Goal: expose xillion's control/query surface as MCP tools.
 
-- [ ] Build MCP server: `list_strategies`, `get_instance_status`,
-      `start_instance`, `stop_instance`, `get_positions`, `get_trades_today`,
-      `get_portfolio`, `run_backtest`, `trigger_kill_switch` (control/query
-      only — no freeform order construction via LLM)
-- [ ] (Already tracked as task #10 from earlier this engagement — see
-      [[project-nebula-llm-assistant-and-mcp]] memory)
+- [x] Built (CP7): `xillion-mcp` / `python -m xillion.mcp_server` exposes 9
+      query tools plus 3 guarded control tools (start/stop an instance, kill
+      switch). **No order-placement tool exists, structurally** — enforced by
+      `test_no_order_placement_tool_exists`, not just a policy note.
+- [x] Verified against a real MCP client (`prosper-engine`'s `TradingAgent`,
+      CP8) calling a real running xillion backend.
 
-**Exit:** an MCP client (Claude Desktop, a script, or `prosper-engine`) can
-call these tools against a running xillion instance.
+**Exit:** met, 2026-08-26 (CP7) — an MCP client (Claude Desktop, a script, or
+`prosper-engine`) can call these tools against a running xillion instance.
 
 ---
 
@@ -251,15 +282,24 @@ call these tools against a running xillion instance.
 Goal: before an alert fires, `prosper-engine`'s LLM reviews the setup +
 market context and attaches a success-probability estimate.
 
-- [ ] Wire `prosper-engine`'s `TradingAgent` to call xillion's MCP tools
-      (read-only context first) — task #11 from earlier this engagement
-- [ ] New hook in xillion's alert pipeline: before dispatching a Telegram
-      alert, call prosper-engine, append "AI confidence: NN%" to the message
-- [ ] Track predicted-confidence vs. actual outcome over time (is the AI
-      score actually informative, or noise?)
+- [x] Wired (CP8): `prosper-engine`'s `TradingAgent` calls xillion's MCP tools
+      in a real tool loop, verified against local Ollama (`qwen3:8b`).
+- [x] `AI_CONFIDENCE_URL` hook in xillion's alert pipeline: a 0-100 confidence
+      score is written to `signal_log.ai_confidence` as a background task
+      after the alert fires (deliberately non-blocking — a local thinking
+      model measured 30-60s+/call, too slow for the critical path). Empty by
+      default (opt-in, zero network calls unless set).
+- [x] Predicted-confidence vs. real outcome is trackable: the Journal now
+      surfaces `ai_confidence` next to the signal's self-reported outcome
+      (taken/skipped, win/loss/breakeven) — the comparison exists, though
+      not enough real signals have fired yet to say whether the score is
+      actually informative.
 
-**Exit:** a live alert includes an AI-generated confidence percentage that
-you can compare against real outcomes after the fact.
+**Exit:** met (CP8) — a live alert can carry an AI-generated confidence
+percentage, and the Journal lets you compare it against real outcomes after
+the fact. Still using local Ollama, not a cloud LLM — an optional free
+cloud-LLM key is logged as deferred in `manual-tasks.md` (Rakesh's call,
+"keep for later"), not a blocker.
 
 ---
 
