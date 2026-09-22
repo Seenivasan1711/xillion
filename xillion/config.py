@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # pattern as every other optional integration here.
     mongodb_uri: str = ""
 
+    # Notion action log (2026-09-22, SESSION SPRINT item 16) -- logs
+    # operator actions on live/fine-tuned strategies (param edits,
+    # start/stop, Take/Skip decisions, kill-switch) as pages in a Notion
+    # database, for later LLM context feeding. Needs a real Notion
+    # integration sharing access to the target database (manual-tasks.md
+    # item) -- empty means xillion/notifications/notion_log.py no-ops.
+    notion_api_token: str = ""
+    notion_database_id: str = ""
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

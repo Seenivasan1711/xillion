@@ -182,6 +182,14 @@ services:
       # store no-ops entirely if unset.
       - key: MONGODB_URI
         sync: false
+      # Notion action log -- operator actions on live/fine-tuned strategies,
+      # for later LLM context feeding. Free integration at
+      # notion.so/my-integrations, shared with your target database.
+      # Optional; no-ops entirely if unset.
+      - key: NOTION_API_TOKEN
+        sync: false
+      - key: NOTION_DATABASE_ID
+        sync: false
 
 # ────────────────────────────────────────────────────────────────────────────────
 # GO-LIVE UPGRADE — when ready to trade real money, make these edits:

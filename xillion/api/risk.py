@@ -122,6 +122,14 @@ async def activate_kill_switch_core(app, actor: str) -> dict:
         )
 
     logger.critical("kill switch activated", actor=actor)
+
+    from xillion.notifications.notion_log import log_action
+
+    await log_action(
+        "Kill switch activated",
+        {"actor": actor, "strategies_stopped": stopped, "orders_cancelled": cancelled_orders},
+    )
+
     return {
         "activated": True,
         "strategies_stopped": len(stopped),

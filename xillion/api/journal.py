@@ -180,6 +180,21 @@ async def set_signal_action_core(
     row.user_action_source = source
     await db.commit()
 
+    # Notion action log (2026-09-22) -- best-effort, no-op if unconfigured.
+    from xillion.notifications.notion_log import log_action as notion_log_action
+
+    await notion_log_action(
+        f"Signal {action.lower()}: {row.underlying_symbol}",
+        {
+            "signal_id": row.id,
+            "symbol": row.underlying_symbol,
+            "side": row.side,
+            "tag": row.tag,
+            "action": action,
+            "source": source,
+        },
+    )
+
 
 class SignalOutcomeRequest(BaseModel):
     source_id: str

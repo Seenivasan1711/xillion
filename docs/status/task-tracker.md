@@ -308,12 +308,30 @@ session, per this repo's update protocol.
     total tests passing, ruff/black/mypy clean. Also added to
     `.env.example` and `render.yml` (both `sync: false`, same pattern as
     every other optional key).
-16. ⬜ **Notion integration for live-action logging** — save every action
-    taken on a live/fine-tuned strategy to Notion, for later LLM context
-    feeding. **Needs a real Notion integration token + target
-    page/database from Rakesh** — logged as a manual-tasks.md blocker;
-    build the integration code now so it's ready the moment the token
-    exists (Rakesh's explicit call, 2026-09-22).
+16. ✅ **Code built 2026-09-22 — blocked on Rakesh's Notion integration
+    token + shared database** (manual-tasks.md item, not yet done).
+    New `xillion/notifications/notion_log.py`: `log_action(title, details)`,
+    best-effort/never-raises. **Doesn't assume the target database's
+    schema** — every Notion database has exactly one title property, but
+    its *name* is whatever the user called it (not necessarily "Name"), so
+    this queries the database's schema once (cached) to find the real
+    title property rather than guessing and silently failing against
+    whatever database Rakesh eventually shares. Wired into the
+    higher-signal "actions taken" points, not every possible event
+    (deliberately excludes routine market-hours auto start/stop — that's
+    scheduling, not a decision):
+    - `PATCH /instances/{id}` (name/params/capital edits — the actual
+      "fine-tuning" actions from item 14)
+    - `set_signal_action_core` (Take/Skip, from both the webpage and
+      Telegram — item 10)
+    - `activate_kill_switch_core` (from either the web UI or Telegram)
+    Empty `NOTION_API_TOKEN`/`NOTION_DATABASE_ID` (still the case) means
+    every call site's `log_action()` no-ops with a debug log line — zero
+    behavior change until configured. 4 new tests
+    (`tests/unit/test_notion_log.py`, httpx stubbed, no real Notion API
+    touched) — **structurally verified only, not live-verified**, same
+    honest caveat as item 15's MongoDB store. 640/640 total tests passing,
+    ruff/black/mypy clean. Added to `.env.example` and `render.yml`.
 17. ⬜ **JEV / LLM-based decision-making** — scope decided 2026-09-22
     (Rakesh's own words): **read + guarded control** (CP7's existing MCP
     surface: query everything, start/stop instance, kill-switch, still

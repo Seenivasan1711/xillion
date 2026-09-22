@@ -40,16 +40,18 @@ strategy's parameters.)
       data, and, downstream, JEV's
       context-feeding. **Cost:** free (M0 tier).
 
-- [ ] **Notion integration token + target page/database** — needed for
-      logging every action taken on a live/fine-tuned strategy to Notion,
-      for later LLM context feeding (session-sprint item #16, 2026-09-22).
-      Create an integration at notion.so/my-integrations (free), then share
-      the specific page/database you want logs written to with that
-      integration (Notion requires this per-page share, it's not automatic
-      account-wide access). Give me: the integration token
-      (`secret_...`) and the target page/database ID (from its URL).
-      **Blocks:** the Notion action-log integration specifically — nothing
-      else in today's list depends on it, so it's fine for this to land
+- [ ] **Notion integration token + target page/database.** The code side is
+      done as of 2026-09-22 — `xillion/notifications/notion_log.py` already
+      logs param/capital edits, Take/Skip decisions, and kill-switch
+      activations, and just needs the token+database to activate; it's a
+      real no-op (not a broken feature) until then. Create an integration
+      at notion.so/my-integrations (free), then create (or pick) a
+      database and share it with that integration (Notion requires this
+      per-database share, it's not automatic account-wide access). Give
+      me: the integration token (`secret_...`) and the database ID (from
+      its URL). **Blocks:** the Notion action-log integration specifically
+      — nothing else in today's list depends on it, so it's fine for this
+      to land
       after everything else. **Cost:** free.
 
 - [ ] **🔴 Gold Sweep-Reversal: decide how to proceed — the full analysis

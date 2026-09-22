@@ -372,6 +372,24 @@ async def update_instance(
         inst.auto_start = body.auto_start
     inst.updated_at = _now()
     await db.commit()
+
+    # Notion action log (2026-09-22) -- only for the "fine-tuning" fields,
+    # not auto_start (a scheduling preference, not a strategy tweak).
+    # Best-effort, no-op if unconfigured.
+    if body.name is not None or body.params is not None or body.capital_allocation is not None:
+        from xillion.notifications.notion_log import log_action
+
+        await log_action(
+            f"Instance updated: {inst.name}",
+            {
+                "instance_id": instance_id,
+                "name": body.name,
+                "params": body.params,
+                "capital_allocation": body.capital_allocation,
+                "user": user.username,
+            },
+        )
+
     return {"updated": True, "id": instance_id}
 
 
