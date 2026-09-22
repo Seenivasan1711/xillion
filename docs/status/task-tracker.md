@@ -92,9 +92,16 @@ session, per this repo's update protocol.
    paper trades exist yet to have exercised this in practice (paper
    trading itself is item 9 below), but the UI itself isn't the blocker
    anymore.
-4. ⬜ **Session-window sweep** — test alternate `session_start/end_utc_hour`
-   windows against the real 6-month sample (queued 2026-09-22, see
-   deferred-backlog.md item 1).
+4. ✅ **Session-window sweep — run 2026-09-22, result: net-negative on
+   every window tested.** 6 candidate windows (London default,
+   London/NY overlap, combined, all-day, and two narrower slices) against
+   the same real 6-month sample — full table in
+   `docs/strategies/gold-xauusd-sweep-reversal.md` §3. Best by raw P&L
+   (13:00-15:00 UTC) still lost $9,955.76 on a $5,000 account; no window's
+   profit factor got close to 1.0. **Third independent analysis (after
+   both TP/SL sweeps) to find no profitable configuration.** Paused here
+   to flag this to Rakesh before spending more effort on items 5-8 below —
+   see chat, not silently ground through.
 5. ⬜ **Richer per-session/multi-day level data** — Asian/London/NY high-low
    broken out separately, last 3-5 days not just 1 (deferred-backlog item 2).
 6. ⬜ **Finer `min_sl_pts`/`max_sl_pts` sweep** (deferred-backlog item 3).

@@ -180,6 +180,38 @@ flip the sign, but hasn't been directly re-tested with level-dropping
 combined with the sweeps above. **Not decided in this session — a
 strategy-viability call, not engineering.**
 
+### Session-window sweep, 2026-09-22 — the trading window isn't the fix either
+
+Rakesh's queued item #1 (`deferred-backlog.md`): tested 6 candidate
+`session_start_utc_hour`/`session_end_utc_hour` windows against the same
+real 6-month sample (all other params at default), via the same
+`grid_search()`:
+
+| Window | UTC | Trades | Win % | Return % | Total P&L | Sharpe | Profit factor | Max DD % |
+|---|---|---|---|---|---|---|---|---|
+| London (card default) | 07:00-13:00 | 201 | 47.8 | -254.1 | -$12,705.76 | 0.044 | 0.274 | 252.3 |
+| London/NY overlap | 13:00-17:00 | 170 | 47.1 | -234.9 | -$11,744.82 | 0.081 | 0.268 | 236.4 |
+| London + overlap combined | 07:00-17:00 | 250 | 50.4 | -307.3 | -$15,365.91 | 0.075 | 0.282 | 304.9 |
+| All day (no session gate) | 00:00-24:00 | 228 | 51.3 | -266.8 | -$13,338.10 | -0.019 | 0.366 | 270.1 |
+| Late London only | 09:00-13:00 | 151 | 45.0 | -229.0 | -$11,450.92 | 0.071 | 0.218 | 230.2 |
+| Overlap, first half | 13:00-15:00 | 131 | 42.8 | -199.1 | -$9,955.97 | -0.058 | 0.256 | 199.0 |
+
+**Every single window is net-negative — no time-of-day slice rescues this
+signal.** The least-bad by raw P&L (Overlap, first half: 13:00-15:00 UTC,
+-$9,955.97) is still a catastrophic loss on a $5,000 account, and no
+window's profit factor gets close to 1.0 (best: 0.366, "all day"). This is
+the **third independent analysis** (after the two TP/SL sweeps above) that
+finds no profitable configuration within its own parameter family.
+
+**Known limitation, not silently worked around:** the current session gate
+(`on_bar`'s `session_start_utc_hour <= hour < session_end_utc_hour` check)
+can't represent an overnight-wrapping window, so the reference table's
+third named window (Asian, 22:30-05:30 UTC) — which the card itself already
+calls "worst — do not trade" — was **not tested** here; testing it for real
+would need a small code change to support wraparound windows, not attempted
+since the card already predicts it's the worst option and two other windows
+already cover the "good"/"best" ones it names.
+
 - **Data source + timeframe:** `data_providers/twelve_data_history.py`
   (Stage 1, this repo's own `HistoricalDataProvider`), real M5 XAUUSD,
   fetched live from Twelve Data's free tier. The external reference script
@@ -346,3 +378,4 @@ alerts are live, not assumed away.
 | v1 | 2026-09-21 | Initial rules encoded from the user's card, verbatim | Stage 1 |
 | v1 | 2026-09-22 | Real Stage 2 backtest run (no rule changes) -- 6mo, 201 trades, net loss found | Stage 2 |
 | v1.1 | 2026-09-22 | Alert mode now sends an exit alert (`ctx.alert_exit()` on TP/SL hit), not just entry -- no rule/sizing change, engine gap only | Stage 3+ readiness |
+| v1 | 2026-09-22 | Session-window sweep (6 windows, no rule changes) -- every window net-negative, third independent analysis to find no edge | Stage 2 analysis |
