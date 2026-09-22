@@ -6,108 +6,73 @@
 
 ---
 
-## 🔴 NEXT UP: Gold Sweep-Reversal go-live checklist (resume here)
+## 🔴 NEXT UP: Gold Sweep-Reversal — a real strategy-viability decision
 
-Everything below is code-complete and committed on `feat/track-b-pipelines`
-(worktree: `.claude/worktrees/track-b-pipelines`) as of 2026-09-21 — 584/584
-tests passing, ruff/black/mypy clean, frontend `tsc`+`build` clean. **What's
-left is entirely manual setup + one confirm-before-running DB step, not more
-engineering.** Full context/rationale for all of this:
-[docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md).
-Options work (credit-spread-weekly) is untouched and resumable separately —
-this checklist doesn't affect it.
+**The alert engine (G1-G6) is fully live and running** — real Supabase,
+real Twelve Data feed, real instance, verified genuinely alive (daily
+levels marked for real on 2026-09-22). **Separately, the first real 6-month
+backtest (Stage 2) came back 2026-09-22, and it's a net loss** — see
+[docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md)
+§3 for the full numbers and root cause. Short version: 47.8% win rate
+(clears the card's own 45% "keep" bar) but **-$12,705.76 over 6 months on a
+$5,000 account** — the card's yield math assumed ~2.5:1 R:R (7.5pt TP vs. a
+"typical" 3.0pt SL); in reality the SL is almost always set by the swept
+level's actual wick extreme (avg loss 14.43 pts, not ~3), so real R:R is
+closer to 0.46:1. **This is a decision only Rakesh can make** (per the
+card's own keep/kill framework, §4) — options on the table, undecided:
+cap the SL at a fixed max, widen the TP to match real adverse excursion, or
+treat this parameter set as killed. The alert instance keeps running either
+way (it was always decoupled from whether this exact parameter set is
+fundable — alert-only, no capital at risk).
 
-- [x] **G1 — Live data feed.** `brokers/twelve_data_feed.py` (Twelve Data,
-      no MT5/Wine needed — alert-only, no order placement).
-- [x] **G2 — Strategy logic.** `strategies/gold_sweep_reversal.py`, encodes
-      the card exactly (4 daily levels, sweep+M5-reclaim trigger, fixed
-      sizing, 2 trades/day, 10-min cooldown). 5 tests, math hand-verified.
-- [x] **G3 — Rituals.** Session-window gate is real; news/econ-calendar veto
-      is a stub (`_news_veto_active`, always False) until the Finnhub key
-      below exists.
-- [x] **G4 — Telegram reasoning.** Free ride on G2's `OrderRequest.reason`
-      field → `_handle_alert_signal` → existing Telegram notifier.
-- [x] **G5 — Taken/Skipped + outcome tracking.** Migration 020, `PUT
-      /journal/signal-action` / `/journal/signal-outcome`, Alerts page has
-      "I took this"/"Skipped" buttons + a Win/Loss/Breakeven picker + an
-      expandable reasoning row.
-- [x] **G6 — Weekly review.** Extends the existing Sunday 6pm IST digest
-      with taken/skipped counts + win rate for the period.
+**Everything below is code-complete and committed** on
+`feat/track-b-pipelines` (worktree: `.claude/worktrees/track-b-pipelines`)
+as of 2026-09-22 — 603/603 tests passing, ruff/black/mypy clean. Options
+work (credit-spread-weekly) is untouched and resumable separately.
 
-**What's actually left, in order:**
+**Alert engine (G1-G6), all done 2026-09-21/22, verified genuinely live:**
+Twelve Data feed (`brokers/twelve_data_feed.py`), strategy logic
+(`strategies/gold_sweep_reversal.py`), rituals (session gate real; news
+veto still a stub pending Finnhub wiring), Telegram reasoning, taken/
+skipped + outcome tracking (migration 020), weekly digest extension.
+Instance `26f82923-5cb1-4150-8db6-da530220efb3` created, started, and
+confirmed alive (real `daily levels marked` log line 2026-09-22, real
+WebSocket ticks observed). Supabase (was paused, resumed), migration 020,
+and a `uvicorn --reload` multiprocessing hang (worked around by running
+without `--reload`) are all resolved — see `manual-tasks.md` Done section
+and CLAUDE.md's Operational gotchas for the exact commands/symptoms if any
+recur.
 
-- [x] **Twelve Data API key — done 2026-09-21, in `.env` and verified live.**
-      Real `connect()` + `get_quote(['XAUUSD'])` returned a genuine live
-      price (~$4368), and a real `_poll_once()` against `/time_series`
-      correctly found a closed M5 bar and produced 4 correctly time-ordered
-      synthetic ticks (O/H/L/C) — the actual mechanism the app runs every
-      30s once started. Not just "key present," the whole feed path is
-      confirmed working end to end.
-- [x] **Finnhub API key — done 2026-09-21, in `.env` and verified live**
-      (a real `/quote` call succeeded). **Not yet wired into the strategy**
-      — `_news_veto_active()` in `strategies/gold_sweep_reversal.py` is
-      still a hardcoded stub (`return False`, never vetoes). The key
-      existing doesn't change that; wiring the real economic-calendar/
-      news check is separate, small, not-yet-done work.
-- [x] **Supabase project — was paused, resumed by Rakesh 2026-09-21.**
-      DNS resolved again immediately, but the connection pooler took ~60-90s
-      to fully propagate the tenant afterward (`tenant/user ... not found`
-      until it did) — expected right after a resume, not a bug.
-- [x] **Migration 020 applied to the real Supabase DB — 2026-09-21.**
-      `alembic upgrade head` ran clean, `019 -> 020`. Verified directly
-      against `information_schema.columns`: all 6 new columns
-      (`user_action`, `user_action_at`, `user_action_source`, `outcome`,
-      `outcome_notes`, `outcome_recorded_at`) exist on `signal_log`.
-- [x] **Backend restarted — 2026-09-21.** Killed a stale 23-day-old
-      `uvicorn` process still running from before this whole session (from
-      when the DB was still paused). **Real gotcha hit and worked around:**
-      `uvicorn --reload`'s multiprocessing worker hung indefinitely inside
-      `sync_registry_to_db` on this machine — confirmed it wasn't a DB
-      issue (the same call completed in ~20s run standalone, no locks in
-      `pg_stat_activity`), so it's specific to something about the forked
-      reload-worker subprocess. Running **without** `--reload`
-      (`uvicorn xillion.main:app --host 0.0.0.0 --port 8001`, no
-      `make dev`) started clean in ~13s. Log confirms:
-      `twelve_data: connected successfully` → `xillion ready`. Frontend
-      (`npm run dev`) started separately, both up at their normal ports.
-      Worth knowing for next time: skip `make dev`'s `--reload` if it
-      hangs the same way again.
-- [x] **Strategy instance created and started — 2026-09-21.** id
-      `26f82923-5cb1-4150-8db6-da530220efb3`, via a direct API call
-      (Rakesh's login, since there's still no broker-picker in the
-      instance-creation UI — same pre-existing gap MT5 Funding Pips has).
-      `tick_source: "Twelve Data Gold Feed"`, confirmed subscribed to real
-      live ticks, no fallback warning.
-- [x] **Real bug found and fixed while verifying it's actually alive —
-      2026-09-21.** No bar ever reached `on_bar` despite ticks confirmed
-      flowing correctly end-to-end (proved via a live WebSocket listen: 4
-      real ticks landed exactly where expected). Root cause:
-      `BarAggregator` only finalizes/publishes a bucket once it sees a
-      tick from the *next* one — correct for a real streaming feed, but
-      the 4 synthetic OHLC ticks per closed Twelve Data bar are
-      deliberately backdated into that bar's own window for accuracy, so
-      the aggregator had no reason to flush it until the *next* poll
-      cycle's ticks arrived. Every bar sat one full cycle late,
-      indefinitely. **Fixed** in `brokers/twelve_data_feed.py`: emit one
-      extra tick stamped with real current time immediately after the 4
-      backdated ones — always lands in a later bucket, forcing the
-      just-built bar to publish right away. Verified directly against
-      `BarAggregator`/`MarketDataBus` (the app's real wiring): 5 ticks in,
-      1 bar out, correct OHLC. Full test suite (584) + lint/type-check
-      still clean. Backend restarted with the fix and the instance
-      re-started against it.
-- [x] **Confirmed the mechanism end-to-end, not just "should work."**
-      Backend + frontend both running locally; `twelve_data: connected
-      successfully`; live WebSocket ticks observed in real time. **Missed
-      today's 07:00–13:00 UTC window by the time the fix landed** (closed
-      at 13:00 UTC same day) — nothing to mark/fire until tomorrow's
-      window opens. Instance is correctly running and primed for it; next
-      cold session (or tomorrow, whichever comes first) just needs to
-      check the Alerts page / Dev logs during 07:00–13:00 UTC
-      (12:30–18:30 IST) for a `daily levels marked` line, then a real
-      ENTER signal. Early days may show fewer than 4 daily levels until
-      enough live M5 bars have accumulated — see the strategy doc §7,
-      expected, not a bug.
+**Backtest/paper infrastructure (P1-P3), built 2026-09-22 to actually run
+the backtest above:**
+- **P1** — `data_providers/twelve_data_history.py`, a real
+  `HistoricalDataProvider` (free tier confirmed back to 2021), plugs into
+  the existing Backtest page/warehouse pipeline like NSE Bhavcopy does.
+- **P2** — `strategies/gold_sweep_reversal.py` now mode-branches: alert
+  mode unchanged (`ctx.alert_entry`), paper/live/backtest places a real
+  `ctx.buy/sell` (lot_size → hundredths-of-a-lot quantity, matching MT5's
+  own convention) and monitors SL/TP via a new `on_tick`. New generic
+  `ctx.notify()` (StrategyContext + strategy_engine.py) for routine
+  non-critical Telegram pushes (entry/exit/outcome), separate from
+  `notify_critical`.
+- **P3 (partial)** — paper-mode Telegram entry/exit/outcome notifications
+  exist via `ctx.notify()`; not yet run through a live paper instance
+  (blocked on the viability decision above, not on engineering).
+
+**Five real bugs found and fixed getting the first backtest to actually
+run** (all in shared code, not Gold-specific, so any future strategy
+benefits too) — full detail in commit messages and the strategy doc §3/§7:
+a sparse/empty `params` dict crashed on first `ctx.params` access (now
+`fill_param_defaults()`, wired into every instance/backtest endpoint);
+`_BacktestContext` had no `notify()` override; `BacktestEngine` never
+synthesized `on_tick` for a plain strategy's own primary symbol (only for
+options legs), so SL/TP monitoring never ran in backtest at all;
+`_roll_day` fired on each day's first bar (~00:00 UTC, inside the Asian
+session), so Asian High/Low came back missing on *every single day* of the
+backtest until fixed; `compute_metrics`'s CAGR crashed outright on an
+account this deeply negative (floored at -100% now). Also: the original
+23-day-stale `uvicorn` process from before this session was found running
+and killed before any of today's restarts.
 
 ---
 

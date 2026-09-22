@@ -10,10 +10,14 @@
 alert-only mode, decoupled from the MT5 broker/bridge entirely** — no Wine/MT5
 terminal setup is required to get alerts flowing (see §7). Execution through
 `brokers/mt5_funding_pips.py` is a later stage, once the edge is validated.
-**Status:** Stage 1 build (rules encoded, this doc) — Stage 2 backtest **not
-yet run in this repo**. The user's own MT5/TradingView-replay validation
-(§4) is an external process and hasn't been done yet either.
-**Created:** 2026-09-21 · **Last updated:** 2026-09-21
+**Status:** 🔴 Stage 2 backtest run for real 2026-09-22, real 6-month result —
+**net loss, not a pass**. See §3. Alert-only instance (Stage "S3-lite":
+notification only, no execution, no real capital at risk) has been running
+live since 2026-09-22 regardless, since alerting was always decoupled from
+whether this specific parameter set is fundable — see §7. **Do not size up
+capital or move to real paper/live trading on these exact parameters without
+addressing §3's R:R finding first.**
+**Created:** 2026-09-21 · **Last updated:** 2026-09-22
 
 ---
 
@@ -98,21 +102,80 @@ Breakeven ≈ **32%** win rate. Target to clear $400/mo net of FundingPips'
 the manual 4-day test below exist to find — nothing else about this strategy
 should be tuned before that number is known.
 
-## 3. Backtest results (Stage 2) — **not yet run**
+## 3. Backtest results (Stage 2) — **run for real 2026-09-22, result: net loss**
 
 | Period | Regime | Trades | Win % | Total P&L | Max DD | Sharpe |
 |---|---|---|---|---|---|---|
-| *(none yet)* | | | | | | |
+| 2026-03-23 → 2026-09-21 (6mo, real Twelve Data XAUUSD M5, both sessions combined) | Live market, mixed | 201 | **47.8%** | **-$12,705.76** (-254%) | **$12,764.66 (252%)** | 0.044 |
 
-- **Data source + timeframe:** the reference script
-  [scripts/gold_sweep_backtest.py](../../scripts/gold_sweep_backtest.py) pulls
-  M1 bars directly from a running MT5 terminal (Windows-only `MetaTrader5`
-  package; Mac/Linux must export a CSV from MT5 instead) and resamples to M5
-  for the entry logic — see §7 for why this repo's live alert engine will
-  **not** use this same data path.
-- **Parameter sensitivity / manual spot-check:** not done yet — blocked on
-  either running the script against real MT5 history or completing §4's
-  manual replay test first.
+Full metrics: 96 wins / 105 losses, avg win $38.82, avg loss $129.56,
+**profit factor 0.274**, expectancy **-$49.14/trade**. Ran through
+`BacktestEngine` end-to-end (not the external reference script) using
+`data_providers/twelve_data_history.py` (Stage 1's own historical provider)
++ `strategies/gold_sweep_reversal.py` exactly as coded, `initial_capital`
+$5,000 (matching the card's $5K account), `slippage_bps=5`, fixed 0.08 lot.
+
+**🔴 Win rate alone says "keep" per the card's own table (≥45%) — but the
+account would have been wiped out (final equity -$7,705.76, deeper than
+the $600 static floor a real FundingPips account enforces) inside these
+6 months.** The card's yield math (§2) assumed a fixed ~2.5:1 R:R (7.5pt
+TP vs. a "typical" 3.0pt SL). That assumption doesn't hold in practice:
+
+| | Card assumed | Actual (this run) |
+|---|---|---|
+| Avg win | 7.5 pts (fixed TP) | 6.63 pts (slippage) |
+| Avg loss | ~3.0 pts (the stated "minimum") | **14.43 pts** (median 11.58, range 7.07–75.53) |
+| R:R | 2.5 : 1 | **~0.46 : 1** |
+
+**Why:** the rule is "SL = `sl_buffer_pts` beyond the sweep's wick extreme,
+**minimum** `min_sl_pts` (3.0)" — the 3.0pt figure is a floor, not a
+typical value, and it almost never binds. On a real, sometimes-violent
+sweep, the wick extreme is frequently 10-75 points beyond entry, and the
+mechanical rule sizes the stop there every time. The card's own yield
+table implicitly assumed the floor would usually be what fires; it doesn't
+in this real sample. Per-level breakdown (all four are money-losers this
+period, not just one bad line): Asian Low 77 trades/44.2% win/-$3,823.60,
+Asian High 80/45.0%/-$4,693.56, PD High 17/64.7%/-$485.44, PD Low
+27/55.6%/-$874.45 — dropping the worst single line (§4's "one allowed
+simplification") would not have flipped this to profitable on its own.
+
+**Per the card's own keep/kill framework (§4), this needs a real decision,
+not an automatic "run it live" just because win rate cleared 45%** — the
+framework's threshold assumed the R:R held, and it doesn't. Options,
+undecided as of this writing: (a) cap the SL at a fixed maximum regardless
+of wick extreme (changes the mechanical rule as written — a real strategy
+change, not a bug fix), (b) widen the TP to better match the real average
+adverse excursion (`mfe_pts`-style analysis, per the reference script's own
+"should I raise my TP" column), (c) treat this parameter set as killed and
+either drop a line (per §4's "one allowed simplification") or stop here.
+**Not decided in this session — a strategy-viability call, not
+engineering.**
+
+- **Data source + timeframe:** `data_providers/twelve_data_history.py`
+  (Stage 1, this repo's own `HistoricalDataProvider`), real M5 XAUUSD,
+  fetched live from Twelve Data's free tier. The external reference script
+  below was NOT used for this run (would need a real MT5 terminal/Windows
+  box, which doesn't exist in this environment) — kept here for the user's
+  own manual validation (§4) instead.
+- **Parameter sensitivity:** not yet swept (no `/optimize` run against these
+  params yet — a natural next step given §3's finding, e.g. sweeping
+  `tp_pts`/`min_sl_pts`/`sl_buffer_pts` to see whether a real profitable
+  combination exists at all before concluding the setup itself is dead).
+- **Manual spot-check:** not done — §4's TradingView-replay protocol is
+  still the user's own, external, not-yet-run process.
+- **Three real bugs found and fixed getting this backtest to run at all**
+  (not specific to this strategy's numbers, all in shared engine code):
+  `_BacktestContext` had no `notify()` override (crashed on the first
+  entry); `BacktestEngine` never synthesized an `on_tick` for a plain
+  (non-options) strategy's own primary symbol, so SL/TP monitoring never
+  ran and a position never closed; `_roll_day` fired on each day's very
+  first bar (always ~00:00 UTC, inside the Asian session), so that day's
+  own Asian-session bars weren't in history yet — Asian High/Low came back
+  missing on literally every day until fixed. Also found and fixed: a
+  sparse/empty `params` dict crashed on the first `ctx.params` access
+  (fixed for every backtest/instance endpoint, not just this strategy), and
+  `compute_metrics`'s CAGR calculation crashed outright on an account this
+  deeply negative (fixed to floor at -100%, not specific to Gold either).
 
 ### Reference backtest tool (external, not part of the live pipeline)
 
@@ -225,7 +288,7 @@ Cannot start until Stage 2 (§3/§4) produces a keep decision.
 
 | Date | What happened | Failure mode | Change made |
 |---|---|---|---|
-| | | | |
+| 2026-09-22 | First real 6-month backtest: 47.8% win rate (above the card's own 45% threshold) but net loss of $12,705.76 on a $5,000 account -- realized SL averaged 14.43 pts vs. the card's assumed ~3.0 pt typical, since the "minimum 3.0pt" floor rarely binds against a real wick extreme | `regime_change` (the mechanical rule's real risk profile doesn't match the card's own yield-math assumption) | None yet -- flagged for a strategy-viability decision (see §3), not patched |
 
 Failure modes: `stopped_out` · `target_missed` · `late_entry` · `slippage` ·
 `no_fill` · `gap` · `regime_change` · `data_gap` · `system_error`
@@ -251,3 +314,4 @@ alerts are live, not assumed away.
 | Version | Date | Change | Why |
 |---|---|---|---|
 | v1 | 2026-09-21 | Initial rules encoded from the user's card, verbatim | Stage 1 |
+| v1 | 2026-09-22 | Real Stage 2 backtest run (no rule changes) -- 6mo, 201 trades, net loss found | Stage 2 |
