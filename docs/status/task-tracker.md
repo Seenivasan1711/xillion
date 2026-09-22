@@ -251,10 +251,36 @@ session, per this repo's update protocol.
     `InstanceCard`'s Capital/P&L fields), using the same shared
     `fmtMoney`/`currencyFor` helpers. `tsc --noEmit` + `vite build` clean;
     631/631 backend tests unaffected (frontend-only change).
-14. ⬜ **Strategy fine-tuning surface** — as much of "change a strategy's
-    behavior" as reasonably belongs in the UI (params_schema-driven, already
-    partly true) vs. what has to stay a code change (new rules, new
-    indicators) — make that split explicit/documented, not just implied.
+14. ✅ **Strategy fine-tuning surface — built 2026-09-22, split made
+    explicit.** Found a real bug while investigating: `InstanceCard`'s
+    "Configure" button opened the *create*-instance modal keyed to the
+    strategy class, with no pre-filled values and no link back to the
+    instance being "configured" — it silently created an unrelated
+    duplicate instance instead of editing the one you clicked. Fixed
+    properly, not just patched:
+    - `NewInstanceModal` now takes an optional `existingInstance` prop.
+      When set, it pre-fills from the instance's real current values and
+      submits via `api.instances.update` (PATCH) instead of `create`.
+    - **The UI/code split is now explicit, not implied**: the backend's
+      `PATCH /instances/{id}` only ever accepted `name`, `params`,
+      `capital_allocation`, `risk_limits`, `auto_start` — never `mode`,
+      `instruments`, `timeframe`, or `broker_connection_name` (those
+      define what the instance fundamentally *is*; changing them means a
+      new instance). The edit form now only shows what's actually
+      editable, with a visible line telling you exactly which fields
+      aren't and that a new instance is the way to change them — instead
+      of presenting fields a PATCH would have silently ignored.
+    - A running instance can't have its name/params/capital changed
+      (already a real backend restriction, `update_instance`) — the edit
+      form now surfaces that up front (a warning banner, disabled submit)
+      instead of letting you fill the form and hit a 400.
+    So: **UI-editable, live** = params (already schema-driven),
+    name, capital allocation, risk limits (hot-reloadable even while
+    running), auto-start. **Code-only** = new rules/indicators/params
+    themselves (adding a new `ParamSpec`), and mode/instruments/timeframe/
+    broker (structural — needs a new instance, by design).
+    `tsc --noEmit` + `vite build` clean; 631/631 backend tests unaffected
+    (frontend-only change, no backend endpoint changed).
 15. ⬜ **A persistent trades/backtest-results store, in MongoDB** — decided
     2026-09-22 (Rakesh's explicit call, after I flagged reusing Postgres as
     an alternative — he wants Mongo specifically for the context-feeding use

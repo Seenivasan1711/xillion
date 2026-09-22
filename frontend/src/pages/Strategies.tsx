@@ -20,6 +20,13 @@ export default function Strategies() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'instances' | 'classes' | 'archived'>('instances')
   const [newInstanceFor, setNewInstanceFor] = useState<StrategyClass | null>(null)
+  // "Configure" on an existing instance (2026-09-22 fix): used to open the
+  // same modal keyed only to the strategy CLASS, with no pre-filled values
+  // and no way to actually update the instance being configured -- it
+  // silently created an unrelated new instance instead of editing this
+  // one. Now tracks which instance is being edited so the modal can
+  // pre-fill from it and PATCH it via api.instances.update instead.
+  const [editingInstance, setEditingInstance] = useState<StrategyInstance | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
@@ -82,7 +89,10 @@ export default function Strategies() {
           <button className="btn ghost" onClick={reload} disabled={loading}>
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Reload plugins
           </button>
-          <button className="btn primary" onClick={() => strategies[0] && setNewInstanceFor(strategies[0])}>
+          <button
+            className="btn primary"
+            onClick={() => { setEditingInstance(null); if (strategies[0]) setNewInstanceFor(strategies[0]) }}
+          >
             <Plus size={13} /> New instance
           </button>
         </div>
@@ -140,7 +150,10 @@ export default function Strategies() {
                 onToggleAutoStart={() => handleToggleAutoStart(inst.id, !inst.auto_start)}
                 onConfigure={() => {
                   const cls = strategies.find(s => s.name === inst.strategy_class_name)
-                  if (cls) setNewInstanceFor(cls)
+                  if (cls) {
+                    setNewInstanceFor(cls)
+                    setEditingInstance(inst)
+                  }
                 }}
               />
             ))}
@@ -178,7 +191,7 @@ export default function Strategies() {
                   <Badge>{s.params_schema.length} params</Badge>
                   {s.author && <Badge>{s.author}</Badge>}
                 </div>
-                <button className="btn ghost sm" onClick={() => setNewInstanceFor(s)}>
+                <button className="btn ghost sm" onClick={() => { setEditingInstance(null); setNewInstanceFor(s) }}>
                   <Plus size={11} /> New instance
                 </button>
               </div>
@@ -197,8 +210,9 @@ export default function Strategies() {
       {newInstanceFor && (
         <NewInstanceModal
           strategy={newInstanceFor}
-          onClose={() => setNewInstanceFor(null)}
-          onCreated={() => { setNewInstanceFor(null); loadAll() }}
+          existingInstance={editingInstance}
+          onClose={() => { setNewInstanceFor(null); setEditingInstance(null) }}
+          onCreated={() => { setNewInstanceFor(null); setEditingInstance(null); loadAll() }}
         />
       )}
     </div>
@@ -310,25 +324,42 @@ function InstanceCard({
 
 function NewInstanceModal({
   strategy,
+  existingInstance,
   onClose,
   onCreated,
 }: {
   strategy: StrategyClass
+  existingInstance?: StrategyInstance | null
   onClose: () => void
   onCreated: () => void
 }) {
-  const [name, setName] = useState(`${strategy.name} — Paper`)
-  const [mode, setMode] = useState<'paper' | 'live' | 'alert'>('paper')
+  // Editing an existing instance (2026-09-22, the strategy fine-tuning
+  // surface ask): the backend's PATCH /instances/{id} only accepts name,
+  // params, capital_allocation, risk_limits, auto_start -- NOT mode,
+  // instruments, timeframe, or broker_connection_name (those define what
+  // the instance fundamentally IS; changing them means a new instance, not
+  // an edit). So this form shows only what's actually editable when
+  // existingInstance is set, rather than presenting fields a PATCH would
+  // silently ignore.
+  const isEditing = Boolean(existingInstance)
+  const isRunning = existingInstance?.status === 'running'
+
+  const [name, setName] = useState(existingInstance?.name ?? `${strategy.name} — Paper`)
+  const [mode, setMode] = useState<'paper' | 'live' | 'alert'>(
+    (existingInstance?.mode as 'paper' | 'live' | 'alert') ?? 'paper'
+  )
   // Default to the strategy's own declared instruments, not a hardcoded
   // 'NIFTY' -- was silently wrong for every non-NIFTY strategy (found
   // 2026-09-22 chasing why Gold Sweep-Reversal's instance form looked
   // broken; XAUUSD strategies were getting a NIFTY default with no
   // indication anything was off).
-  const [instruments, setInstruments] = useState(strategy.instruments.join(', '))
-  const [timeframe, setTimeframe] = useState(strategy.timeframe)
-  const [capital, setCapital] = useState('100000')
+  const [instruments, setInstruments] = useState(
+    (existingInstance?.instruments ?? strategy.instruments).join(', ')
+  )
+  const [timeframe, setTimeframe] = useState(existingInstance?.timeframe ?? strategy.timeframe)
+  const [capital, setCapital] = useState(String(existingInstance?.capital_allocation ?? 100000))
   const [params, setParams] = useState<Record<string, unknown>>(
-    Object.fromEntries(strategy.params_schema.map(p => [p.name, p.default]))
+    existingInstance?.params ?? Object.fromEntries(strategy.params_schema.map(p => [p.name, p.default]))
   )
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -338,6 +369,7 @@ function NewInstanceModal({
   // instance silently used _ensure_broker_connection's default priority
   // (Zerodha/Dhan/Paper) with no way to point a strategy at, say, the
   // Twelve Data Gold feed instead. Empty string = "auto" = old behavior.
+  // Not editable once created (see isEditing note above).
   const [connections, setConnections] = useState<BrokerStatus[]>([])
   const [brokerConnectionName, setBrokerConnectionName] = useState('')
   useEffect(() => {
@@ -349,21 +381,29 @@ function NewInstanceModal({
     setError('')
     setLoading(true)
     try {
-      const body: CreateInstanceRequest = {
-        name,
-        strategy_class_name: strategy.name,
-        mode,
-        instruments: instruments.split(',').map(s => s.trim()).filter(Boolean),
-        timeframe,
-        params,
-        capital_allocation: parseFloat(capital),
-        risk_limits: {},
-        broker_connection_name: brokerConnectionName || null,
+      if (isEditing && existingInstance) {
+        await api.instances.update(existingInstance.id, {
+          name,
+          params,
+          capital_allocation: parseFloat(capital),
+        })
+      } else {
+        const body: CreateInstanceRequest = {
+          name,
+          strategy_class_name: strategy.name,
+          mode,
+          instruments: instruments.split(',').map(s => s.trim()).filter(Boolean),
+          timeframe,
+          params,
+          capital_allocation: parseFloat(capital),
+          risk_limits: {},
+          broker_connection_name: brokerConnectionName || null,
+        }
+        await api.instances.create(body)
       }
-      await api.instances.create(body)
       onCreated()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create instance')
+      setError(e instanceof Error ? e.message : `Failed to ${isEditing ? 'update' : 'create'} instance`)
     } finally {
       setLoading(false)
     }
@@ -389,83 +429,105 @@ function NewInstanceModal({
       >
         <div className="card-head">
           <div>
-            <div className="title" style={{ color: 'var(--text-dim)' }}>NEW INSTANCE</div>
+            <div className="title" style={{ color: 'var(--text-dim)' }}>
+              {isEditing ? 'EDIT INSTANCE' : 'NEW INSTANCE'}
+            </div>
             <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>{strategy.name}</div>
           </div>
           <button className="icon-btn" onClick={onClose}><X size={14} /></button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {isRunning && (
+            <div
+              className="faint"
+              style={{ fontSize: 11.5, padding: '8px 12px', borderRadius: 7, background: 'var(--neg-dim)', color: 'var(--neg)' }}
+            >
+              This instance is running — stop it first to change its name, parameters, or capital.
+            </div>
+          )}
+
           <div className="field">
             <label>Instance name</label>
-            <input className="input" value={name} onChange={e => setName(e.target.value)} required />
+            <input className="input" value={name} onChange={e => setName(e.target.value)} required disabled={isRunning} />
           </div>
 
-          <div className="field">
-            <label>Mode</label>
-            <SegmentedControl
-              options={[
-                { value: 'paper', label: 'Paper' },
-                { value: 'live', label: 'Live' },
-                { value: 'alert', label: 'Alert' },
-              ]}
-              value={mode}
-              onChange={v => setMode(v as 'paper' | 'live' | 'alert')}
-            />
-            {mode === 'alert' && (
-              <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
-                Alert mode never places a real or simulated order — it only sends a
-                Telegram notification and logs the signal. Requires a connected
-                broker or data feed providing live market data for{' '}
-                {strategy.instruments.join('/') || 'this instrument'}.
+          {!isEditing && (
+            <>
+              <div className="field">
+                <label>Mode</label>
+                <SegmentedControl
+                  options={[
+                    { value: 'paper', label: 'Paper' },
+                    { value: 'live', label: 'Live' },
+                    { value: 'alert', label: 'Alert' },
+                  ]}
+                  value={mode}
+                  onChange={v => setMode(v as 'paper' | 'live' | 'alert')}
+                />
+                {mode === 'alert' && (
+                  <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
+                    Alert mode never places a real or simulated order — it only sends a
+                    Telegram notification and logs the signal. Requires a connected
+                    broker or data feed providing live market data for{' '}
+                    {strategy.instruments.join('/') || 'this instrument'}.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+
+              <div className="field">
+                <label>Instruments (comma-separated)</label>
+                <input className="input" value={instruments} onChange={e => setInstruments(e.target.value)} placeholder="NIFTY, RELIANCE" />
+              </div>
+
+              <div className="field">
+                <label>Broker / data connection</label>
+                <select
+                  className="input"
+                  value={brokerConnectionName}
+                  onChange={e => setBrokerConnectionName(e.target.value)}
+                >
+                  <option value="">Auto (default priority: Zerodha → Dhan → Paper)</option>
+                  {connections.map(c => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} {c.status === 'connected' ? '' : `(${c.status})`}
+                    </option>
+                  ))}
+                </select>
+                <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
+                  Only matters for paper/live/alert modes. Pick a specific
+                  connection (e.g. a Twelve Data feed) instead of the default
+                  priority order if this strategy needs a particular data
+                  source or broker.
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Timeframe</label>
+                <select className="input" value={timeframe} onChange={e => setTimeframe(e.target.value)}>
+                  {['1m', '5m', '15m', '30m', '1h', '1d'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          {isEditing && (
+            <div className="faint" style={{ fontSize: 11 }}>
+              Mode ({existingInstance?.mode}), instruments ({instruments}), timeframe
+              ({timeframe}), and broker connection can't be changed on an existing
+              instance — create a new one instead if any of those need to change.
+            </div>
+          )}
 
           <div className="field">
-            <label>Instruments (comma-separated)</label>
-            <input className="input" value={instruments} onChange={e => setInstruments(e.target.value)} placeholder="NIFTY, RELIANCE" />
-          </div>
-
-          <div className="field">
-            <label>Broker / data connection</label>
-            <select
-              className="input"
-              value={brokerConnectionName}
-              onChange={e => setBrokerConnectionName(e.target.value)}
-            >
-              <option value="">Auto (default priority: Zerodha → Dhan → Paper)</option>
-              {connections.map(c => (
-                <option key={c.name} value={c.name}>
-                  {c.name} {c.status === 'connected' ? '' : `(${c.status})`}
-                </option>
-              ))}
-            </select>
-            <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
-              Only matters for paper/live/alert modes. Pick a specific
-              connection (e.g. a Twelve Data feed) instead of the default
-              priority order if this strategy needs a particular data
-              source or broker.
-            </div>
-          </div>
-
-          <div className="grid-2">
-            <div className="field">
-              <label>Timeframe</label>
-              <select className="input" value={timeframe} onChange={e => setTimeframe(e.target.value)}>
-                {['1m', '5m', '15m', '30m', '1h', '1d'].map(tf => <option key={tf} value={tf}>{tf}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              {/* XAUUSD/USD-instrument strategies are $, everything else (NIFTY,
-                  options, etc.) is ₹ -- same symbol-sniffing rule as
-                  Alerts.tsx's fmtPrice(), which had the same hardcoded-₹ bug. */}
-              <label>
-                Capital (
-                {strategy.instruments.some(i => /XAU|USD/i.test(i)) ? '$' : '₹'})
-              </label>
-              <input className="input" type="number" value={capital} onChange={e => setCapital(e.target.value)} min={1000} />
-            </div>
+            {/* XAUUSD/USD-instrument strategies are $, everything else (NIFTY,
+                options, etc.) is ₹ -- same symbol-sniffing rule as
+                Alerts.tsx's fmtPrice(), which had the same hardcoded-₹ bug. */}
+            <label>
+              Capital (
+              {(existingInstance?.instruments ?? strategy.instruments).some(i => /XAU|USD/i.test(i)) ? '$' : '₹'})
+            </label>
+            <input className="input" type="number" value={capital} onChange={e => setCapital(e.target.value)} min={1000} disabled={isRunning} />
           </div>
 
           {strategy.params_schema.length > 0 && (
@@ -492,8 +554,8 @@ function NewInstanceModal({
           <div className="row" style={{ marginTop: 6 }}>
             <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
             <div style={{ flex: 1 }} />
-            <button type="submit" className="btn primary" disabled={loading}>
-              {loading ? 'Creating…' : 'Create instance'}
+            <button type="submit" className="btn primary" disabled={loading || isRunning}>
+              {loading ? (isEditing ? 'Saving…' : 'Creating…') : isEditing ? 'Save changes' : 'Create instance'}
             </button>
           </div>
         </form>
