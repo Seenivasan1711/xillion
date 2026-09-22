@@ -213,6 +213,24 @@ class GoldSweepReversal(Strategy):
                 "unit-compatible with a real MT5 fill later."
             ),
         ),
+        ParamSpec(
+            "max_sl_pts",
+            "float",
+            default=100.0,
+            min=3.0,
+            max=200.0,
+            description=(
+                "Hard cap on the stop-loss distance, regardless of how far the "
+                "sweep's wick extreme is. The card's own SL rule (buffer beyond "
+                "the wick extreme, minimum min_sl_pts) has no upper bound -- a "
+                "violent sweep can put the real SL 50-75+ pts away, which the "
+                "first real 6-month backtest (2026-09-22) showed dominates the "
+                "strategy's real economics far more than min_sl_pts does. "
+                "Default (100.0) is comfortably above every SL seen in that "
+                "backtest, so it changes nothing unless deliberately lowered "
+                "-- this is an optimizable lever, not a live behavior change."
+            ),
+        ),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
@@ -390,11 +408,13 @@ class GoldSweepReversal(Strategy):
         if kind == "res":
             side = Side.SELL
             sl = max(extreme + p["sl_buffer_pts"], entry + p["min_sl_pts"])
+            sl = min(sl, entry + p["max_sl_pts"])  # hard cap, see max_sl_pts's own doc
             tp = entry - p["tp_pts"]
             direction = "SHORT -- fading the sweep up through resistance"
         else:
             side = Side.BUY
             sl = min(extreme - p["sl_buffer_pts"], entry - p["min_sl_pts"])
+            sl = max(sl, entry - p["max_sl_pts"])  # hard cap, see max_sl_pts's own doc
             tp = entry + p["tp_pts"]
             direction = "LONG -- fading the sweep down through support"
         sl_pts = abs(sl - entry)

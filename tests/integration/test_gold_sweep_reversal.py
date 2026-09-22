@@ -368,3 +368,25 @@ async def test_alert_mode_never_sets_open_position():
     assert len(ctx.placed) == 1
     assert ctx.state["open_position"] is None  # alert mode tracks no real position
     assert ctx.notifications == []  # alert mode uses alert_entry, not notify
+
+
+@pytest.mark.asyncio
+async def test_max_sl_pts_caps_a_wide_wick_extreme():
+    strat = GoldSweepReversal()
+    params = dict(DEFAULT_PARAMS)
+    params["max_sl_pts"] = 5.0  # tighter than this sweep's real wick extreme
+    ctx = FakeContext(params, _base_history())
+    await strat.on_start(ctx)
+
+    # Sweep bar pokes above Asian High (2630) to 2645 -- kept below PD High
+    # (2650, from _base_history()) so it doesn't *also* poke-and-instantly-
+    # reclaim that unrelated level within this same bar and steal the test.
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2645, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)
+
+    assert len(ctx.placed) == 1
+    req = ctx.placed[0]
+    assert req.tag == "Asian High"
+    # Uncapped, sl would be max(2645.5, 2632.0) = 2645.5 (16+ pts away).
+    # Capped at max_sl_pts=5.0 from entry (2629.0): sl = 2634.0.
+    assert float(req.stop_loss_price) == pytest.approx(2634.0)
