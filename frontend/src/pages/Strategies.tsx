@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Pause, Play, Trash2, X, Clock } from 'lucide-react'
-import { api, type CreateInstanceRequest, type ParamSpec, type StrategyClass, type StrategyInstance } from '../lib/api'
+import {
+  api,
+  type BrokerStatus,
+  type CreateInstanceRequest,
+  type ParamSpec,
+  type StrategyClass,
+  type StrategyInstance,
+} from '../lib/api'
 import { Badge, SegmentedControl, fmtINR, SkeletonCard } from '../components/ui'
 
 // Re-use lucide Gear as Settings icon
@@ -326,6 +333,17 @@ function NewInstanceModal({
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Broker-picker (2026-09-22): the API/type already supported an explicit
+  // broker_connection_name, but nothing in this form ever set it -- every
+  // instance silently used _ensure_broker_connection's default priority
+  // (Zerodha/Dhan/Paper) with no way to point a strategy at, say, the
+  // Twelve Data Gold feed instead. Empty string = "auto" = old behavior.
+  const [connections, setConnections] = useState<BrokerStatus[]>([])
+  const [brokerConnectionName, setBrokerConnectionName] = useState('')
+  useEffect(() => {
+    api.brokers.connections().then(r => setConnections(r.connections)).catch(() => {})
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -340,6 +358,7 @@ function NewInstanceModal({
         params,
         capital_allocation: parseFloat(capital),
         risk_limits: {},
+        broker_connection_name: brokerConnectionName || null,
       }
       await api.instances.create(body)
       onCreated()
@@ -406,6 +425,28 @@ function NewInstanceModal({
           <div className="field">
             <label>Instruments (comma-separated)</label>
             <input className="input" value={instruments} onChange={e => setInstruments(e.target.value)} placeholder="NIFTY, RELIANCE" />
+          </div>
+
+          <div className="field">
+            <label>Broker / data connection</label>
+            <select
+              className="input"
+              value={brokerConnectionName}
+              onChange={e => setBrokerConnectionName(e.target.value)}
+            >
+              <option value="">Auto (default priority: Zerodha → Dhan → Paper)</option>
+              {connections.map(c => (
+                <option key={c.name} value={c.name}>
+                  {c.name} {c.status === 'connected' ? '' : `(${c.status})`}
+                </option>
+              ))}
+            </select>
+            <div className="faint" style={{ fontSize: 11, marginTop: 6 }}>
+              Only matters for paper/live/alert modes. Pick a specific
+              connection (e.g. a Twelve Data feed) instead of the default
+              priority order if this strategy needs a particular data
+              source or broker.
+            </div>
           </div>
 
           <div className="grid-2">

@@ -194,9 +194,21 @@ session, per this repo's update protocol.
     Telegram chat** (needs `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`
     configured and a live poll cycle to see a button actually work
     end-to-end) — structurally verified, not proven live.
-11. ⬜ **Broker-picker dropdown in the instance-creation UI** — the API/type
-    (`broker_connection_name`) already exists; there's no actual `<select>`
-    for it in `Strategies.tsx` yet, confirmed 2026-09-22.
+11. ✅ **Broker-picker dropdown in the instance-creation UI — built
+    2026-09-22.** The backend already fully supported an explicit
+    `broker_connection_name` (`_ensure_broker_connection`'s
+    `preferred_connection_name`, resolved at instance-create time) — the
+    gap was purely that nothing in the form ever set it. Added a `<select>`
+    populated from `api.brokers.connections()` (already existed, just
+    unused here), defaulting to "Auto" (empty string → `null`, the
+    pre-existing default-priority behavior, unchanged for anyone who
+    doesn't touch the dropdown). Also added the missing
+    `broker_connection_name` field to the frontend's `CreateInstanceRequest`
+    type (same type-drift bug class as `StrategyClass.instruments` from
+    item 1 — the backend had it, the frontend type didn't). `tsc --noEmit`
+    + `vite build` clean; 626/626 backend tests unaffected (frontend-only
+    change). Same standing caveat as items 1/2: not yet visually confirmed
+    in a logged-in browser session.
 12. ⬜ **DB/UI-configurable Twelve Data + Finnhub credentials** — currently
     `.env`-only (deferred-backlog's "Automation platform" item).
     **Folds in the old Finnhub news-veto wiring too** (`_news_veto_active()`

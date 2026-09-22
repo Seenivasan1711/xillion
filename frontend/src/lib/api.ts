@@ -426,6 +426,7 @@ export interface CreateInstanceRequest {
   params: Record<string, unknown>
   capital_allocation: number
   risk_limits: Record<string, unknown>
+  broker_connection_name?: string | null
 }
 
 export interface BacktestResponse {
