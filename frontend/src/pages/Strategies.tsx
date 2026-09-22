@@ -8,7 +8,7 @@ import {
   type StrategyClass,
   type StrategyInstance,
 } from '../lib/api'
-import { Badge, SegmentedControl, fmtINR, SkeletonCard } from '../components/ui'
+import { Badge, SegmentedControl, fmtMoney, currencyFor, SkeletonCard } from '../components/ui'
 
 // Re-use lucide Gear as Settings icon
 import { Settings as GearIcon } from 'lucide-react'
@@ -260,7 +260,7 @@ function InstanceCard({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
           <div>
             <div className="faint" style={{ fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3 }}>Capital</div>
-            <div className="mono-num" style={{ fontSize: 13 }}>{fmtINR(inst.capital_allocation)}</div>
+            <div className="mono-num" style={{ fontSize: 13 }}>{fmtMoney(inst.capital_allocation, currencyFor(inst.instruments))}</div>
           </div>
           <div>
             <div className="faint" style={{ fontSize: 9.5, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 3 }}>Trades</div>
@@ -272,7 +272,7 @@ function InstanceCard({
               className={`mono-num ${inst.pnl != null && inst.pnl > 0 ? 'pos' : inst.pnl != null && inst.pnl < 0 ? 'neg' : 'faint'}`}
               style={{ fontSize: 13 }}
             >
-              {inst.pnl != null ? fmtINR(inst.pnl, { signed: true }) : '—'}
+              {inst.pnl != null ? fmtMoney(inst.pnl, currencyFor(inst.instruments), { signed: true }) : '—'}
             </div>
           </div>
         </div>

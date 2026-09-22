@@ -239,10 +239,18 @@ session, per this repo's update protocol.
       (`tests/unit/test_news_veto.py` + additions to
       `test_gold_sweep_reversal.py`), 631/631 total passing, ruff/black/
       mypy clean (same one pre-existing unrelated mypy error as always).
-13. ⬜ **Strategy enable/disable from the UI** — a real on/off switch per
-    instance (separate ask from #11/#12, called out explicitly in Rakesh's
-    end-of-session outcome list) — this is what "finalize a setup and make
-    it live-alerting" from item #2 actually flips.
+13. ✅ **Strategy enable/disable from the UI — verified 2026-09-22, already
+    existed.** `Strategies.tsx`'s `InstanceCard` already has a working
+    Start/Stop button per instance (`onStart`/`onStop`, wired to the same
+    `start_instance_core`/`stop_instance_core` the Telegram `/pause`/
+    `/resume` commands from item 10 also use) plus an "Auto" toggle for
+    market-hours auto-start/stop — this already **is** the on/off switch
+    the ask wanted; nothing new to build. **Found and fixed while
+    verifying**: the same hardcoded-₹ bug (now fixed 5 times this session
+    — Alerts.tsx, the new-instance form, Backtest.tsx, Trades.tsx, and now
+    `InstanceCard`'s Capital/P&L fields), using the same shared
+    `fmtMoney`/`currencyFor` helpers. `tsc --noEmit` + `vite build` clean;
+    631/631 backend tests unaffected (frontend-only change).
 14. ⬜ **Strategy fine-tuning surface** — as much of "change a strategy's
     behavior" as reasonably belongs in the UI (params_schema-driven, already
     partly true) vs. what has to stay a code change (new rules, new
