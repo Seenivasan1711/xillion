@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from strategies.gold_sweep_reversal import GoldSweepReversal
+from strategies.gold_sweep_reversal import GoldSweepReversal, _confidence_score
 from xillion.core.events import Bar, Order, OrderRequest, OrderStatus, OrderType, Side, Tick
 
 DEFAULT_PARAMS = {p.name: p.default for p in GoldSweepReversal.params_schema}
@@ -459,3 +459,177 @@ async def test_max_sl_pts_caps_a_wide_wick_extreme():
     # Uncapped, sl would be max(2645.5, 2632.0) = 2645.5 (16+ pts away).
     # Capped at max_sl_pts=5.0 from entry (2629.0): sl = 2634.0.
     assert float(req.stop_loss_price) == pytest.approx(2634.0)
+
+
+@pytest.mark.asyncio
+async def test_use_session_levels_adds_pd_london_and_ny_levels():
+    strat = GoldSweepReversal()
+    params = dict(DEFAULT_PARAMS)
+    params["use_session_levels"] = True
+    history = [
+        _bar(
+            datetime(2026, 1, 5, 9, tzinfo=UTC), 2656, 2660, 2655, 2658
+        ),  # prev-day London (07-13 UTC)
+        _bar(
+            datetime(2026, 1, 5, 14, tzinfo=UTC), 2666, 2670, 2665, 2668
+        ),  # prev-day NY-overlap (13-17 UTC)
+        _bar(datetime(2026, 1, 6, 2, tzinfo=UTC), 2615, 2630, 2610, 2620),  # today's Asian
+    ]
+    ctx = FakeContext(params, history)
+    await strat.on_start(ctx)
+
+    # Trigger the day roll; this bar itself shouldn't sweep anything.
+    await strat.on_bar(_bar(_london(9, 0), 2620, 2621, 2619, 2620), ctx)
+    assert ctx.placed == []
+
+    levels = ctx.state["levels"]
+    assert levels["PD London High"]["price"] == 2660.0
+    assert levels["PD London Low"]["price"] == 2655.0
+    assert levels["PD NY-overlap High"]["price"] == 2670.0
+    assert levels["PD NY-overlap Low"]["price"] == 2665.0
+    # Whole-day PD High/Low still spans both sessions, unchanged.
+    assert levels["PD High"]["price"] == 2670.0
+    assert levels["PD Low"]["price"] == 2655.0
+    assert levels["Asian High"]["price"] == 2630.0
+    assert levels["Asian Low"]["price"] == 2610.0
+
+
+@pytest.mark.asyncio
+async def test_use_session_levels_off_by_default_no_new_levels():
+    strat = GoldSweepReversal()
+    history = [
+        _bar(datetime(2026, 1, 5, 9, tzinfo=UTC), 2656, 2660, 2655, 2658),
+        _bar(datetime(2026, 1, 5, 14, tzinfo=UTC), 2666, 2670, 2665, 2668),
+        _bar(datetime(2026, 1, 6, 2, tzinfo=UTC), 2615, 2630, 2610, 2620),
+    ]
+    ctx = FakeContext(DEFAULT_PARAMS, history)  # use_session_levels defaults False
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2620, 2621, 2619, 2620), ctx)
+
+    assert set(ctx.state["levels"].keys()) == {"Asian High", "Asian Low", "PD High", "PD Low"}
+
+
+@pytest.mark.asyncio
+async def test_prev_day_lookback_days_widens_pd_range():
+    strat = GoldSweepReversal()
+    params = dict(DEFAULT_PARAMS)
+    params["prev_day_lookback_days"] = 3
+    history = [
+        _bar(datetime(2026, 1, 3, 10, tzinfo=UTC), 2600, 2640, 2590, 2620),  # 3 days back
+        _bar(
+            datetime(2026, 1, 4, 10, tzinfo=UTC), 2610, 2625, 2560, 2600
+        ),  # 2 days back -- widest low
+        _bar(
+            datetime(2026, 1, 5, 10, tzinfo=UTC), 2600, 2650, 2595, 2620
+        ),  # 1 day back -- widest high
+        _bar(datetime(2026, 1, 6, 2, tzinfo=UTC), 2615, 2630, 2612, 2620),  # today's Asian
+    ]
+    ctx = FakeContext(params, history)
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2620, 2621, 2619, 2620), ctx)
+
+    levels = ctx.state["levels"]
+    assert levels["PD High"]["price"] == 2650.0  # from 01-05
+    assert levels["PD Low"]["price"] == 2560.0  # from 01-04
+
+
+@pytest.mark.asyncio
+async def test_prev_day_lookback_days_default_matches_original_single_day():
+    strat = GoldSweepReversal()
+    history = [
+        _bar(
+            datetime(2026, 1, 3, 10, tzinfo=UTC), 2600, 2640, 2590, 2620
+        ),  # should be ignored, 2+ days back
+        _bar(
+            datetime(2026, 1, 5, 10, tzinfo=UTC), 2600, 2650, 2595, 2620
+        ),  # only this counts, default lookback=1
+        _bar(datetime(2026, 1, 6, 2, tzinfo=UTC), 2615, 2630, 2612, 2620),
+    ]
+    ctx = FakeContext(DEFAULT_PARAMS, history)  # prev_day_lookback_days defaults to 1
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2620, 2621, 2619, 2620), ctx)
+
+    levels = ctx.state["levels"]
+    assert levels["PD High"]["price"] == 2650.0
+    assert levels["PD Low"]["price"] == 2595.0
+
+
+def test_confidence_score_penalizes_wide_stop():
+    tight_score, _ = _confidence_score(
+        sl_pts=3.0,
+        min_sl_pts=3.0,
+        max_sl_pts=100.0,
+        reclaim_bars=0,  # isolate the SL component -- no reclaim-speed penalty either
+        sweep_lookback_bars=3,
+        recent_losses_in_a_row=0,
+    )
+    wide_score, _ = _confidence_score(
+        sl_pts=95.0,
+        min_sl_pts=3.0,
+        max_sl_pts=100.0,
+        reclaim_bars=0,
+        sweep_lookback_bars=3,
+        recent_losses_in_a_row=0,
+    )
+    assert tight_score > wide_score
+    assert tight_score == 100  # sl at the floor -- no SL penalty at all
+
+
+def test_confidence_score_penalizes_loss_streak():
+    no_streak, _ = _confidence_score(
+        sl_pts=3.0,
+        min_sl_pts=3.0,
+        max_sl_pts=100.0,
+        reclaim_bars=1,
+        sweep_lookback_bars=3,
+        recent_losses_in_a_row=0,
+    )
+    with_streak, reasons = _confidence_score(
+        sl_pts=3.0,
+        min_sl_pts=3.0,
+        max_sl_pts=100.0,
+        reclaim_bars=1,
+        sweep_lookback_bars=3,
+        recent_losses_in_a_row=3,
+    )
+    assert with_streak < no_streak
+    assert any("loss(es) in a row" in r for r in reasons)
+
+
+def test_confidence_score_clamped_to_0_100_range():
+    score, _ = _confidence_score(
+        sl_pts=500.0,
+        min_sl_pts=3.0,
+        max_sl_pts=100.0,
+        reclaim_bars=99,
+        sweep_lookback_bars=3,
+        recent_losses_in_a_row=99,
+    )
+    assert 0 <= score <= 100
+
+
+@pytest.mark.asyncio
+async def test_confidence_score_off_by_default_not_in_reason():
+    strat = GoldSweepReversal()
+    ctx = FakeContext(DEFAULT_PARAMS, _base_history())  # enable_confidence_score defaults False
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)
+
+    assert "Setup confidence" not in ctx.placed[0].reason
+
+
+@pytest.mark.asyncio
+async def test_confidence_score_appended_to_reason_when_enabled():
+    strat = GoldSweepReversal()
+    params = dict(DEFAULT_PARAMS)
+    params["enable_confidence_score"] = True
+    ctx = FakeContext(params, _base_history())
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)
+
+    reason = ctx.placed[0].reason
+    assert "Setup confidence:" in reason
+    assert "/100" in reason
+    assert "does not gate this entry" in reason

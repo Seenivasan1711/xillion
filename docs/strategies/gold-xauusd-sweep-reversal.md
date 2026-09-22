@@ -212,6 +212,80 @@ would need a small code change to support wraparound windows, not attempted
 since the card already predicts it's the worst option and two other windows
 already cover the "good"/"best" ones it names.
 
+### Richer level data sweep, 2026-09-22 — more levels made it worse
+
+Rakesh's queued item #2: new opt-in params `use_session_levels` (adds the
+previous trading day's London-session and NY-overlap-session High/Low as
+extra tradeable levels, alongside the existing Asian High/Low + whole-day
+PD High/Low) and `prev_day_lookback_days` (widens PD High/Low from just
+yesterday to the highest-high/lowest-low across the last N days). Both
+default to the original behavior (no live change). Swept against the same
+real 6-month sample:
+
+| Session levels | PD lookback (days) | Trades | Win % | Return % | Total P&L | Sharpe | Profit factor |
+|---|---|---|---|---|---|---|---|
+| Off (original) | 1 (original) | 201 | 47.8 | -254.1 | -$12,705.76 | 0.044 | 0.274 |
+| Off | 3 | 196 | 46.9 | -253.8 | -$12,687.32 | -0.061 | 0.265 |
+| Off | 5 | 196 | 46.9 | -253.8 | -$12,687.32 | -0.061 | 0.265 |
+| On | 1 | 238 | 49.6 | -276.7 | -$13,836.21 | -0.079 | 0.275 |
+| On | 3 | 235 | 49.8 | -270.5 | -$13,524.44 | 0.087 | 0.280 |
+| On | 5 | 235 | 49.8 | -270.5 | -$13,524.44 | 0.087 | 0.280 |
+
+**Every combination is still net-negative, and adding the session levels
+consistently made things worse** (more trades fired, no improvement in
+profit factor) — consistent with the earlier per-level breakdown (§3, first
+sweep) already showing none of the original 4 lines was individually
+profitable either. More tradeable lines just means more chances to lose on
+this signal, not better selection. **Fourth independent analysis to find no
+profitable configuration.**
+
+### Finer TP/SL sweep, 2026-09-22 — same conclusion at higher resolution
+
+The original two sweeps above used a fairly coarse grid. Re-ran with a
+finer 7-value `tp_pts` grid (3.0 to 20.0) against 6 `min_sl_pts` values and
+7 `max_sl_pts` values separately (91 more combinations total):
+
+- **`tp_pts` × `min_sl_pts` (42 combos): 0/42 profitable.** Best Sharpe
+  0.113 (`tp=7.5, min_sl=5.0` and `tp=15.0, min_sl=2.0`, tied), but both
+  still deeply net-negative (-$13,298.92 and -$13,815.72 respectively).
+- **`tp_pts` × `max_sl_pts` (49 combos): 0/49 profitable.** Best profit
+  factor across both finer sweeps: 0.353 (`tp=20.0, max_sl=5.0`) — closer
+  to 1.0 than any prior sweep found, but the trade-off is a 20.9% win rate
+  at that combination, still a $13,915.23 loss.
+
+**Fifth and sixth independent analyses, 91 more combinations, same
+conclusion: no profitable configuration exists within this parameter
+family on this real 6-month sample.** Total across all sweeps this session:
+160+ combinations tried, zero profitable.
+
+### Confidence-scoring design, 2026-09-22 — built, informational only
+
+Rakesh's queued item #5 (a "% confident" concept). New opt-in
+`enable_confidence_score` param; `_confidence_score()` in
+`strategies/gold_sweep_reversal.py` computes a 0-100 score per entry from:
+
+1. **SL width relative to the min/max range** (dominant weight, 55 of 100
+   points) — grounded directly in this strategy's own finding above: SL
+   width, not win rate, is what destroys its real R:R. A stop near
+   `min_sl_pts` scores near 100 on this component; a stop near
+   `max_sl_pts` scores near 0.
+2. **Reclaim speed** (up to 25 points) — a same-bar/next-bar reclaim scores
+   higher than one that took the full `sweep_lookback_bars` window.
+3. **Recent loss streak** (up to 20 points) — each consecutive recent loss
+   (rolling `ctx.state["recent_outcomes"]`, capped at 20 entries) trims the
+   score slightly.
+
+**Deliberately informational only, never a hard gate** — appended to the
+entry's reasoning text (Telegram/`ctx.notify`) when enabled, but never
+blocks an entry from firing. The backlog's own open question ("a real
+decision on whether the score is a hard gate or just extra context") is
+answered here with the lower-risk default, not a guess: components 2 and 3
+haven't been independently validated as predictive of outcome (that needs
+a real correlation study against logged signal outcomes over time, which
+the Journal now has the plumbing for but not yet enough real signals to
+run), so gating entries on an unvalidated score would risk silently
+suppressing real signals on a formula that hasn't earned that trust yet.
+
 - **Data source + timeframe:** `data_providers/twelve_data_history.py`
   (Stage 1, this repo's own `HistoricalDataProvider`), real M5 XAUUSD,
   fetched live from Twelve Data's free tier. The external reference script
@@ -379,3 +453,5 @@ alerts are live, not assumed away.
 | v1 | 2026-09-22 | Real Stage 2 backtest run (no rule changes) -- 6mo, 201 trades, net loss found | Stage 2 |
 | v1.1 | 2026-09-22 | Alert mode now sends an exit alert (`ctx.alert_exit()` on TP/SL hit), not just entry -- no rule/sizing change, engine gap only | Stage 3+ readiness |
 | v1 | 2026-09-22 | Session-window sweep (6 windows, no rule changes) -- every window net-negative, third independent analysis to find no edge | Stage 2 analysis |
+| v1.2 | 2026-09-22 | Added opt-in `use_session_levels`/`prev_day_lookback_days` (richer level data) and `enable_confidence_score` params -- all default off/original behavior, no live change unless deliberately enabled | Stage 2 analysis tooling |
+| v1 | 2026-09-22 | Richer-level-data sweep + two finer TP/SL sweeps (no rule changes) -- 160+ combinations tried this session total, zero profitable | Stage 2 analysis |

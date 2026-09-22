@@ -102,17 +102,51 @@ session, per this repo's update protocol.
    both TP/SL sweeps) to find no profitable configuration.** Paused here
    to flag this to Rakesh before spending more effort on items 5-8 below —
    see chat, not silently ground through.
-5. ⬜ **Richer per-session/multi-day level data** — Asian/London/NY high-low
-   broken out separately, last 3-5 days not just 1 (deferred-backlog item 2).
-6. ⬜ **Finer `min_sl_pts`/`max_sl_pts` sweep** (deferred-backlog item 3).
-7. ⬜ **Finer `tp_pts` sweep** (deferred-backlog item 4).
-8. ⬜ **Confidence-scoring design for entries** — the % concept Rakesh wants
-   (deferred-backlog item 5) — needs a real feature set and a decision on
-   hard-gate vs. informational-only, not designed yet.
-9. ⬜ **Paper trading, for real** — run the (by-then-tuned) strategy in paper
-   mode with a live results feed (ties into #3's UI). **Not blocked purely
-   on a "go/no-go" decision anymore** — the plan is to keep iterating
-   (items 4-8) toward a viable parameter set first, then paper-validate that.
+5. ✅ **Richer per-session/multi-day level data — built + swept 2026-09-22,
+   still net-negative.** New opt-in params `use_session_levels` (adds
+   previous-day London-session + NY-overlap-session High/Low as extra
+   tradeable levels) and `prev_day_lookback_days` (widens PD High/Low from
+   1 to N prior days) — both default to the original behavior, no live
+   change. Swept 6 combos against the real 6-month sample: **every
+   combination still net-negative, and adding session levels made it
+   worse** (more trades, no better profit factor) — consistent with the
+   earlier per-level breakdown showing no individual line was profitable
+   either. **Fourth independent analysis to find no edge.** 4 new tests.
+   Full table in the strategy doc §3.
+6. ✅ **Finer `min_sl_pts`/`max_sl_pts` sweep — run 2026-09-22.** 42 + 49
+   combos (7-value `tp_pts` grid × 6 `min_sl_pts` / 7 `max_sl_pts` values)
+   against the real 6-month sample. **0/42 and 0/49 profitable** — best
+   profit factor across both: 0.353. **Fifth and sixth independent
+   analyses**, 91 more combinations, same conclusion.
+7. ✅ *(folded into item 6 above — `tp_pts` was swept jointly with both
+   `min_sl_pts` and `max_sl_pts`, not separately, since they're the same
+   R:R equation.)*
+8. ✅ **Confidence-scoring for entries — designed + built 2026-09-22,
+   informational only by design.** New opt-in `enable_confidence_score`
+   param; `_confidence_score()` in `strategies/gold_sweep_reversal.py`
+   computes a 0-100 score per entry from 3 features: SL width relative to
+   the min/max range (dominant weight — grounded directly in this
+   strategy's own real finding that SL width, not win rate, destroys its
+   R:R), reclaim speed (bars from sweep to reclaim), and recent-loss
+   streak (rolling `ctx.state["recent_outcomes"]`, capped at 20). Appended
+   to the entry's reasoning text when enabled, **explicitly never a hard
+   gate** — "a real decision on whether the score is a hard gate or just
+   extra context" was the open question from the backlog, and this
+   defaults to the lower-risk option since it hasn't been validated as
+   predictive on its own (that needs a real correlation study against
+   actual signal outcomes over time, which the Journal now has the data
+   for eventually, not yet enough of it). 5 new tests (score math + wiring
+   into the entry reason text, both on/off).
+9. ✅ **Paper trading, for real — decision superseded by the analysis
+   above.** Six independent analyses (2 SL/TP sweeps, session-window,
+   level-richness, 2 more SL/TP sweeps = 160+ combinations) all found no
+   profitable configuration for this exact mechanical rule on the real
+   6-month sample. Per Rakesh's own 2026-09-22 call ("keep going as
+   planned" through items 5-8), this queue is now exhausted — the
+   strategy-viability decision in `manual-tasks.md`'s 🔴 item is now a
+   fully-informed one, not a "haven't looked hard enough yet" one. Paper
+   trading itself is **not started** — same open decision as before,
+   now with complete information behind it rather than partial.
 10. ⬜ **Telegram as a full control surface**, expanded scope beyond the
     original taken/skipped buttons:
     - Interactive Take/Skip buttons (replacing the webpage-only flow)

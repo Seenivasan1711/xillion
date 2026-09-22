@@ -93,6 +93,14 @@ _LEVEL_ASIAN_HIGH = "Asian High"
 _LEVEL_ASIAN_LOW = "Asian Low"
 _LEVEL_PD_HIGH = "PD High"
 _LEVEL_PD_LOW = "PD Low"
+# Opt-in richer level set (params: use_session_levels, prev_day_lookback_days
+# -- both default to the original behavior, see params_schema), added
+# 2026-09-22 per Rakesh's queued analysis item #2: previous-day levels
+# broken out per named session, not just the whole day.
+_LEVEL_PD_LONDON_HIGH = "PD London High"
+_LEVEL_PD_LONDON_LOW = "PD London Low"
+_LEVEL_PD_NY_HIGH = "PD NY-overlap High"
+_LEVEL_PD_NY_LOW = "PD NY-overlap Low"
 
 # How far back _roll_day looks for real (already-traded) bars -- 700 M5
 # bars is ~58 hours of actual market time, comfortably covering a Monday's
@@ -113,6 +121,56 @@ def _news_veto_active(ctx: StrategyContext) -> bool:
 def _cooldown_active(ctx: StrategyContext, bar: Bar) -> bool:
     cooldown_until = ctx.state.get("cooldown_until")
     return bool(cooldown_until) and bar.ts.isoformat() < cooldown_until
+
+
+def _confidence_score(
+    sl_pts: float,
+    min_sl_pts: float,
+    max_sl_pts: float,
+    reclaim_bars: int,
+    sweep_lookback_bars: int,
+    recent_losses_in_a_row: int,
+) -> tuple[int, list[str]]:
+    """0-100 rule-based setup-confidence score -- informational only, never
+    a hard gate on whether an entry fires (see enable_confidence_score's
+    own doc: "a real decision on whether the score is a hard gate or just
+    extra context" was explicitly not made yet, so this defaults to the
+    lower-risk option). Grounded in this strategy's own real 6-month
+    backtest findings, 2026-09-22 (see docs/strategies/gold-xauusd-sweep-
+    reversal.md Section 3): realized SL width -- not win rate -- is what
+    actually destroys this strategy's R:R (assumed 2.5:1, realized
+    ~0.46:1), across every SL/TP/session-window/level-richness combination
+    tried. So SL quality dominates the score; reclaim speed and recent
+    streak are secondary, unvalidated-on-their-own signals included as a
+    starting point, not because they were independently proven predictive
+    -- that would need a proper labeled correlation study against real
+    signals, which hasn't been done. Revisit once enough real signals
+    exist to check this score against actual outcomes (the Journal already
+    tracks self-reported outcomes per signal -- see docs/status/
+    task-tracker.md's JEV item for the planned next step: an LLM proposing
+    refinements to this scoring, gated on Rakesh's approval, not doing it
+    unsupervised)."""
+    reasons: list[str] = []
+    score = 100.0
+
+    sl_range = max(max_sl_pts - min_sl_pts, 0.01)
+    sl_fraction = min(max((sl_pts - min_sl_pts) / sl_range, 0.0), 1.0)
+    score -= sl_fraction * 55  # dominant weight -- see docstring
+    reasons.append(
+        f"{'wide' if sl_fraction > 0.5 else 'tight'} stop ({sl_pts:.1f}pts, "
+        f"{sl_fraction * 100:.0f}% of the min-max range)"
+    )
+
+    reclaim_fraction = min(max(reclaim_bars / max(sweep_lookback_bars, 1), 0.0), 1.0)
+    score -= reclaim_fraction * 25
+    reasons.append(f"reclaimed in {reclaim_bars} bar(s)")
+
+    streak_penalty = min(recent_losses_in_a_row * 5, 20)
+    score -= streak_penalty
+    if recent_losses_in_a_row > 0:
+        reasons.append(f"{recent_losses_in_a_row} loss(es) in a row")
+
+    return max(0, min(100, round(score))), reasons
 
 
 class GoldSweepReversal(Strategy):
@@ -240,6 +298,63 @@ class GoldSweepReversal(Strategy):
                 "-- this is an optimizable lever, not a live behavior change."
             ),
         ),
+        ParamSpec(
+            "use_session_levels",
+            "bool",
+            default=False,
+            description=(
+                "Add the previous trading day's London-session and "
+                "NY-overlap-session high/low as extra tradeable levels, "
+                "alongside the existing Asian High/Low + whole-day PD "
+                "High/Low. Opt-in (default off, no live behavior change) "
+                "-- added 2026-09-22 to make Rakesh's 'richer level data' "
+                "analysis item sweepable rather than a one-off script."
+            ),
+        ),
+        ParamSpec(
+            "ny_start_utc_hour",
+            "float",
+            default=13.0,
+            min=0.0,
+            max=23.5,
+            description="NY-overlap session start, UTC hour, for use_session_levels",
+        ),
+        ParamSpec(
+            "ny_end_utc_hour",
+            "float",
+            default=17.0,
+            min=0.0,
+            max=24.0,
+            description="NY-overlap session end, UTC hour, for use_session_levels",
+        ),
+        ParamSpec(
+            "prev_day_lookback_days",
+            "int",
+            default=1,
+            min=1,
+            max=5,
+            description=(
+                "How many prior trading days' combined range PD High/PD Low "
+                "spans. 1 (default) matches the original card exactly -- "
+                "just yesterday's whole-day high/low. >1 widens it to the "
+                "highest-high/lowest-low across that many prior days."
+            ),
+        ),
+        ParamSpec(
+            "enable_confidence_score",
+            "bool",
+            default=False,
+            description=(
+                "Append a 0-100 rule-based setup-confidence score (and the "
+                "reasons behind it) to the entry's reasoning text. "
+                "Informational only -- never gates whether an entry fires, "
+                "by design (see _confidence_score's docstring). Opt-in "
+                "(default off, no live behavior change) -- added "
+                "2026-09-22 as a first cut at Rakesh's queued 'confidence "
+                "%' concept, grounded in this strategy's own finding that "
+                "SL width (not win rate) drives its real R:R."
+            ),
+        ),
     ]
 
     async def on_start(self, ctx: StrategyContext) -> None:
@@ -258,6 +373,10 @@ class GoldSweepReversal(Strategy):
         # A list, not a single slot, because alert mode can have more than
         # one unresolved entry at once (see the module docstring).
         ctx.state.setdefault("alert_positions", [])
+        # Rolling recent WIN/LOSS outcomes (both alert-virtual and real
+        # closes append here), used only by the opt-in confidence score's
+        # streak component -- see enable_confidence_score/_confidence_score.
+        ctx.state.setdefault("recent_outcomes", [])
         ctx.log("info", f"{self.name} started (mode={ctx.mode})", params=ctx.params)
 
     async def on_bar(self, bar: Bar, ctx: StrategyContext) -> None:
@@ -345,7 +464,8 @@ class GoldSweepReversal(Strategy):
 
             pending.pop(level_name, None)
             if can_fire:
-                await self._fire_entry(bar, ctx, level_name, kind, live["extreme"])
+                reclaim_bars = bar_index - live["bar_index"]
+                await self._fire_entry(bar, ctx, level_name, kind, live["extreme"], reclaim_bars)
                 break  # one trigger per bar -- matches the reference backtest's behaviour
 
     async def _roll_day(self, bar: Bar, ctx: StrategyContext, bar_date: str) -> None:
@@ -373,17 +493,33 @@ class GoldSweepReversal(Strategy):
             and p["asian_start_utc_hour"] <= _hour(b) < p["asian_end_utc_hour"]
         ]
 
-        # Previous trading day -- whole calendar day, walking back from
-        # yesterday until one with bars is found, so a Monday reaches back
-        # through the closed weekend to Friday instead of finding nothing.
-        prev_day_bars: list[Bar] = []
+        # Previous N trading days (N = prev_day_lookback_days, default 1) --
+        # whole calendar days, walking back from yesterday collecting
+        # trading days until N are found or the search budget runs out, so
+        # a Monday reaches back through a closed weekend to Friday instead
+        # of finding nothing. N=1 (default) is exactly the original
+        # behavior: just yesterday's whole-day bars.
+        prev_days_bars: list[Bar] = []
         probe = today - timedelta(days=1)
-        for _ in range(_PREV_DAY_SEARCH_DAYS):
+        days_found = 0
+        lookback_days = int(p["prev_day_lookback_days"])
+        for _ in range(_PREV_DAY_SEARCH_DAYS * max(lookback_days, 1)):
+            if days_found >= lookback_days:
+                break
             candidates = [b for b in history if b.ts.date() == probe]
             if candidates:
-                prev_day_bars = candidates
-                break
+                prev_days_bars.extend(candidates)
+                days_found += 1
             probe -= timedelta(days=1)
+        # Most recent single prior trading day only -- used for the optional
+        # session-level breakdown below, which is about *yesterday's*
+        # session structure specifically, not blended across N days the way
+        # PD High/Low above can be.
+        prev_single_day_bars = [
+            b
+            for b in prev_days_bars
+            if b.ts.date() == max((b.ts.date() for b in prev_days_bars), default=today)
+        ]
 
         levels: dict[str, dict] = {}
         if asian_bars:
@@ -395,27 +531,67 @@ class GoldSweepReversal(Strategy):
                 "price": float(min(b.low for b in asian_bars)),
                 "kind": "sup",
             }
-        if prev_day_bars:
+        if prev_days_bars:
             levels[_LEVEL_PD_HIGH] = {
-                "price": float(max(b.high for b in prev_day_bars)),
+                "price": float(max(b.high for b in prev_days_bars)),
                 "kind": "res",
             }
             levels[_LEVEL_PD_LOW] = {
-                "price": float(min(b.low for b in prev_day_bars)),
+                "price": float(min(b.low for b in prev_days_bars)),
                 "kind": "sup",
             }
+        if p["use_session_levels"] and prev_single_day_bars:
+            london_bars = [
+                b
+                for b in prev_single_day_bars
+                if p["session_start_utc_hour"] <= _hour(b) < p["session_end_utc_hour"]
+            ]
+            ny_bars = [
+                b
+                for b in prev_single_day_bars
+                if p["ny_start_utc_hour"] <= _hour(b) < p["ny_end_utc_hour"]
+            ]
+            if london_bars:
+                levels[_LEVEL_PD_LONDON_HIGH] = {
+                    "price": float(max(b.high for b in london_bars)),
+                    "kind": "res",
+                }
+                levels[_LEVEL_PD_LONDON_LOW] = {
+                    "price": float(min(b.low for b in london_bars)),
+                    "kind": "sup",
+                }
+            if ny_bars:
+                levels[_LEVEL_PD_NY_HIGH] = {
+                    "price": float(max(b.high for b in ny_bars)),
+                    "kind": "res",
+                }
+                levels[_LEVEL_PD_NY_LOW] = {
+                    "price": float(min(b.low for b in ny_bars)),
+                    "kind": "sup",
+                }
 
+        # Expected level count: the original 4 (Asian High/Low, PD High/Low)
+        # plus 4 more when use_session_levels is on (PD London/NY High/Low)
+        # -- not a hardcoded 4, since that undercounted "missing" once this
+        # became opt-in-extendable, 2026-09-22.
+        expected = 4 + (4 if p["use_session_levels"] else 0)
         ctx.state["levels"] = levels
         ctx.log(
             "info",
             "daily levels marked",
             date=bar_date,
             levels={k: v["price"] for k, v in levels.items()},
-            missing=4 - len(levels),
+            missing=expected - len(levels),
         )
 
     async def _fire_entry(
-        self, bar: Bar, ctx: StrategyContext, level_name: str, kind: str, extreme: float
+        self,
+        bar: Bar,
+        ctx: StrategyContext,
+        level_name: str,
+        kind: str,
+        extreme: float,
+        reclaim_bars: int,
     ) -> None:
         p = ctx.params
         entry = float(bar.close)
@@ -450,6 +626,22 @@ class GoldSweepReversal(Strategy):
             f"Fixed {p['lot_size']:.2f} lot. Never move the stop. No partials. "
             "No re-entry on this line today."
         )
+        if p["enable_confidence_score"]:
+            recent = ctx.state.get("recent_outcomes") or []
+            losses_in_a_row = 0
+            for outcome in reversed(recent):
+                if outcome != "LOSS":
+                    break
+                losses_in_a_row += 1
+            score, score_reasons = _confidence_score(
+                sl_pts,
+                p["min_sl_pts"],
+                p["max_sl_pts"],
+                reclaim_bars,
+                p["sweep_lookback_bars"],
+                losses_in_a_row,
+            )
+            reason += f"\nSetup confidence: {score}/100 ({'; '.join(score_reasons)}) -- informational only, does not gate this entry."
 
         if ctx.mode == "alert":
             # Notify-only, no order -- the live path this strategy has run
@@ -544,6 +736,9 @@ class GoldSweepReversal(Strategy):
         exit_price = float(order.avg_fill_price) if order.avg_fill_price else price
         pnl_pts = (exit_price - pos["entry"]) if side == "BUY" else (pos["entry"] - exit_price)
         outcome = "WIN" if hit_tp else "LOSS"
+        recent = ctx.state.setdefault("recent_outcomes", [])
+        recent.append(outcome)
+        ctx.state["recent_outcomes"] = recent[-20:]  # cap growth on a long-running instance
 
         ctx.state["open_position"] = None
         await ctx.notify(
@@ -591,6 +786,9 @@ class GoldSweepReversal(Strategy):
                 continue
 
             outcome = "WIN" if hit_tp else "LOSS"
+            recent = ctx.state.setdefault("recent_outcomes", [])
+            recent.append(outcome)
+            ctx.state["recent_outcomes"] = recent[-20:]
             pnl_pts = (price - pos["entry"]) if side == "BUY" else (pos["entry"] - price)
             exit_side = Side.SELL if side == "BUY" else Side.BUY
             await ctx.alert_exit(

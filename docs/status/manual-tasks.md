@@ -13,11 +13,14 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-22 (Session sprint kicked off — added MongoDB
-Atlas and Notion integration items below, both needed for later items in
-`task-tracker.md`'s SESSION SPRINT list. Older context: real 6-month
-backtest + two parameter sweeps both came back net-negative — see the 🔴
-item below. The alert instance itself is fine and needs nothing from
+**Last updated:** 2026-09-22 (Gold Sweep-Reversal's full analysis queue
+(session-window, richer-level-data, finer SL/TP sweeps, confidence
+scoring) ran to completion this session — 160+ combinations, zero
+profitable. The 🔴 decision item below is now fully-informed, not a
+"keep looking" placeholder. Also added MongoDB Atlas and Notion
+integration items below, both needed for later items in
+`task-tracker.md`'s SESSION SPRINT list. The alert instance itself is
+fine and needs nothing from
 Rakesh; that decision item is about whether/how to keep iterating on this
 strategy's parameters.)
 
@@ -48,22 +51,25 @@ strategy's parameters.)
       else in today's list depends on it, so it's fine for this to land
       after everything else. **Cost:** free.
 
-- [ ] **🔴 Gold Sweep-Reversal: decide how to proceed after two failed
-      parameter sweeps.** 2026-09-22: the first real 6-month backtest lost
-      $12,705.76 on a $5,000 account despite a 47.8% win rate (real R:R
-      ~0.46:1 vs. the card's assumed 2.5:1). A follow-up sweep testing
-      whether capping/widening the stop-loss would fix it also came back
-      net-negative on all 57 combinations tried. Full numbers:
-      `docs/strategies/gold-xauusd-sweep-reversal.md` §3. **Options, not
-      decided:** (a) push further into session-window/level-richness
-      analysis before giving up (already queued in
-      `deferred-backlog.md`), (b) treat this exact signal as likely dead
-      and think about what to try next, (c) something else entirely.
-      **Blocks:** any further work on this strategy's parameters, and
-      real paper trading (no real capital risk taken until this is
-      resolved either way). **Cost:** none — a decision, whenever you've
-      had time to think about it. Not urgent — the alert instance keeps
-      running and costs nothing while you decide.
+- [ ] **🔴 Gold Sweep-Reversal: decide how to proceed — the full analysis
+      queue is now exhausted, 2026-09-22.** Six independent analyses this
+      session (2 original SL/TP sweeps, session-window sweep,
+      richer-level-data sweep, 2 finer SL/TP sweeps) — **160+ backtest
+      combinations total, zero profitable** on the real 6-month sample.
+      First backtest: -$12,705.76 on a $5,000 account despite a 47.8% win
+      rate (real R:R ~0.46:1 vs. the card's assumed 2.5:1). Every
+      time-of-day window, every richer level set, and every finer SL/TP
+      grid point tried since is also net-negative. Full numbers:
+      `docs/strategies/gold-xauusd-sweep-reversal.md` §3. **This is no
+      longer "keep looking" — you asked to run the queue in full before
+      deciding, and it's now fully run.** Options: (a) treat this exact
+      mechanical rule as dead on this data and think about what to try
+      next (a different regime/symbol/window, or a genuinely different
+      signal idea), (b) something else entirely. **Blocks:** real paper
+      trading (no real capital risk taken until this is resolved either
+      way). **Cost:** none — a decision, whenever you've had time to think
+      about it. Not urgent — the alert instance keeps running and costs
+      nothing while you decide.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
