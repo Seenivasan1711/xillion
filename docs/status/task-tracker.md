@@ -6,24 +6,55 @@
 
 ---
 
-## 🔴 NEXT UP: Gold Sweep-Reversal — a real strategy-viability decision
+## 🔴 NEXT UP: Gold Sweep-Reversal — session-window + level-richness analysis
 
 **The alert engine (G1-G6) is fully live and running** — real Supabase,
 real Twelve Data feed, real instance, verified genuinely alive (daily
 levels marked for real on 2026-09-22). **Separately, the first real 6-month
 backtest (Stage 2) came back 2026-09-22, and it's a net loss** — see
 [docs/strategies/gold-xauusd-sweep-reversal.md](../strategies/gold-xauusd-sweep-reversal.md)
-§3 for the full numbers and root cause. Short version: 47.8% win rate
-(clears the card's own 45% "keep" bar) but **-$12,705.76 over 6 months on a
-$5,000 account** — the card's yield math assumed ~2.5:1 R:R (7.5pt TP vs. a
-"typical" 3.0pt SL); in reality the SL is almost always set by the swept
-level's actual wick extreme (avg loss 14.43 pts, not ~3), so real R:R is
-closer to 0.46:1. **This is a decision only Rakesh can make** (per the
-card's own keep/kill framework, §4) — options on the table, undecided:
-cap the SL at a fixed max, widen the TP to match real adverse excursion, or
-treat this parameter set as killed. The alert instance keeps running either
-way (it was always decoupled from whether this exact parameter set is
-fundable — alert-only, no capital at risk).
+§3 for the full numbers. 47.8% win rate (clears the card's own 45% "keep"
+bar) but **-$12,705.76 over 6 months on a $5,000 account** — real R:R
+(~0.46:1) is far worse than the card's assumed 2.5:1, because the SL is
+almost always set by the swept level's wick extreme, not the 3.0pt floor.
+
+**Updated same day: two parameter sweeps (30 + 27 combos, TP × min-SL-floor
+and TP × max-SL-cap) both came back net-negative on every single
+combination tested** — capping or widening the stop doesn't rescue it
+either (best found: -$12,672.71, barely better than baseline; profit
+factor never exceeded ~0.30). **This rules out SL/TP sizing as the fix in
+isolation.** New `max_sl_pts` param added to `strategies/gold_sweep_reversal.py`
+to make this sweepable (default 100.0 — no effect on live behavior unless
+lowered). Full sweep tables in the strategy doc §3.
+
+**Rakesh's prioritized next-analysis queue (2026-09-22), in order — see
+[docs/status/deferred-backlog.md](deferred-backlog.md)'s "Gold Sweep-Reversal
+— planned Stage 2 follow-up analysis" for full detail on each:**
+1. Sweep the trading session window itself (not just TP/SL) — the current
+   12:30-18:30 IST window is the card's own choice, untested against
+   alternatives on this data.
+2. Richer level context (per-session, not just Asian; multi-day, not just
+   1 prior day) to support that decision.
+3–4. Finer TP/SL sweeps, combined with #1 (they may interact).
+5. A confidence-scoring concept for entries (a real % score from setup
+   quality, used to gate firing and/or make the fixed `cooldown_minutes`
+   adaptive) — designed as a concept, not built yet.
+
+Explicitly deferred until 1-5 are settled: agent/workflow-driven signal
+generation ("JEV," Rakesh's own exploration) — logged in the backlog with
+a pointer to CP8's existing AI-confidence hook as a reusable starting
+point. **The alert instance keeps running regardless of any of this** — it
+was always decoupled from whether this exact parameter set is fundable
+(alert-only, no capital at risk).
+
+**Render deploy readiness, checked 2026-09-22:** infrastructure-ready —
+`render.yml`'s branch already correctly points at `feat/track-b-pipelines`,
+no new pip dependencies needed (Twelve Data/Finnhub both just use the
+already-core `httpx`). **One real gap found and fixed:**
+`TWELVE_DATA_API_KEY`/`FINNHUB_API_KEY` weren't declared in `render.yml` at
+all — added (same `sync: false` dashboard-secret pattern as Telegram).
+Paste both keys into the Render dashboard once, whenever Render is next
+turned on.
 
 **Everything below is code-complete and committed** on
 `feat/track-b-pipelines` (worktree: `.claude/worktrees/track-b-pipelines`)
@@ -76,7 +107,7 @@ and killed before any of today's restarts.
 
 ---
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
 **Current position:** **2026-09-21: Options work paused by Rakesh's explicit
 call — full focus shifts to Gold Lane B1.** Rakesh brought a specific XAUUSD
 scalping strategy ("Sweep-Reversal," a session-liquidity-sweep fade) with
@@ -1911,7 +1942,7 @@ Each asset runs the same 6 stages — see
 | Asset | S1 Build | S2 Backtest | S3 Paper | S4 Live | S5 Auto | S6 Docs |
 |---|---|---|---|---|---|---|
 | **Options — credit spread** (Nifty/Sensex weekly) · Zerodha+Dhan | ✅ `strategies/credit_spread_weekly.py` | ✅ real backtest (open+close, real trade) | ⬜ | ⬜ blocked on real-broker bracket/GTT (CP11 gap) | ⬜ | 🟡 Stage 1 documented |
-| **Gold — Lane B1** (XAUUSD, Sweep-Reversal) · alert engine built 2026-09-21, decoupled from Funding Pips MT5 | ✅ `strategies/gold_sweep_reversal.py`, tested against a fake context | ⬜ not run in this repo (external MT5/TradingView validation not done either) | 🟡 alert pipeline code-complete (data feed, signal logic, Telegram reasoning, take/skip + outcome tracking, weekly digest) — **not yet run against live data**, needs `TWELVE_DATA_API_KEY` | ⬜ N/A — alert-only, no execution planned yet | ⬜ | 🟡 `docs/strategies/gold-xauusd-sweep-reversal.md` |
+| **Gold — Lane B1** (XAUUSD, Sweep-Reversal) · alert engine live 2026-09-22, decoupled from Funding Pips MT5 | ✅ `strategies/gold_sweep_reversal.py`, alert+paper+backtest modes, tested | 🔴 **Run for real 2026-09-22 — net loss.** 201 trades/6mo, 47.8% win rate, -$12,705.76. Two parameter sweeps (57 combos total) also net-negative — see strategy doc §3. **Strategy-viability decision pending**, not an engineering gap | ✅ alert pipeline live and verified (real `daily levels marked`, real ticks) — **paper trading (real simulated fills) not started**, blocked on the viability decision above | ⬜ N/A — alert-only, no execution planned yet | ⬜ | ✅ `docs/strategies/gold-xauusd-sweep-reversal.md`, fully current |
 | **Gold — Lane B2** (MCX futures/options) · Zerodha/Dhan | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stock options** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
 | **Stocks** · Zerodha | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
@@ -2218,6 +2249,7 @@ from the Mac.
 | ~~13~~ | ~~Finnhub free API key (news/econ-calendar ritual check)~~ | ~~Gold Sweep-Reversal news-check ritual only~~ | ✅ **Resolved 2026-09-21** — in `.env`, verified live. Wiring it into `_news_veto_active()` (still a stub) is separate follow-up work, not blocked on Rakesh |
 | ~~14~~ | ~~Confirm before running: apply migration 020 to the real Supabase DB~~ | ~~Taken/skipped/outcome columns existing on the real DB~~ | ✅ **Resolved 2026-09-21** — applied, verified via `information_schema` |
 | ~~15~~ | ~~Supabase project paused/gone — hostname returned NXDOMAIN~~ | ~~Everything~~ | ✅ **Resolved 2026-09-21** — Rakesh resumed it from the dashboard |
+| 16 | 🔴 Decide how to proceed on Gold Sweep-Reversal after two failed parameter sweeps (net loss on real 6mo backtest, SL cap/floor sweeps both net-negative) | Further parameter work, real paper trading | Open — see `manual-tasks.md`, not urgent |
 
 ---
 

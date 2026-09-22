@@ -13,15 +13,31 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-21 (Gold Sweep-Reversal instance created,
-started, and confirmed genuinely alive end-to-end — a real bug that was
-silently dropping every bar got found and fixed along the way. Missed
-today's trading window by the time the fix landed; correctly primed for
-tomorrow's. Nothing open for Rakesh on Gold right now.)
+**Last updated:** 2026-09-22 (Real 6-month backtest + two parameter sweeps
+both came back net-negative — see the 🔴 item below. The alert instance
+itself is fine and needs nothing from Rakesh; the decision item is about
+whether/how to keep iterating on this strategy's parameters.)
 
 ---
 
 ## Open
+
+- [ ] **🔴 Gold Sweep-Reversal: decide how to proceed after two failed
+      parameter sweeps.** 2026-09-22: the first real 6-month backtest lost
+      $12,705.76 on a $5,000 account despite a 47.8% win rate (real R:R
+      ~0.46:1 vs. the card's assumed 2.5:1). A follow-up sweep testing
+      whether capping/widening the stop-loss would fix it also came back
+      net-negative on all 57 combinations tried. Full numbers:
+      `docs/strategies/gold-xauusd-sweep-reversal.md` §3. **Options, not
+      decided:** (a) push further into session-window/level-richness
+      analysis before giving up (already queued in
+      `deferred-backlog.md`), (b) treat this exact signal as likely dead
+      and think about what to try next, (c) something else entirely.
+      **Blocks:** any further work on this strategy's parameters, and
+      real paper trading (no real capital risk taken until this is
+      resolved either way). **Cost:** none — a decision, whenever you've
+      had time to think about it. Not urgent — the alert instance keeps
+      running and costs nothing while you decide.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
