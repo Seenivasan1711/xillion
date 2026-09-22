@@ -68,6 +68,62 @@ full writeup:
   mechanism was needed, just extending the one channel that already
   exists to carry historical requests too.
 
+## Gold Sweep-Reversal — planned Stage 2 follow-up analysis (2026-09-22)
+
+Not deferred-forever, this is the actual next-up queue for this
+strategy specifically, in priority order Rakesh set 2026-09-22 after
+seeing the first real backtest + parameter sweep both come back
+net-negative (see `docs/strategies/gold-xauusd-sweep-reversal.md` §3):
+
+1. **Session-window sweep** — test `session_start_utc_hour`/
+   `session_end_utc_hour` combinations (not just London 07:00-13:00 UTC)
+   against the same 6-month sample, to find which time-of-day window (if
+   any) actually has an edge, rather than assuming the card's own window
+   is the right one for this specific signal.
+2. **Richer level data for the decision** — the current daily levels are
+   only Asian session + previous-day high/low. Before deciding whether to
+   change the session window (item 1), it'd help to have high/low broken
+   out per named session (Asian/London/NY, not just "Asian" + "previous
+   day as a whole") and over more than just 1 prior day (e.g. last 3-5
+   days), as supporting context for whichever decision comes out of the
+   sweeps above — not necessarily new tradeable levels, but visibility.
+3. **`min_sl_pts`/`max_sl_pts` further optimization** — the two sweeps run
+   2026-09-22 (30 + 27 combos) didn't find a profitable combination, but
+   only covered a fairly coarse grid; a finer sweep (and combined with
+   item 1's session-window changes, since the two may interact) is
+   reasonable before concluding the parameter family is dead.
+4. **`tp_pts` further optimization** — same as above, same reasoning
+   (coarse grid so far, worth a finer/combined sweep before concluding).
+5. **Confidence scoring for entries** — a "how confident is this specific
+   setup" score (a %, not just a binary sweep/reclaim yes-or-no), used to
+   gate which signals actually fire and/or to make the post-entry cooldown
+   itself dynamic (a high-confidence setup might not need as long a
+   cooldown before the next one is allowed; a low-confidence one might
+   need longer, or should be skipped/flagged rather than auto-fired at
+   all). Not designed yet -- needs a real feature set (e.g. how far past
+   the level did price sweep, how quickly it reclaimed, recent win/loss
+   streak, time-of-day, spread if ever available) and a real decision on
+   whether the score is a hard gate or just extra context shown in the
+   Telegram/reasoning text. This is what makes cooldown "optimizable"
+   rather than the current fixed `cooldown_minutes`.
+
+## Advanced / next-level (explicitly deferred until the above is settled)
+
+**Agent/workflow-driven signal generation ("JEV").** Rakesh is exploring
+having signal generation itself go through an agent/workflow pipeline
+(multiple steps/checks, not a single mechanical rule function) rather than
+today's direct on_bar logic -- his own framing, 2026-09-22. **Explicitly
+deferred by his own call** until the current code-level strategy (backtest
+economics, session/level analysis, confidence scoring above) is "perfected"
+first -- there's no value building an agent pipeline around a signal
+function whose own edge hasn't been established yet. Revisit once items
+1-5 above are resolved and Gold Sweep-Reversal has a real, decided-on
+parameter set. Related, already-built precedent to reuse rather than
+reinvent: CP8's AI-confidence hook (`prosper-engine`, cross-repo, see
+CLAUDE.md) already wires an LLM into the signal path as a background,
+non-blocking check -- worth revisiting as a starting point rather than a
+from-scratch design.
+
 ## Crypto specifics
 
 | Item | Why deferred | Revisit when |
