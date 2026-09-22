@@ -141,15 +141,44 @@ simplification") would not have flipped this to profitable on its own.
 
 **Per the card's own keep/kill framework (§4), this needs a real decision,
 not an automatic "run it live" just because win rate cleared 45%** — the
-framework's threshold assumed the R:R held, and it doesn't. Options,
-undecided as of this writing: (a) cap the SL at a fixed maximum regardless
-of wick extreme (changes the mechanical rule as written — a real strategy
-change, not a bug fix), (b) widen the TP to better match the real average
-adverse excursion (`mfe_pts`-style analysis, per the reference script's own
-"should I raise my TP" column), (c) treat this parameter set as killed and
-either drop a line (per §4's "one allowed simplification") or stop here.
-**Not decided in this session — a strategy-viability call, not
-engineering.**
+framework's threshold assumed the R:R held, and it doesn't.
+
+### Parameter sweep, 2026-09-22 — the SL floor/cap isn't the fix either
+
+Two grid searches against the same 6-month sample, via `grid_search()`
+(`xillion/engine/optimization.py`):
+
+1. **`tp_pts` × `min_sl_pts`** (6 × 5 = 30 combos, `min_sl_pts` from 3-15pt):
+   every single combination came back net-negative. The original params
+   (7.5 / 3.0) were actually the **least bad** of all 30 — every wider
+   `min_sl_pts` made things worse, not better.
+2. **`tp_pts` × `max_sl_pts`** (3 × 9 = 27 combos, a new **hard cap**
+   regardless of the wick extreme — see `max_sl_pts` in `params_schema`,
+   added specifically to test this): still every combination net-negative.
+   Best found: -$12,672.71 (`tp_pts=7.5, max_sl_pts=10.0`) — barely better
+   than the -$12,705.76 baseline. Profit factor never rose above ~0.30
+   regardless of how tightly the stop was capped: a tighter cap trades
+   fewer/smaller losses for a lower win rate (more stop-outs), and those
+   roughly cancel out.
+
+**Conclusion: within this parameter space, no TP/SL combination makes this
+edge profitable on this real 6-month window.** That points at the "fade
+the sweep" signal itself, not just its risk sizing, being the issue for
+this specific period — capping or widening the stop doesn't rescue it.
+Options, undecided as of this writing: (a) accept this parameter *family*
+doesn't have an edge here and treat it as killed — the card's own §4 rule
+("<38%: not your edge... do NOT patch with a 5th rule") arguably applies
+in spirit even though win rate itself was above 38%, since R:R is what's
+actually broken; (b) test whether a materially different regime (a
+different symbol, a longer/different historical window, or a genuinely
+different TP model — e.g. targeting the sweep's own retracement distance
+rather than a fixed 7.5pt) changes the picture, which is new analysis, not
+a parameter tweak; (c) drop to Asian-only or PD-only lines (§4's "one
+allowed simplification") and re-test — per-level stats above show none of
+the four lines were profitable individually either, so this is unlikely to
+flip the sign, but hasn't been directly re-tested with level-dropping
+combined with the sweeps above. **Not decided in this session — a
+strategy-viability call, not engineering.**
 
 - **Data source + timeframe:** `data_providers/twelve_data_history.py`
   (Stage 1, this repo's own `HistoricalDataProvider`), real M5 XAUUSD,
