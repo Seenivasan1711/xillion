@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, RefreshCw, Search } from 'lucide-react'
 import { api, MatchedTrade } from '../lib/api'
 import { wsClient } from '../lib/ws'
-import { Badge, SegmentedControl, fmtINR, fmtTime, Skeleton, SkeletonRows } from '../components/ui'
+import { Badge, SegmentedControl, fmtMoney, currencyFor, fmtTime, Skeleton, SkeletonRows } from '../components/ui'
 
 export default function Trades() {
   const [trades, setTrades] = useState<MatchedTrade[]>([])
@@ -56,10 +56,22 @@ export default function Trades() {
     return true
   })
 
-  const totalPnl = filtered.reduce((s, t) => s + t.pnl, 0)
   const wins = filtered.filter(t => t.pnl > 0).length
   const winRate = filtered.length > 0 ? Math.round((wins / filtered.length) * 100) : 0
-  const avgPnl = filtered.length > 0 ? totalPnl / filtered.length : 0
+
+  // P&L is grouped by currency, never summed across them -- once Gold
+  // ($) trades exist alongside NIFTY/options (₹) ones, a single "Total
+  // P&L" number would silently add dollars and rupees together and mean
+  // nothing. Found 2026-09-22 while fixing the same hardcoded-₹ bug class
+  // in Alerts.tsx/Strategies.tsx/Backtest.tsx this session.
+  const pnlByCurrency = new Map<'₹' | '$', { total: number; count: number }>()
+  for (const t of filtered) {
+    const ccy = currencyFor([t.symbol])
+    const bucket = pnlByCurrency.get(ccy) ?? { total: 0, count: 0 }
+    bucket.total += t.pnl
+    bucket.count += 1
+    pnlByCurrency.set(ccy, bucket)
+  }
 
   const exportCsv = () => {
     const header = 'Exit Time,Strategy,Symbol,Direction,Qty,Entry Price,Exit Price,P&L,Mode'
@@ -110,11 +122,31 @@ export default function Trades() {
           </div>
           <div className="card card-pad">
             <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Total P&L</div>
-            <div className={`hero-num sm ${totalPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(totalPnl, { signed: true })}</div>
+            {pnlByCurrency.size === 0 ? (
+              <div className="hero-num sm">—</div>
+            ) : (
+              <div className="stack" style={{ gap: 2 }}>
+                {Array.from(pnlByCurrency.entries()).map(([ccy, b]) => (
+                  <div key={ccy} className={`hero-num sm ${b.total >= 0 ? 'pos' : 'neg'}`}>
+                    {fmtMoney(b.total, ccy, { signed: true })}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="card card-pad">
             <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Avg P&L / trade</div>
-            <div className={`hero-num sm ${avgPnl >= 0 ? 'pos' : 'neg'}`}>{fmtINR(avgPnl, { signed: true })}</div>
+            {pnlByCurrency.size === 0 ? (
+              <div className="hero-num sm">—</div>
+            ) : (
+              <div className="stack" style={{ gap: 2 }}>
+                {Array.from(pnlByCurrency.entries()).map(([ccy, b]) => (
+                  <div key={ccy} className={`hero-num sm ${b.total >= 0 ? 'pos' : 'neg'}`}>
+                    {fmtMoney(b.total / b.count, ccy, { signed: true })}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="card card-pad">
             <div className="faint" style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 6 }}>Win rate</div>
@@ -193,10 +225,10 @@ export default function Trades() {
                     </span>
                   </td>
                   <td className="num mono-num">{t.quantity}</td>
-                  <td className="num mono-num">₹{t.entry_price.toFixed(2)}</td>
-                  <td className="num mono-num">₹{t.exit_price.toFixed(2)}</td>
+                  <td className="num mono-num">{fmtMoney(t.entry_price, currencyFor([t.symbol]))}</td>
+                  <td className="num mono-num">{fmtMoney(t.exit_price, currencyFor([t.symbol]))}</td>
                   <td className={`num mono-num ${t.pnl >= 0 ? 'pos' : 'neg'}`}>
-                    {fmtINR(t.pnl, { signed: true })}
+                    {fmtMoney(t.pnl, currencyFor([t.symbol]), { signed: true })}
                   </td>
                   <td><Badge tone={t.mode === 'live' ? 'pos' : undefined}>{t.mode}</Badge></td>
                 </tr>

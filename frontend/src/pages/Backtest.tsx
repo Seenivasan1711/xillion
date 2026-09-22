@@ -4,7 +4,7 @@ import {
   api, type BacktestResponse, type BacktestTrade, type BacktestRunSummary, type BacktestRunDetail,
   type StrategyClass, type DataProviderClass, type ConditionRow, type GridResultEntry, type WalkForwardResponse,
 } from '../lib/api'
-import { Sparkline, Badge, SegmentedControl, fmtINR } from '../components/ui'
+import { Sparkline, EquityCompareChart, Badge, SegmentedControl, fmtMoney, currencyFor } from '../components/ui'
 import { ConditionListEditor } from '../components/ConditionBuilder'
 
 function isoDaysAgo(days: number): string {
@@ -57,6 +57,38 @@ export default function Backtest() {
   const [gridResults, setGridResults] = useState<GridResultEntry[] | null>(null)
   const [walkForwardResult, setWalkForwardResult] = useState<WalkForwardResponse | null>(null)
 
+  // Run comparison (added 2026-09-22): pick exactly 2 past runs to see
+  // their params/metrics/equity curves side by side -- e.g. before/after a
+  // strategy rule change, so the actual tradeoff is visible rather than
+  // just remembered.
+  const [compareIds, setCompareIds] = useState<string[]>([])
+  const [compareDetails, setCompareDetails] = useState<Record<string, BacktestRunDetail>>({})
+  const [compareLoading, setCompareLoading] = useState(false)
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id)
+      if (prev.length >= 2) return [prev[1], id] // keep it to 2: drop the older pick
+      return [...prev, id]
+    })
+  }
+
+  useEffect(() => {
+    const missing = compareIds.filter(id => !compareDetails[id])
+    if (missing.length === 0) return
+    setCompareLoading(true)
+    Promise.all(missing.map(id => api.backtest.runDetail(id)))
+      .then(details => {
+        setCompareDetails(prev => {
+          const next = { ...prev }
+          details.forEach(d => { next[d.id] = d })
+          return next
+        })
+      })
+      .catch(() => {})
+      .finally(() => setCompareLoading(false))
+  }, [compareIds]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadRuns = () => {
     setRunsLoading(true)
     api.backtest.runs(20).then(r => setRuns(r.runs)).catch(() => {}).finally(() => setRunsLoading(false))
@@ -66,6 +98,14 @@ export default function Backtest() {
     setSelectedRun(null)
     api.backtest.runDetail(id).then(setSelectedRun).catch(() => {})
   }
+
+  // Currency for the freshly-run "Results" panel below -- BacktestResponse's
+  // inline trades carry no symbol (see BacktestTrade), so this is derived
+  // from the currently-selected strategy's own declared instruments rather
+  // than the run itself. Persisted runs (history list / selectedRun /
+  // compare) use their own real `instruments` field instead, which is more
+  // accurate since a past run's strategy selection may since have changed.
+  const currentCurrency = currencyFor(strategies.find(s => s.name === selectedStrategy)?.instruments)
 
   useEffect(() => {
     loadRuns()
@@ -541,14 +581,14 @@ export default function Backtest() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
                   {[
                     ['Total return', `${result.metrics.total_return_pct?.toFixed(1) ?? 0}%`, (result.metrics.total_return_pct ?? 0) >= 0 ? 'pos' : 'neg'],
-                    ['Total P&L', fmtINR(result.metrics.total_pnl ?? 0, { signed: true }), (result.metrics.total_pnl ?? 0) >= 0 ? 'pos' : 'neg'],
+                    ['Total P&L', fmtMoney(result.metrics.total_pnl ?? 0, currentCurrency, { signed: true }), (result.metrics.total_pnl ?? 0) >= 0 ? 'pos' : 'neg'],
                     ['Sharpe', String(result.metrics.sharpe_ratio?.toFixed(2) ?? '—'), null],
                     ['Sortino', String(result.metrics.sortino_ratio?.toFixed(2) ?? '—'), null],
                     ['Max DD', `${result.metrics.max_drawdown_pct?.toFixed(1) ?? 0}%`, 'neg'],
                     ['Win rate', `${result.metrics.win_rate_pct?.toFixed(0) ?? 0}%`, null],
                     ['Trades', String(result.trade_count), null],
                     ['Profit factor', String(result.metrics.profit_factor?.toFixed(2) ?? '∞'), null],
-                    ['Expectancy', fmtINR(result.metrics.expectancy ?? 0), null],
+                    ['Expectancy', fmtMoney(result.metrics.expectancy ?? 0, currentCurrency), null],
                     ['Avg holding', result.metrics.avg_holding_bars != null ? `${result.metrics.avg_holding_bars.toFixed(1)} bars` : '—', null],
                   ].map(([l, v, t]) => (
                     <div key={l as string} style={{
@@ -603,11 +643,11 @@ export default function Backtest() {
                               {t.side}
                             </span>
                           </td>
-                          <td className="num mono-num">₹{t.entry_price.toFixed(2)}</td>
-                          <td className="num mono-num">₹{t.exit_price.toFixed(2)}</td>
+                          <td className="num mono-num">{fmtMoney(t.entry_price, currentCurrency)}</td>
+                          <td className="num mono-num">{fmtMoney(t.exit_price, currentCurrency)}</td>
                           <td className="num mono-num">{t.bars_held}</td>
                           <td className={`num mono-num ${t.pnl >= 0 ? 'pos' : 'neg'}`}>
-                            {fmtINR(t.pnl, { signed: true })}
+                            {fmtMoney(t.pnl, currentCurrency, { signed: true })}
                           </td>
                         </tr>
                       ))}
@@ -624,7 +664,14 @@ export default function Backtest() {
               <span className="title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <History size={13} /> Run history
               </span>
-              {runsLoading && <span className="faint" style={{ fontSize: 11 }}>Loading…</span>}
+              <span className="row" style={{ gap: 10 }}>
+                {compareIds.length > 0 && (
+                  <span className="faint" style={{ fontSize: 10.5 }}>
+                    {compareIds.length === 2 ? 'comparing 2 runs — see below' : `${compareIds.length}/2 selected for compare`}
+                  </span>
+                )}
+                {runsLoading && <span className="faint" style={{ fontSize: 11 }}>Loading…</span>}
+              </span>
             </div>
             {runs.length === 0 && !runsLoading && (
               <div className="card-pad faint" style={{ fontSize: 11.5 }}>No past runs yet.</div>
@@ -633,25 +680,41 @@ export default function Backtest() {
               <table className="tbl">
                 <thead>
                   <tr>
+                    <th style={{ width: 26 }} title="Select 2 runs to compare"></th>
                     <th>Started</th><th>Timeframe</th><th>Range</th><th className="num">Return</th>
                     <th className="num">Sharpe</th><th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {runs.map(r => (
-                    <tr key={r.id} onClick={() => openRun(r.id)} style={{ cursor: 'pointer' }}>
-                      <td className="faint mono-num" style={{ fontSize: 10.5 }}>
+                    <tr key={r.id} style={{ cursor: 'pointer' }}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={compareIds.includes(r.id)}
+                          onChange={() => toggleCompare(r.id)}
+                          title="Select for comparison"
+                        />
+                      </td>
+                      <td className="faint mono-num" style={{ fontSize: 10.5 }} onClick={() => openRun(r.id)}>
                         {new Date(r.started_at).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ fontSize: 11 }}>{r.timeframe}</td>
-                      <td className="faint mono-num" style={{ fontSize: 10.5 }}>
+                      <td style={{ fontSize: 11 }} onClick={() => openRun(r.id)}>{r.timeframe}</td>
+                      <td className="faint mono-num" style={{ fontSize: 10.5 }} onClick={() => openRun(r.id)}>
                         {new Date(r.from_ts).toLocaleDateString('en-IN')} → {new Date(r.to_ts).toLocaleDateString('en-IN')}
                       </td>
-                      <td className={`num mono-num ${(r.metrics.total_return_pct ?? 0) >= 0 ? 'pos' : 'neg'}`}>
+                      <td
+                        className={`num mono-num ${(r.metrics.total_return_pct ?? 0) >= 0 ? 'pos' : 'neg'}`}
+                        onClick={() => openRun(r.id)}
+                      >
                         {r.metrics.total_return_pct != null ? `${r.metrics.total_return_pct.toFixed(1)}%` : '—'}
                       </td>
-                      <td className="num mono-num">{r.metrics.sharpe_ratio != null ? r.metrics.sharpe_ratio.toFixed(2) : '—'}</td>
-                      <td><Badge tone={r.status === 'done' ? 'pos' : r.status === 'failed' ? 'neg' : 'warn'}>{r.status}</Badge></td>
+                      <td className="num mono-num" onClick={() => openRun(r.id)}>
+                        {r.metrics.sharpe_ratio != null ? r.metrics.sharpe_ratio.toFixed(2) : '—'}
+                      </td>
+                      <td onClick={() => openRun(r.id)}>
+                        <Badge tone={r.status === 'done' ? 'pos' : r.status === 'failed' ? 'neg' : 'warn'}>{r.status}</Badge>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -672,10 +735,12 @@ export default function Backtest() {
                         <tr key={i}>
                           <td style={{ fontSize: 11 }}>{t.symbol}</td>
                           <td style={{ fontSize: 11 }}>{t.side}</td>
-                          <td className="num mono-num">₹{t.entry_price.toFixed(2)}</td>
-                          <td className="num mono-num">{t.exit_price != null ? `₹${t.exit_price.toFixed(2)}` : '—'}</td>
+                          <td className="num mono-num">{fmtMoney(t.entry_price, currencyFor(selectedRun.instruments))}</td>
+                          <td className="num mono-num">
+                            {t.exit_price != null ? fmtMoney(t.exit_price, currencyFor(selectedRun.instruments)) : '—'}
+                          </td>
                           <td className={`num mono-num ${(t.pnl ?? 0) >= 0 ? 'pos' : 'neg'}`}>
-                            {t.pnl != null ? fmtINR(t.pnl, { signed: true }) : '—'}
+                            {t.pnl != null ? fmtMoney(t.pnl, currencyFor(selectedRun.instruments), { signed: true }) : '—'}
                           </td>
                         </tr>
                       ))}
@@ -685,8 +750,144 @@ export default function Backtest() {
               </div>
             )}
           </div>
+
+          {/* Run comparison (2026-09-22) — side by side params + metrics +
+              overlaid equity curves for exactly 2 selected runs, so a rule
+              change's actual tradeoff is visible rather than remembered. */}
+          {compareIds.length === 2 && (
+            <RunComparisonPanel
+              idA={compareIds[0]}
+              idB={compareIds[1]}
+              detailA={compareDetails[compareIds[0]]}
+              detailB={compareDetails[compareIds[1]]}
+              loading={compareLoading}
+              onClear={() => setCompareIds([])}
+            />
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Run comparison panel (2026-09-22) ──────────────────────────────────────
+
+const COMPARE_METRICS: { key: string; label: string; fmt: (v: number, ccy: '₹' | '$') => string; higherIsBetter: boolean }[] = [
+  { key: 'total_return_pct', label: 'Total return', fmt: v => `${v.toFixed(1)}%`, higherIsBetter: true },
+  { key: 'total_pnl', label: 'Total P&L', fmt: (v, ccy) => fmtMoney(v, ccy, { signed: true }), higherIsBetter: true },
+  { key: 'sharpe_ratio', label: 'Sharpe', fmt: v => v.toFixed(2), higherIsBetter: true },
+  { key: 'sortino_ratio', label: 'Sortino', fmt: v => v.toFixed(2), higherIsBetter: true },
+  { key: 'max_drawdown_pct', label: 'Max DD', fmt: v => `${v.toFixed(1)}%`, higherIsBetter: false },
+  { key: 'win_rate_pct', label: 'Win rate', fmt: v => `${v.toFixed(0)}%`, higherIsBetter: true },
+  { key: 'profit_factor', label: 'Profit factor', fmt: v => v.toFixed(2), higherIsBetter: true },
+  { key: 'expectancy', label: 'Expectancy', fmt: (v, ccy) => fmtMoney(v, ccy), higherIsBetter: true },
+]
+
+function RunComparisonPanel({
+  idA, idB, detailA, detailB, loading, onClear,
+}: {
+  idA: string
+  idB: string
+  detailA?: BacktestRunDetail
+  detailB?: BacktestRunDetail
+  loading: boolean
+  onClear: () => void
+}) {
+  return (
+    <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card-head">
+        <span className="title">Compare runs</span>
+        <button className="btn ghost sm" onClick={onClear}>Clear selection</button>
+      </div>
+
+      {loading && !(detailA && detailB) && (
+        <div className="card-pad faint" style={{ fontSize: 11.5 }}>Loading both runs…</div>
+      )}
+
+      {detailA && detailB && (
+        <div className="card-pad stack" style={{ gap: 16 }}>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <div>
+              <div className="faint" style={{ fontSize: 10.5 }}>RUN A — {idA.slice(0, 8)}</div>
+              <div style={{ fontSize: 12 }}>{new Date(detailA.started_at).toLocaleString('en-IN')}</div>
+            </div>
+            <div>
+              <div className="faint" style={{ fontSize: 10.5 }}>RUN B — {idB.slice(0, 8)}</div>
+              <div style={{ fontSize: 12 }}>{new Date(detailB.started_at).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+
+          <EquityCompareChart
+            series={[
+              { label: `A · ${idA.slice(0, 8)}`, data: detailA.equity_curve, color: '#4f8cff' },
+              { label: `B · ${idB.slice(0, 8)}`, data: detailB.equity_curve, color: '#f5a623' },
+            ]}
+          />
+
+          <div>
+            <div className="title" style={{ fontSize: 12, marginBottom: 8 }}>Metrics</div>
+            <table className="tbl">
+              <thead>
+                <tr><th>Metric</th><th className="num">A</th><th className="num">B</th><th className="num">Δ (B − A)</th></tr>
+              </thead>
+              <tbody>
+                {COMPARE_METRICS.map(m => {
+                  const a = detailA.metrics[m.key]
+                  const b = detailB.metrics[m.key]
+                  const ccyA = currencyFor(detailA.instruments)
+                  const ccyB = currencyFor(detailB.instruments)
+                  const delta = a != null && b != null ? b - a : null
+                  const improved = delta != null && (m.higherIsBetter ? delta > 0 : delta < 0)
+                  const worsened = delta != null && (m.higherIsBetter ? delta < 0 : delta > 0)
+                  return (
+                    <tr key={m.key}>
+                      <td style={{ fontSize: 11.5 }}>{m.label}</td>
+                      <td className="num mono-num">{a != null ? m.fmt(a, ccyA) : '—'}</td>
+                      <td className="num mono-num">{b != null ? m.fmt(b, ccyB) : '—'}</td>
+                      <td className={`num mono-num ${improved ? 'pos' : worsened ? 'neg' : ''}`}>
+                        {delta != null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+                <tr>
+                  <td style={{ fontSize: 11.5 }}>Trades</td>
+                  <td className="num mono-num">{detailA.trades.length}</td>
+                  <td className="num mono-num">{detailB.trades.length}</td>
+                  <td className="num mono-num">{detailB.trades.length - detailA.trades.length >= 0 ? '+' : ''}{detailB.trades.length - detailA.trades.length}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <div className="title" style={{ fontSize: 12, marginBottom: 8 }}>
+              Params — what changed between the two runs
+            </div>
+            <table className="tbl">
+              <thead>
+                <tr><th>Param</th><th className="num">A</th><th className="num">B</th></tr>
+              </thead>
+              <tbody>
+                {Array.from(new Set([...Object.keys(detailA.params), ...Object.keys(detailB.params)]))
+                  .sort()
+                  .map(key => {
+                    const a = detailA.params[key]
+                    const b = detailB.params[key]
+                    const changed = JSON.stringify(a) !== JSON.stringify(b)
+                    return (
+                      <tr key={key} style={changed ? { background: 'var(--bg-hover, rgba(255,255,255,0.03))' } : undefined}>
+                        <td style={{ fontSize: 11.5, fontWeight: changed ? 600 : 400 }}>{key}</td>
+                        <td className="num mono-num">{a === undefined ? '—' : String(a)}</td>
+                        <td className={`num mono-num ${changed ? 'accent' : ''}`}>{b === undefined ? '—' : String(b)}</td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

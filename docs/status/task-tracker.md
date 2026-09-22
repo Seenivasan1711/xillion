@@ -48,15 +48,50 @@ session, per this repo's update protocol.
    in a logged-in browser session** (same caveat as every other
    Configuration-panel UI change this session) — structurally verified,
    not proven in the browser.
-2. ⬜ **Backtest results UI + comparison dashboard** — after a backtest run:
-   a results view (trades, outcomes, overall stats), and a way to compare
-   two runs side by side (e.g. before/after a rule change) so a parameter or
-   rule change's actual tradeoff is visible, not just remembered from a
-   chat log. Graphical/dashboard view, not just a table. **End goal this
-   unlocks:** finalize one setup, then flip it live-enabled from the UI so
-   alerts start firing for it — see item 12 below (strategy enable/off).
-3. ⬜ **Paper trading results UI** — same idea as #2 but for paper-mode runs
-   once they exist.
+2. ✅ **Backtest results UI + comparison dashboard — built 2026-09-22.**
+   Per-run results/history already existed (CP3) — what was missing was the
+   side-by-side comparison. Added:
+   - Checkbox column in the Run History table — pick exactly 2 runs to
+     compare.
+   - New `RunComparisonPanel` (`frontend/src/pages/Backtest.tsx`): params
+     table (union of both runs' keys, differing rows bolded/highlighted —
+     literally "what tradeoff we changed"), metrics table (return, P&L,
+     Sharpe, Sortino, max DD, win rate, profit factor, expectancy, trade
+     count) with a **Δ (B − A)** column colored green/red by whether that
+     metric actually improved (respects each metric's own
+     higher-is-better/lower-is-better direction, not a blind "green if
+     positive").
+   - New `EquityCompareChart` component
+     (`frontend/src/components/ui/EquityCompareChart.tsx`) — overlays both
+     runs' equity curves normalized to **% change from each run's own
+     start**, so runs with different starting capital or bar counts are
+     still visually comparable on one chart. `Sparkline` (single-series)
+     deliberately left alone, not generalized.
+   - **Also found and fixed in the same pass, same bug class as the
+     Strategies UI fix above:** `Backtest.tsx` and `Trades.tsx` hardcoded
+     `₹`/`fmtINR` throughout (top metrics grid, trade tables, run-history
+     detail). Consolidated into two new shared helpers in
+     `frontend/src/components/ui/index.ts` — `currencyFor(instruments)` and
+     `fmtMoney(value, currency, opts)` — `fmtINR` now just calls
+     `fmtMoney(v, '₹', opts)`, so nothing else broke. **Trades.tsx got a
+     deeper fix, not just a symbol swap:** its "Total P&L"/"Avg P&L" hero
+     numbers were summing every trade's P&L into one number regardless of
+     currency — silently adding ₹ and $ together the moment a Gold paper
+     trade exists alongside an Options one. Now grouped and shown per
+     currency, never summed across them.
+   `tsc --noEmit` + `vite build` clean for all touched files; full backend
+   suite (607/607) unaffected, confirmed by re-running it (no backend files
+   touched this item). **Not yet visually confirmed in a logged-in browser
+   session** — same standing caveat as item 1.
+3. ✅ **Paper trading results UI — audited 2026-09-22, mostly already
+   there.** `Trades.tsx` (closed round-trip trades, mode badge
+   paper/live) and `Journal.tsx` (signal → outcome, win/loss
+   classification) are already asset-agnostic and already render whatever
+   comes through, not NIFTY-specific — they just inherited the same
+   currency bug fixed under item 2 above (now fixed there too). No Gold
+   paper trades exist yet to have exercised this in practice (paper
+   trading itself is item 9 below), but the UI itself isn't the blocker
+   anymore.
 4. ⬜ **Session-window sweep** — test alternate `session_start/end_utc_hour`
    windows against the real 6-month sample (queued 2026-09-22, see
    deferred-backlog.md item 1).
