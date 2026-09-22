@@ -174,4 +174,15 @@ def _cagr(initial: float, final: float, num_bars: int, bars_per_year: int = 252)
     years = num_bars / bars_per_year
     if years == 0:
         return 0.0
+    # final <= 0 means the account is wiped out or worse (this equity curve
+    # has no margin-call floor, so a losing streak can genuinely go
+    # negative) -- (final/initial) is <= 0 raised to a fractional power,
+    # which Python evaluates as a complex number, not an error, so this
+    # silently corrupted every metric downstream instead of crashing
+    # loudly. Found 2026-09-22 running Gold Sweep-Reversal's first real
+    # 6-month backtest, which lost more than its starting capital.
+    # -1.0 (-100%) is the correct floor: you can't compound further once
+    # wiped out.
+    if final <= 0:
+        return -1.0
     return (final / initial) ** (1 / years) - 1
