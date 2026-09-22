@@ -6,6 +6,103 @@
 
 ---
 
+## 🔴 SESSION SPRINT, 2026-09-22 (started this session) — do these in order, one at a time
+
+**Goal Rakesh set:** get to a state, ideally by end of this session, where he
+can enable/disable strategies, fine-tune them, see backtest/paper results,
+and control the live alert engine — all from the UI/Telegram, no code
+reading required. **Live order-placement (Track A and Track B both) is
+explicitly out of scope for this sprint** — everything below is alert/paper/
+backtest/UI/config work only, no code path gets a real broker order added.
+
+**Rule for this list: work one item at a time, top to bottom, don't skip
+ahead. If genuinely unsure how an item should behave, ask — don't guess.**
+Check items off (⬜ → ✅) as they land, in this same file, in the same
+session, per this repo's update protocol.
+
+1. ⬜ **Gold strategy not visible/selectable in the Strategies UI** — Rakesh
+   can't currently find/select Gold Sweep-Reversal from the Strategies page
+   to create or manage an instance the way other strategies work.
+2. ⬜ **Backtest results UI + comparison dashboard** — after a backtest run:
+   a results view (trades, outcomes, overall stats), and a way to compare
+   two runs side by side (e.g. before/after a rule change) so a parameter or
+   rule change's actual tradeoff is visible, not just remembered from a
+   chat log. Graphical/dashboard view, not just a table. **End goal this
+   unlocks:** finalize one setup, then flip it live-enabled from the UI so
+   alerts start firing for it — see item 12 below (strategy enable/off).
+3. ⬜ **Paper trading results UI** — same idea as #2 but for paper-mode runs
+   once they exist.
+4. ⬜ **Session-window sweep** — test alternate `session_start/end_utc_hour`
+   windows against the real 6-month sample (queued 2026-09-22, see
+   deferred-backlog.md item 1).
+5. ⬜ **Richer per-session/multi-day level data** — Asian/London/NY high-low
+   broken out separately, last 3-5 days not just 1 (deferred-backlog item 2).
+6. ⬜ **Finer `min_sl_pts`/`max_sl_pts` sweep** (deferred-backlog item 3).
+7. ⬜ **Finer `tp_pts` sweep** (deferred-backlog item 4).
+8. ⬜ **Confidence-scoring design for entries** — the % concept Rakesh wants
+   (deferred-backlog item 5) — needs a real feature set and a decision on
+   hard-gate vs. informational-only, not designed yet.
+9. ⬜ **Paper trading, for real** — run the (by-then-tuned) strategy in paper
+   mode with a live results feed (ties into #3's UI). **Not blocked purely
+   on a "go/no-go" decision anymore** — the plan is to keep iterating
+   (items 4-8) toward a viable parameter set first, then paper-validate that.
+10. ⬜ **Telegram as a full control surface**, expanded scope beyond the
+    original taken/skipped buttons:
+    - Interactive Take/Skip buttons (replacing the webpage-only flow)
+    - Turn alerts on/off per instance from Telegram
+    - Enable/disable a strategy instance from Telegram
+    - Kill switch from Telegram (still always demands a fresh TOTP code,
+      per CLAUDE.md's MCP section — that gate is never bypassed, this is
+      just a second front door to the same guarded action, not a new
+      unguarded one)
+11. ⬜ **Broker-picker dropdown in the instance-creation UI** — the API/type
+    (`broker_connection_name`) already exists; there's no actual `<select>`
+    for it in `Strategies.tsx` yet, confirmed 2026-09-22.
+12. ⬜ **DB/UI-configurable Twelve Data + Finnhub credentials** — currently
+    `.env`-only (deferred-backlog's "Automation platform" item).
+    **Folds in the old Finnhub news-veto wiring too** (`_news_veto_active()`
+    is still a stub) — same small scope, doing both together.
+13. ⬜ **Strategy enable/disable from the UI** — a real on/off switch per
+    instance (separate ask from #11/#12, called out explicitly in Rakesh's
+    end-of-session outcome list) — this is what "finalize a setup and make
+    it live-alerting" from item #2 actually flips.
+14. ⬜ **Strategy fine-tuning surface** — as much of "change a strategy's
+    behavior" as reasonably belongs in the UI (params_schema-driven, already
+    partly true) vs. what has to stay a code change (new rules, new
+    indicators) — make that split explicit/documented, not just implied.
+15. ⬜ **A persistent trades/backtest-results store, in MongoDB** — decided
+    2026-09-22 (Rakesh's explicit call, after I flagged reusing Postgres as
+    an alternative — he wants Mongo specifically for the context-feeding use
+    case). New infra dependency: needs a Mongo instance (free-tier Atlas is
+    the natural pick, same free-signup pattern as Twelve Data/Finnhub — see
+    manual-tasks.md), a driver (`motor` for async), and a `MONGODB_URI`
+    secret. Stores trades + backtest results, queryable later by JEV/a local
+    LLM for context — same spirit as `prosper-engine`'s existing RAG ingest
+    (CP8), a new store rather than reusing that one.
+16. ⬜ **Notion integration for live-action logging** — save every action
+    taken on a live/fine-tuned strategy to Notion, for later LLM context
+    feeding. **Needs a real Notion integration token + target
+    page/database from Rakesh** — logged as a manual-tasks.md blocker;
+    build the integration code now so it's ready the moment the token
+    exists (Rakesh's explicit call, 2026-09-22).
+17. ⬜ **JEV / LLM-based decision-making** — scope decided 2026-09-22
+    (Rakesh's own words): **read + guarded control** (CP7's existing MCP
+    surface: query everything, start/stop instance, kill-switch, still
+    TOTP-gated) **plus** the ability to propose a strategy parameter change
+    with its reasoning — but the actual update only ever happens **after
+    Rakesh's explicit approval**, never automatically. This preserves the
+    project's existing "an LLM must never invent an order" boundary
+    (deferred-backlog.md's "Explicitly rejected" table) by extending the
+    same shape to parameter changes: propose + explain, human approves,
+    only then does code write anything. Strategies are already
+    DB-configurable in the mechanism that matters here (`params_schema` +
+    an instance's `params_json`, already how every strategy's config is
+    stored and updated via the existing PATCH `/instances` endpoint) — an
+    approved JEV proposal writes through that same existing path, not a new
+    one.
+
+---
+
 ## 🔴 Priority decision, 2026-09-22: Track B is now the main roadmap
 
 Rakesh's call: focus shifts to **completing Track B end-to-end and getting

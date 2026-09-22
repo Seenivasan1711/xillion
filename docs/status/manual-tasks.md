@@ -13,14 +13,40 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-22 (Real 6-month backtest + two parameter sweeps
-both came back net-negative — see the 🔴 item below. The alert instance
-itself is fine and needs nothing from Rakesh; the decision item is about
-whether/how to keep iterating on this strategy's parameters.)
+**Last updated:** 2026-09-22 (Session sprint kicked off — added MongoDB
+Atlas and Notion integration items below, both needed for later items in
+`task-tracker.md`'s SESSION SPRINT list. Older context: real 6-month
+backtest + two parameter sweeps both came back net-negative — see the 🔴
+item below. The alert instance itself is fine and needs nothing from
+Rakesh; that decision item is about whether/how to keep iterating on this
+strategy's parameters.)
 
 ---
 
 ## Open
+
+- [ ] **MongoDB Atlas free-tier cluster + connection string** — needed for
+      the new trades/backtest-results context store (session-sprint item
+      #15, 2026-09-22, Rakesh's explicit call over reusing Postgres).
+      Sign up free at mongodb.com/cloud/atlas/register (no card for the
+      free M0 tier), create a cluster, get the connection string
+      (`mongodb+srv://...`), then paste it in as `MONGODB_URI` — following
+      the same `.env` pattern as Twelve Data/Finnhub for now (a Settings UI
+      card is a later nice-to-have, not blocking). **Blocks:** the
+      trades/backtest-results store (item #15) and, downstream, JEV's
+      context-feeding. **Cost:** free (M0 tier).
+
+- [ ] **Notion integration token + target page/database** — needed for
+      logging every action taken on a live/fine-tuned strategy to Notion,
+      for later LLM context feeding (session-sprint item #16, 2026-09-22).
+      Create an integration at notion.so/my-integrations (free), then share
+      the specific page/database you want logs written to with that
+      integration (Notion requires this per-page share, it's not automatic
+      account-wide access). Give me: the integration token
+      (`secret_...`) and the target page/database ID (from its URL).
+      **Blocks:** the Notion action-log integration specifically — nothing
+      else in today's list depends on it, so it's fine for this to land
+      after everything else. **Cost:** free.
 
 - [ ] **🔴 Gold Sweep-Reversal: decide how to proceed after two failed
       parameter sweeps.** 2026-09-22: the first real 6-month backtest lost
