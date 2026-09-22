@@ -227,22 +227,18 @@ order-execution path) covers the **full trade lifecycle**, not just entry.
 - [x] Exit alert built for **Options credit-spread-weekly** (CP4) — a real
       second Telegram message fires on setup-exit, paired with the entry via
       `signal_log`.
-- [ ] **Gap found 2026-09-22, directly relevant to "usable from next week":**
-      Gold Sweep-Reversal's alert mode is entry-only — `_fire_entry()` in
-      `strategies/gold_sweep_reversal.py` calls `ctx.alert_entry()` with
-      target/SL in the message, but there is no matching exit alert; you
-      currently have to watch price yourself (or wait for the weekly digest)
-      to know a signal hit target/SL. Non-alert modes (paper/live) already
-      close and `ctx.notify()` correctly via `on_tick()` — alert mode never
-      calls it. Not yet fixed; logged here rather than silently left as a
-      "should already work" assumption.
+- [x] **Gap found and fixed same day, 2026-09-22.** Gold Sweep-Reversal's
+      alert mode was entry-only — `_fire_entry()` sent target/SL via
+      `ctx.alert_entry()` but nothing fired a matching exit alert. Fixed:
+      alert mode now tracks a lightweight virtual position per entry and
+      `on_tick()` fires `ctx.alert_exit()` (paired to its entry via `tag`,
+      same `signal_log` linking Options already uses) the moment TP or SL is
+      crossed. See `task-tracker.md`'s 2026-09-22 entry for the full detail.
 - [x] You manually place buy/sell based on alerts only — no code executes
       orders in either strategy's alert mode (structurally true, not just
       policy — see QP-6's no-order-placement-tool note).
 
-**Exit:** met for Options; **not yet met for Gold** — the missing exit alert
-above is the one concrete gap standing between Gold's alert engine and "fully
-usable end-to-end from Telegram."
+**Exit:** met, for both Options and Gold.
 
 ---
 

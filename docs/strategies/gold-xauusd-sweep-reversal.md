@@ -318,6 +318,7 @@ Cannot start until Stage 2 (§3/§4) produces a keep decision.
 | Date | What happened | Failure mode | Change made |
 |---|---|---|---|
 | 2026-09-22 | First real 6-month backtest: 47.8% win rate (above the card's own 45% threshold) but net loss of $12,705.76 on a $5,000 account -- realized SL averaged 14.43 pts vs. the card's assumed ~3.0 pt typical, since the "minimum 3.0pt" floor rarely binds against a real wick extreme | `regime_change` (the mechanical rule's real risk profile doesn't match the card's own yield-math assumption) | None yet -- flagged for a strategy-viability decision (see §3), not patched |
+| 2026-09-22 | Found while syncing the product roadmap: alert mode's `_fire_entry()` sent an entry alert (with target/SL) via `ctx.alert_entry()`, but nothing ever sent a matching exit alert -- you had to watch price yourself or wait for the weekly digest to know a signal had hit target/SL | `system_error` (a real gap, not a bad trade -- entry-only alerting made the alert engine unusable as a standalone signal for exit timing) | Fixed same day: alert mode now tracks each entry as a lightweight virtual position (`ctx.state["alert_positions"]`) and `on_tick()` fires `ctx.alert_exit()` (paired via `tag`) the moment TP/SL is crossed. See `strategies/gold_sweep_reversal.py` and `task-tracker.md`'s 2026-09-22 entry |
 
 Failure modes: `stopped_out` · `target_missed` · `late_entry` · `slippage` ·
 `no_fill` · `gap` · `regime_change` · `data_gap` · `system_error`
@@ -344,3 +345,4 @@ alerts are live, not assumed away.
 |---|---|---|---|
 | v1 | 2026-09-21 | Initial rules encoded from the user's card, verbatim | Stage 1 |
 | v1 | 2026-09-22 | Real Stage 2 backtest run (no rule changes) -- 6mo, 201 trades, net loss found | Stage 2 |
+| v1.1 | 2026-09-22 | Alert mode now sends an exit alert (`ctx.alert_exit()` on TP/SL hit), not just entry -- no rule/sizing change, engine gap only | Stage 3+ readiness |

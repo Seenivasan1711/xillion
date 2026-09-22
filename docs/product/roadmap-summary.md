@@ -127,14 +127,13 @@ personal, single-user system — not planned, not forgotten:
 
 ## Known gaps toward "usable from next week"
 
-Found while syncing this roadmap, 2026-09-22 — not yet fixed:
-
-- **Gold's alert mode never sends an exit alert.** `_fire_entry()` in
-  `strategies/gold_sweep_reversal.py` sends the entry (with target/SL) via
-  `ctx.alert_entry()`, but nothing tells you via Telegram when that target or
-  SL is actually hit — you have to watch price yourself or wait for the
-  weekly digest. Paper/live modes already handle this correctly via
-  `on_tick()`; alert mode doesn't call it. Real gap, not yet fixed.
+- **Gold's alert mode never sent an exit alert — found and fixed 2026-09-22.**
+  `_fire_entry()` sent the entry (with target/SL) via `ctx.alert_entry()`,
+  but nothing told you via Telegram when that target or SL was actually hit.
+  Fixed: alert mode now tracks each entry as a lightweight virtual position
+  and `on_tick()` fires a matching `ctx.alert_exit()` the moment TP/SL is
+  crossed, paired to its entry the same way `signal_log` already pairs
+  Options' entry/exit alerts. 607/607 tests passing.
 - **Twelve Data / Finnhub credentials are `.env`-only**, not yet a
   Settings-page card like every other broker/provider — already logged in
   deferred-backlog.md, not urgent for a single-user local setup but worth

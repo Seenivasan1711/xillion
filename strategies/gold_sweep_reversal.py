@@ -4,7 +4,11 @@ Gold Sweep-Reversal -- session-liquidity-sweep fade on XAUUSD.
 Full rules: docs/strategies/gold-xauusd-sweep-reversal.md. Mode-aware:
 - **alert** (the live instance running since 2026-09-21): a Telegram
   notification with full reasoning (via ctx.alert_entry's `reason`), no
-  order placement.
+  order placement. Tracks a lightweight virtual position per entry (in
+  ctx.state, no real order behind it) purely so on_tick can watch for
+  TP/SL being crossed and send a matching ctx.alert_exit() -- added
+  2026-09-22 after the entry alert was found to be genuinely one-shot
+  (no way to know from Telegram alone when a signal actually resolved).
 - **paper / backtest / live**: a real fire-and-forget entry (ctx.buy/sell,
   fixed lot_size converted to hundredths-of-a-lot quantity -- see
   params_schema), software SL/TP monitoring in on_tick (no broker-native
@@ -43,14 +47,19 @@ the full writeup, not hidden here:
   - Session-level marking uses M5 bars (this feed's only granularity), not
     M1 -- slightly coarser wick precision on the 4 lines than the
     backtest's M1-derived levels.
-  - Alert mode tracks no real position -- "max trades/day" there is a
-    pure count plus a cooldown, not "wait for the open trade to actually
-    resolve" the way the reference backtest's busy_until models a real
-    single-position account. Paper/live/backtest modes DO track a real
-    open position (see on_tick) and gate new entries on it being closed
-    first, closer to busy_until's intent, but still not identical --
-    e.g. no max_hold_min timeout; a position just sits until SL or TP
-    hits, however long that takes, since the card doesn't specify one.
+  - Alert mode tracks no real *broker* position -- "max trades/day" there
+    is a pure count plus a cooldown, not "wait for the open trade to
+    actually resolve" the way the reference backtest's busy_until models
+    a real single-position account, and a new entry can still fire while
+    an earlier one is unresolved (up to max_trades_per_day of them). It
+    does now track each entry's price/SL/TP as a virtual position purely
+    to fire the matching exit alert (see on_tick) -- that bookkeeping
+    doesn't gate new entries, it only watches for TP/SL being crossed.
+    Paper/live/backtest modes DO track a real open position (see on_tick)
+    and gate new entries on it being closed first, closer to busy_until's
+    intent, but still not identical -- e.g. no max_hold_min timeout; a
+    position just sits until SL or TP hits, however long that takes,
+    since the card doesn't specify one.
   - SL/TP checks in backtest mode only happen once per bar, at that bar's
     close (see BacktestEngine.run's on_tick synthesis) -- not true
     intrabar wicks. Same honest limitation credit-spread-weekly's
@@ -244,6 +253,11 @@ class GoldSweepReversal(Strategy):
         # alert mode never sets this, it only ever emits ctx.alert_entry().
         # {symbol, side, qty, entry, sl, tp, level, entry_time} or None.
         ctx.state.setdefault("open_position", None)
+        # Alert-mode-only: one entry per list item (no qty/real order), so
+        # on_tick can watch for TP/SL and fire the matching ctx.alert_exit().
+        # A list, not a single slot, because alert mode can have more than
+        # one unresolved entry at once (see the module docstring).
+        ctx.state.setdefault("alert_positions", [])
         ctx.log("info", f"{self.name} started (mode={ctx.mode})", params=ctx.params)
 
     async def on_bar(self, bar: Bar, ctx: StrategyContext) -> None:
@@ -439,7 +453,7 @@ class GoldSweepReversal(Strategy):
 
         if ctx.mode == "alert":
             # Notify-only, no order -- the live path this strategy has run
-            # since 2026-09-21. Unchanged.
+            # since 2026-09-21.
             await ctx.alert_entry(
                 bar.symbol,
                 side,
@@ -448,6 +462,22 @@ class GoldSweepReversal(Strategy):
                 stop_loss=Decimal(str(round(sl, 2))),
                 tag=level_name,
                 reason=reason,
+            )
+            # Track it as a virtual position purely so on_tick can notice
+            # TP/SL being crossed and fire the matching exit alert -- added
+            # 2026-09-22, see the module docstring. `tag=level_name` matches
+            # alert_entry's tag above; _handle_alert_signal already pairs an
+            # EXIT to the most recent unclosed ENTER with the same tag, so
+            # reusing level_name across days/trades is safe.
+            ctx.state.setdefault("alert_positions", []).append(
+                {
+                    "symbol": bar.symbol,
+                    "side": side.value,
+                    "entry": entry,
+                    "sl": sl,
+                    "tp": tp,
+                    "level": level_name,
+                }
             )
         else:
             # Real fire-and-forget entry (paper/live/backtest) -- SL/TP are
@@ -486,13 +516,16 @@ class GoldSweepReversal(Strategy):
         )
 
     async def on_tick(self, tick: Tick, ctx: StrategyContext) -> None:
-        """SL/TP monitoring for a real open position (paper/live/backtest
-        only -- alert mode never sets ctx.state['open_position'], so this
-        is a no-op there). In backtest mode this only ever sees one
-        synthetic tick per bar, at that bar's close (see
-        BacktestEngine.run) -- an honest bar-close-only precision limit,
-        same one credit-spread-weekly's protective-order monitoring
-        already lives with, not unique to this strategy."""
+        """TP/SL monitoring, both mode paths driven by the same real ticks.
+        In backtest mode this only ever sees one synthetic tick per bar, at
+        that bar's close (see BacktestEngine.run) -- an honest
+        bar-close-only precision limit, same one credit-spread-weekly's
+        protective-order monitoring already lives with, not unique to this
+        strategy."""
+        if ctx.mode == "alert":
+            await self._check_alert_exits(tick, ctx)
+            return
+
         pos = ctx.state.get("open_position")
         if pos is None or tick.symbol != pos["symbol"]:
             return
@@ -529,3 +562,57 @@ class GoldSweepReversal(Strategy):
             pnl_pts=pnl_pts,
             outcome=outcome,
         )
+
+    async def _check_alert_exits(self, tick: Tick, ctx: StrategyContext) -> None:
+        """Alert mode's equivalent of the real on_tick close above -- fires
+        a ctx.alert_exit() (a real Telegram message, paired to its entry via
+        `tag`) instead of placing an order. Uses the actual tick price that
+        crossed TP/SL as the exit reference, not the exact TP/SL level
+        itself -- a live tick can jump past it, same honest gap-fill
+        assumption the real close path makes via avg_fill_price."""
+        positions: list = ctx.state.get("alert_positions") or []
+        if not positions:
+            return
+
+        price = float(tick.ltp)
+        still_open = []
+        for pos in positions:
+            if tick.symbol != pos["symbol"]:
+                still_open.append(pos)
+                continue
+
+            side = pos["side"]
+            if side == "BUY":
+                hit_tp, hit_sl = price >= pos["tp"], price <= pos["sl"]
+            else:
+                hit_tp, hit_sl = price <= pos["tp"], price >= pos["sl"]
+            if not (hit_tp or hit_sl):
+                still_open.append(pos)
+                continue
+
+            outcome = "WIN" if hit_tp else "LOSS"
+            pnl_pts = (price - pos["entry"]) if side == "BUY" else (pos["entry"] - price)
+            exit_side = Side.SELL if side == "BUY" else Side.BUY
+            await ctx.alert_exit(
+                pos["symbol"],
+                exit_side,
+                price=Decimal(str(round(price, 2))),
+                tag=pos["level"],
+                reason=(
+                    f"{outcome}: {pos['level']} | entry {pos['entry']:.2f} -> "
+                    f"exit {price:.2f} ({pnl_pts:+.2f} pts, "
+                    f"{'target hit' if hit_tp else 'stopped out'})"
+                ),
+            )
+            ctx.log(
+                "info",
+                "sweep-reversal alert exit fired",
+                swept_level=pos["level"],
+                side=side,
+                entry=pos["entry"],
+                exit=price,
+                pnl_pts=pnl_pts,
+                outcome=outcome,
+            )
+
+        ctx.state["alert_positions"] = still_open

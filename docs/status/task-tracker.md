@@ -18,16 +18,24 @@ completion snapshot) and
 (checkboxes brought up to date — QP-2/6/7 now marked done, QP-4 split into
 done-for-Options / gap-found-for-Gold, see next paragraph).
 
-**New concrete gap found while syncing the roadmap, not yet fixed:** Gold's
-alert mode never sends an exit alert. `_fire_entry()` in
-`strategies/gold_sweep_reversal.py` sends the entry (with target/SL) via
-`ctx.alert_entry()`; nothing calls an equivalent exit alert when that
-target/SL is actually hit — you have to watch price yourself or wait for the
-weekly digest. Paper/live modes already handle this correctly via
-`on_tick()` + `ctx.notify()`; alert mode just never wires the two together.
-This is the most direct blocker to "usable from Telegram" for Gold
-specifically — worth fixing before/alongside the session-window analysis
-below.
+**Fixed same day, 2026-09-22.** Gold's alert mode now sends an exit alert.
+`_fire_entry()` still calls `ctx.alert_entry()` for the entry, but now also
+appends a lightweight virtual position (`ctx.state["alert_positions"]` — a
+list, not the single `open_position` slot paper/live use, since alert mode
+can have more than one unresolved entry outstanding at once) with no real
+order behind it. `on_tick()` now branches on `ctx.mode == "alert"` to a new
+`_check_alert_exits()`, which watches every entry in that list against real
+ticks and fires `ctx.alert_exit()` (same `tag=level_name` as the entry, so
+`_handle_alert_signal`'s existing tag-pairing logic links them in
+`signal_log` automatically — no new plumbing needed there) the moment TP or
+SL is crossed, using the actual crossing tick price rather than the exact
+TP/SL line (a live tick can jump past it, same honest gap-fill assumption
+`on_order_fill`'s `avg_fill_price` fallback already makes for real orders).
+3 new tests in `tests/integration/test_gold_sweep_reversal.py` (win, loss,
+and "still between SL/TP, no alert yet") — 607/607 total tests passing,
+ruff/black clean (one pre-existing, unrelated mypy error in
+`_cooldown_active`, confirmed via `git stash` to predate this change, not
+introduced by it).
 
 ## 🔴 NEXT UP: Gold Sweep-Reversal — session-window + level-richness analysis
 

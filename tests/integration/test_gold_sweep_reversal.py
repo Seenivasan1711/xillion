@@ -70,6 +70,20 @@ class FakeContext:
             )
         )
 
+    async def alert_exit(self, symbol, side, *, price=None, tag=None, reason=None) -> Order:
+        return await self.place_order(
+            OrderRequest(
+                symbol=symbol,
+                side=side,
+                quantity=1,
+                order_type=OrderType.MARKET,
+                price=price,
+                tag=tag,
+                signal_type="EXIT",
+                reason=reason,
+            )
+        )
+
     async def _fill(self, symbol, side, qty, tag) -> Order:
         order = await self.place_order(
             OrderRequest(
@@ -368,6 +382,61 @@ async def test_alert_mode_never_sets_open_position():
     assert len(ctx.placed) == 1
     assert ctx.state["open_position"] is None  # alert mode tracks no real position
     assert ctx.notifications == []  # alert mode uses alert_entry, not notify
+
+
+@pytest.mark.asyncio
+async def test_alert_mode_on_tick_fires_exit_alert_on_target_hit():
+    strat = GoldSweepReversal()
+    ctx = FakeContext(DEFAULT_PARAMS, _base_history(), mode="alert")
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)  # SHORT, tp=2621.5
+    assert len(ctx.placed) == 1
+    assert len(ctx.state["alert_positions"]) == 1
+
+    await strat.on_tick(_tick(_london(9, 30), 2621.5), ctx)
+
+    assert len(ctx.placed) == 2  # entry + exit alert, no real orders either way
+    exit_req = ctx.placed[1]
+    assert exit_req.signal_type == "EXIT"
+    assert exit_req.tag == "Asian High"  # same tag as the entry -- pairs in signal_log
+    assert exit_req.side == Side.BUY  # closing a short = buy side
+    assert float(exit_req.price) == 2621.5
+    assert "WIN" in exit_req.reason
+    assert "target hit" in exit_req.reason
+    assert ctx.state["alert_positions"] == []  # resolved, no longer watched
+    assert ctx.state["open_position"] is None  # unaffected -- alert mode never uses this slot
+
+
+@pytest.mark.asyncio
+async def test_alert_mode_on_tick_fires_exit_alert_on_stop_hit():
+    strat = GoldSweepReversal()
+    ctx = FakeContext(DEFAULT_PARAMS, _base_history(), mode="alert")
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)  # SHORT, sl=2632.5
+
+    await strat.on_tick(_tick(_london(9, 10), 2632.5), ctx)
+
+    exit_req = ctx.placed[1]
+    assert exit_req.signal_type == "EXIT"
+    assert "LOSS" in exit_req.reason
+    assert "stopped out" in exit_req.reason
+    assert ctx.state["alert_positions"] == []
+
+
+@pytest.mark.asyncio
+async def test_alert_mode_on_tick_ignores_price_between_sl_and_tp():
+    strat = GoldSweepReversal()
+    ctx = FakeContext(DEFAULT_PARAMS, _base_history(), mode="alert")
+    await strat.on_start(ctx)
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)
+
+    await strat.on_tick(_tick(_london(9, 10), 2627.0), ctx)  # between tp (2621.5) and sl (2632.5)
+
+    assert len(ctx.placed) == 1  # entry only, no exit yet
+    assert len(ctx.state["alert_positions"]) == 1
 
 
 @pytest.mark.asyncio
