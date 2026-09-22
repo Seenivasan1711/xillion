@@ -144,6 +144,7 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
 
     all_bars: list[pd.DataFrame] = []
     month_key = None
+    day_key = None
 
     with httpx.Client() as client:
         while current < end:
@@ -172,14 +173,27 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
             manifest["failed_hours"] = sorted(failed)
             _save_manifest(manifest)
 
-            # Flush to a monthly parquet file when the month rolls over, so a
-            # long-running/interrupted backfill doesn't lose already-fetched
-            # bars sitting only in memory.
+            # Flush at least once a day (not just monthly) -- found 2026-09-22
+            # running a real 6-month backfill in the background: a mid-run
+            # kill/crash before a month boundary lost 106 real fetched hours
+            # that were only ever sitting in `all_bars`, while the manifest
+            # still marked them "completed" (a re-run would have silently
+            # skipped re-fetching them forever, believing the data existed).
+            # Flushing daily caps the loss window at <=24h of work instead of
+            # up to a full month, and a completed/empty hour is only ever
+            # trusted in the manifest once its bars have actually reached
+            # disk via _flush_month below.
             this_month = current.strftime("%Y-%m")
-            if month_key is not None and this_month != month_key and all_bars:
+            this_day = current.strftime("%Y-%m-%d")
+            should_flush = all_bars and (
+                (month_key is not None and this_month != month_key)
+                or (day_key is not None and this_day != day_key)
+            )
+            if should_flush:
                 _flush_month(symbol, month_key, all_bars)
                 all_bars = []
             month_key = this_month
+            day_key = this_day
 
             current += timedelta(hours=1)
             time.sleep(delay)

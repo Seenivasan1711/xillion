@@ -151,6 +151,46 @@ behaves exactly as before this existed.
 rows → "journal" collection) into the trading agent's Chroma memory —
 idempotent, safe to re-run after a strategy doc changes.
 
+## XAUUSD scalping research track (started 2026-09-22)
+
+A standalone P1-P5 research pipeline under `research/xauusd_scalping/`,
+deliberately separate from `strategies/`/`xillion/engine/` — see
+`docs/status/decisions-and-open-questions.md` D21 for why (the plugin
+loader glob-scans `strategies/`, so unvalidated research code has no
+business auto-appearing as a live selectable strategy). Full spec:
+`research/xauusd_scalping/00_build_prompts.md`; current status:
+`docs/status/task-tracker.md`'s "XAUUSD SCALPING RESEARCH TRACK" section.
+
+**If you're picking this up cold:** read the build-prompts file first (it's
+the spec everything else is built against), then the task-tracker section
+for what's actually done vs. in progress, then the newest numbered
+deliverable (`01_shortlist_v2.md` → `02_harness.md` → `03_results.md` →
+`RULEBOOK-v1.md`, whichever exist) for the real content.
+
+**Data backfill is a real background process, not a quick fetch.** A full
+multi-month M1 backfill via `research/xauusd_scalping/data/
+download_dukascopy.py` takes hours (a 3-year backfill: a day+) at a safe,
+non-banned request pace — it's resumable (a manifest tracks completed/
+empty/failed hours) and meant to run detached
+(`nohup ... > /tmp/dukascopy_backfill.log 2>&1 & disown`), not
+synchronously in one tool call. Check real progress via
+`research/xauusd_scalping/data/xauusd/_manifest.json`
+(`completed_hours`/`empty_hours`/`failed_hours` counts), not by assuming a
+run finished. **Found and fixed 2026-09-22**: the initial failure rate
+(~34% of hours) was a bare TLS `ConnectTimeout` from this environment, not
+rate-limiting as a 429 seen during early testing first suggested — a
+direct diagnostic `httpx` call reproduced it before assuming a fix would
+help. Retry-with-backoff on transient network errors (not just a slower
+base pace) is what actually recovers most of these.
+
+**Back up the downloaded data before it grows large**: `make
+backup-xauusd-research` (tar+gzip to `research/xauusd_scalping/data/
+backups/`, same spirit as `backup-warehouse`) for Drive/offline storage;
+restore with `make restore-xauusd-research FILE=...`. Both the data
+directory and the backups directory are gitignored — this is real,
+regenerable-from-a-free-source data, not something that belongs in git
+history (same reasoning as `data/backups/` for the main warehouse DB).
+
 ## Operational gotchas (learned the hard way, 2026-08-02)
 
 - **`render.yml`'s `branch:` field pins the actual deployed branch**,

@@ -32,6 +32,70 @@ priority order the same day, explicitly:
 
 ---
 
+## 🔴 XAUUSD SCALPING RESEARCH TRACK, started 2026-09-22 — item 1 of the NEXT PHASE above, in progress
+
+**What this is:** Rakesh's own P1-P5 research spec (full text:
+`research/xauusd_scalping/00_build_prompts.md`), executed as a standalone
+pipeline — **not** the existing `gold_sweep_reversal.py` strategy, which
+stays untouched pending the manual-tasks.md 🔴 decision on it. This is a
+from-scratch search for a genuinely new, rigorously-validated XAUUSD
+scalping edge, isolated under `research/xauusd_scalping/` specifically so
+none of it auto-appears as a live selectable strategy (see D21 in
+`decisions-and-open-questions.md`).
+
+**Status, most recent first:**
+- 🟡 **P3 (implement + backtest all 10) — running now**, as a background
+  agent. Redirected from the original spec's "10 independent modules"
+  shape into a composable signal-toolkit architecture per Rakesh's
+  explicit instruction (D23) — `signals/price_action.py`,
+  `signals/indicators.py`, `signals/confidence.py`, each strategy a thin
+  composition of those calls, so a later JEV/LLM orchestrator can call
+  the same primitives directly rather than pick from 10 fixed pipelines.
+- ✅ **P1 v2 (price-action/liquidity-led, top 10)** —
+  `research/xauusd_scalping/01_shortlist_v2.md`. Re-run after Rakesh's
+  review of v1 found it too indicator-led (D22) — 20 candidates evaluated,
+  10 shortlisted (liquidity sweep+displacement+FVG, multi-timeframe
+  liquidity, order block retest, Wyckoff spring/upthrust, NR7 compression,
+  OTE Fibonacci, Market Profile value-area rotation, BOS pullback,
+  session liquidity run, equal-highs/lows+RSI-divergence), every one with
+  an explicit indicator-based confidence layer, none re-proposing the
+  exact liquidity-sweep rule `gold_sweep_reversal.py` already falsified.
+- ✅ **P1 v1 (indicator-led, top 5, superseded by v2)** —
+  `research/xauusd_scalping/01_shortlist.md`, kept as the record of why
+  v2 exists, not deleted.
+- ✅ **P2 (data + backtest harness)** — standalone event-driven engine
+  under `research/xauusd_scalping/engine/` (session×volatility-bucket
+  cost model, pessimistic same-bar SL/TP resolution), proven via 5
+  synthetic-series tests, all genuinely passing (re-verified directly,
+  not just trusted from the build report). Real M1 XAUUSD data via
+  Dukascopy's public feed (D24) — HistData.com ruled out (anti-bot JS
+  token, not scriptable without circumventing anti-scraping protection,
+  declined as out of bounds). **A real bug was found and fixed**: the
+  initial ~34% per-hour failure rate was a bare TLS `ConnectTimeout`, not
+  rate-limiting as first assumed — fixed with retry-with-backoff on
+  transient network errors, confirmed via a direct diagnostic call before
+  and after the fix. A 6-month M1 backfill runs independently in the
+  background (resumable — a manifest tracks completed/empty/failed hours;
+  exact current coverage is always in `research/xauusd_scalping/data/
+  QUALITY.md` and the manifest, never assumed).
+- **Data backup, tracked**: `make backup-xauusd-research` /
+  `restore-xauusd-research` (tar+gzip, same spirit as
+  `backup-warehouse`/`restore-warehouse`), tested for real. A real
+  `.gitignore` gap was found and closed in the same pass — the research
+  data directory wasn't excluded at all, which would have made a full
+  multi-month M1 backfill a large accidental commit.
+- **Next after P3 lands**: P4 (combine the best 5 into one system, freeze
+  `RULEBOOK-v1.md`, holdout-validate once) → P5 (live Telegram alert
+  service, parity-tested against the backtest signal list) → paper/
+  forward-test this week → live next week only if it holds up. Per
+  Rakesh's own instruction, this keeps going through all of P1-P5 without
+  stopping for a checkpoint in between.
+
+See `docs/status/decisions-and-open-questions.md` D21-D24 for the full
+reasoning behind the architectural choices above.
+
+---
+
 ## 🔴 SESSION SPRINT, 2026-09-22 (started this session, now complete — all 17 items ✅) — do these in order, one at a time
 
 **Goal Rakesh set:** get to a state, ideally by end of this session, where he
