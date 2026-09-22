@@ -44,13 +44,23 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
-- 🟡 **P3 (implement + backtest all 10) — running now**, as a background
-  agent. Redirected from the original spec's "10 independent modules"
-  shape into a composable signal-toolkit architecture per Rakesh's
-  explicit instruction (D23) — `signals/price_action.py`,
-  `signals/indicators.py`, `signals/confidence.py`, each strategy a thin
-  composition of those calls, so a later JEV/LLM orchestrator can call
-  the same primitives directly rather than pick from 10 fixed pipelines.
+- 🟡 **P3 (implement + backtest all 10) — toolkit + all 10 strategies done
+  and verified; the actual backtest run is in progress.** Redirected from
+  the original spec's "10 independent modules" shape into a composable
+  signal-toolkit architecture per Rakesh's explicit instruction (D23) —
+  `signals/price_action.py`, `signals/indicators.py`,
+  `signals/confidence.py`, each of the 10 strategies a thin composition of
+  those calls, so a later JEV/LLM orchestrator can call the same
+  primitives directly rather than pick from 10 fixed pipelines. 19 new
+  synthetic-data tests, all genuinely passing (re-verified directly:
+  `pytest tests/ research/xauusd_scalping/tests/` → 673 passed, 649
+  production + 24 research, no collisions). **First run of this stage hit
+  a session rate limit mid-work**; the exact bug it was fixing (a bare-
+  import path issue breaking pytest collection from the repo root) was
+  fixed directly rather than re-delegated, and a second background agent
+  resumed from there — instructed not to redo the toolkit/strategies,
+  only to run the actual backtests against real accumulated data and
+  produce `03_results.md`.
 - ✅ **P1 v2 (price-action/liquidity-led, top 10)** —
   `research/xauusd_scalping/01_shortlist_v2.md`. Re-run after Rakesh's
   review of v1 found it too indicator-led (D22) — 20 candidates evaluated,
