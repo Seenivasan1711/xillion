@@ -622,6 +622,40 @@ class SignalLog(Base):
     )
 
 
+class ProposedStrategyChange(Base):
+    """JEV / LLM-assisted decision-making (migration 021, 2026-09-22): an
+    LLM can PROPOSE a strategy parameter change with its reasoning via the
+    MCP server's propose_parameter_change tool, but the change is never
+    applied until Rakesh explicitly approves it (Telegram button or the
+    web UI) -- this table is that proposal queue, not an audit log of
+    already-applied changes (see AuditLogRecord for that, once it's wired
+    up more broadly). Mirrors the "an LLM must never invent an order"
+    boundary (deferred-backlog.md), extended to parameter changes: propose
+    + explain, human approves, only then does code write anything."""
+
+    __tablename__ = "proposed_strategy_change"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_instance_id: Mapped[str] = mapped_column(
+        ForeignKey("strategy_instance.id"), nullable=False
+    )
+    proposed_params_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(Text, nullable=False, default="JEV")
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="pending"
+    )  # pending|approved|rejected
+    telegram_message_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    decided_at: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        Index("idx_proposed_change_instance", "strategy_instance_id"),
+        Index("idx_proposed_change_status", "status"),
+    )
+
+
 # ── Notifications ──────────────────────────────────────────────────────────────
 
 

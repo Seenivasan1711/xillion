@@ -88,11 +88,21 @@ async def _handle_callback_query(app: FastAPI, notifier, cq: dict) -> None:
 
     data = cq.get("data", "")
     message_id = cq.get("message", {}).get("message_id")
-    action, _, signal_id = data.partition(":")
-    if action not in ("taken", "skipped") or not signal_id:
-        await notifier.answer_callback_query(callback_id, "Unrecognized action")
-        return
+    action, _, arg = data.partition(":")
 
+    if action in ("taken", "skipped") and arg:
+        await _handle_signal_action_callback(notifier, callback_id, message_id, cq, action, arg)
+    elif action in ("approve_change", "reject_change") and arg:
+        await _handle_proposed_change_callback(
+            app, notifier, callback_id, message_id, cq, action, arg
+        )
+    else:
+        await notifier.answer_callback_query(callback_id, "Unrecognized action")
+
+
+async def _handle_signal_action_callback(
+    notifier, callback_id: str | None, message_id, cq: dict, action: str, signal_id: str
+) -> None:
     from xillion.api.journal import set_signal_action_core
 
     factory = get_session_factory()
@@ -110,6 +120,50 @@ async def _handle_callback_query(app: FastAPI, notifier, cq: dict) -> None:
         await notifier.answer_callback_query(callback_id, f"Failed: {exc.detail}")
     except Exception as exc:
         logger.error("telegram_commands: callback handling failed", error=str(exc))
+        await notifier.answer_callback_query(callback_id, "Failed — see server logs")
+
+
+async def _handle_proposed_change_callback(
+    app: FastAPI,
+    notifier,
+    callback_id: str | None,
+    message_id,
+    cq: dict,
+    action: str,
+    proposal_id_str: str,
+) -> None:
+    """JEV / LLM-assisted decision-making (2026-09-22): Approve routes
+    through the exact same update_instance_core a manual PATCH uses --
+    this handler is just the Telegram front door to that, same as
+    /killswitch is a front door to activate_kill_switch_core."""
+    from xillion.api.proposed_changes import (
+        approve_proposed_change_core,
+        reject_proposed_change_core,
+    )
+
+    try:
+        proposal_id = int(proposal_id_str)
+    except ValueError:
+        await notifier.answer_callback_query(callback_id, "Invalid proposal id")
+        return
+
+    factory = get_session_factory()
+    try:
+        async with factory() as db:
+            if action == "approve_change":
+                await approve_proposed_change_core(app, db, proposal_id, actor="telegram")
+                label = "✅ Approved and applied"
+            else:
+                await reject_proposed_change_core(db, proposal_id, actor="telegram")
+                label = "❌ Rejected"
+        await notifier.answer_callback_query(callback_id, label)
+        if message_id is not None:
+            original = cq.get("message", {}).get("text", "")
+            await notifier.edit_message_text(message_id, f"{original}\n\n{label} (via Telegram)")
+    except HTTPException as exc:
+        await notifier.answer_callback_query(callback_id, f"Failed: {exc.detail}")
+    except Exception as exc:
+        logger.error("telegram_commands: proposed-change callback failed", error=str(exc))
         await notifier.answer_callback_query(callback_id, "Failed — see server logs")
 
 

@@ -130,6 +130,34 @@ async def test_run_backtest_posts_the_expected_body(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_propose_parameter_change_posts_a_proposal_not_an_update(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth/login"):
+            return _login_ok(request)
+        # Structural check: this tool must hit the proposal endpoint, never
+        # a direct instance-update endpoint -- that's the whole point of
+        # the propose/approve split (item 17).
+        assert request.url.path == "/api/proposed-changes"
+        import json
+
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"proposal_id": 7, "status": "pending"})
+
+    monkeypatch.setattr(mcp_server, "_client", _mock_client(handler))
+    result = await mcp_server.propose_parameter_change(
+        instance_id="inst-1",
+        params={"tp_pts": 10.0},
+        reasoning="Backtest showed better Sharpe at tp_pts=10",
+    )
+    assert result["status"] == "pending"
+    assert captured["body"]["instance_id"] == "inst-1"
+    assert captured["body"]["params"] == {"tp_pts": 10.0}
+    assert captured["body"]["proposed_by"] == "JEV"  # default
+
+
+@pytest.mark.asyncio
 async def test_kill_switch_forwards_totp_code(monkeypatch):
     captured = {}
 
@@ -177,4 +205,27 @@ def test_no_order_placement_tool_exists():
         "start_instance",
         "stop_instance",
         "kill_switch",
+        # JEV (2026-09-22, item 17): propose_parameter_change can never
+        # apply a change itself, same structural boundary as the order-
+        # placement absence above -- see approve_proposed_change_core,
+        # which is the only thing that actually writes params, and only
+        # after a human explicitly approves.
+        "propose_parameter_change",
+        "list_proposed_changes",
     }
+
+
+def test_no_tool_can_apply_a_parameter_change_directly():
+    """Structural guarantee for JEV (2026-09-22, item 17): the only
+    params-related tool is propose_parameter_change, which the server
+    routes to POST /proposed-changes -- creating a pending row and
+    notifying the user, never applying anything. There must be no tool
+    that calls the actual update path (PATCH /instances/{id}) directly."""
+    import asyncio
+
+    tools = asyncio.run(mcp_server.mcp.list_tools())
+    names = {t.name for t in tools}
+    forbidden_substrings = ("update_param", "set_param", "apply_change", "update_instance")
+    for name in names:
+        for bad in forbidden_substrings:
+            assert bad not in name.lower(), f"tool {name!r} looks like a direct param-write tool"

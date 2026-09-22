@@ -330,12 +330,23 @@ async def update_instance(
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
 ):
+    return await update_instance_core(request.app, db, instance_id, body, actor=user.username)
+
+
+async def update_instance_core(
+    app: FastAPI, db: AsyncSession, instance_id: str, body: UpdateInstanceRequest, actor: str
+) -> dict:
+    """Core update logic, shared by the API route above and the JEV
+    proposal-approval flow (2026-09-22, see propose_change/approve_change
+    below) -- an approved proposal writes through this exact same path, not
+    a new one, so it gets the same running-instance guard and the same
+    Notion action log as a manual edit."""
     result = await db.execute(select(StrategyInstance).where(StrategyInstance.id == instance_id))
     inst = result.scalar_one_or_none()
     if inst is None:
         raise HTTPException(404, "Instance not found")
 
-    engine = getattr(request.app.state, "strategy_engine", None)
+    engine = getattr(app.state, "strategy_engine", None)
     runner = engine.get_runner(instance_id) if engine else None
     is_running = bool(runner and runner.status == "running")
 
@@ -356,7 +367,7 @@ async def update_instance(
     if body.name is not None:
         inst.name = body.name
     if body.params is not None:
-        loader = getattr(request.app.state, "plugin_loader", None)
+        loader = getattr(app.state, "plugin_loader", None)
         strategy_name = await _strategy_name_for(inst, db)
         strategy_cls = loader.registry.strategies.get(strategy_name) if loader else None
         merged = fill_param_defaults(strategy_cls, body.params) if strategy_cls else body.params
@@ -386,7 +397,7 @@ async def update_instance(
                 "name": body.name,
                 "params": body.params,
                 "capital_allocation": body.capital_allocation,
-                "user": user.username,
+                "user": actor,
             },
         )
 

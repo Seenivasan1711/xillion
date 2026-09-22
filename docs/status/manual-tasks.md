@@ -22,7 +22,10 @@ integration items below, both needed for later items in
 `task-tracker.md`'s SESSION SPRINT list. The alert instance itself is
 fine and needs nothing from
 Rakesh; that decision item is about whether/how to keep iterating on this
-strategy's parameters.)
+strategy's parameters. Since then: the full 17-item SESSION SPRINT
+(UI fixes, Telegram control surface, DB-configurable credentials, MongoDB +
+Notion integrations, and JEV's propose/approve loop) is now complete —
+see `task-tracker.md` for the full writeup of each item.)
 
 ---
 

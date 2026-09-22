@@ -332,21 +332,54 @@ session, per this repo's update protocol.
     touched) — **structurally verified only, not live-verified**, same
     honest caveat as item 15's MongoDB store. 640/640 total tests passing,
     ruff/black/mypy clean. Added to `.env.example` and `render.yml`.
-17. ⬜ **JEV / LLM-based decision-making** — scope decided 2026-09-22
-    (Rakesh's own words): **read + guarded control** (CP7's existing MCP
-    surface: query everything, start/stop instance, kill-switch, still
-    TOTP-gated) **plus** the ability to propose a strategy parameter change
-    with its reasoning — but the actual update only ever happens **after
-    Rakesh's explicit approval**, never automatically. This preserves the
-    project's existing "an LLM must never invent an order" boundary
-    (deferred-backlog.md's "Explicitly rejected" table) by extending the
-    same shape to parameter changes: propose + explain, human approves,
-    only then does code write anything. Strategies are already
-    DB-configurable in the mechanism that matters here (`params_schema` +
-    an instance's `params_json`, already how every strategy's config is
-    stored and updated via the existing PATCH `/instances` endpoint) — an
-    approved JEV proposal writes through that same existing path, not a new
-    one.
+17. ✅ **JEV / LLM-based decision-making — built 2026-09-22, the full
+    propose → notify → approve/reject loop, end to end.** Scope was
+    Rakesh's own words: read + guarded control (CP7's existing MCP
+    surface) plus the ability to propose a parameter change with reasoning
+    — never applied automatically, only after his explicit approval. Built
+    exactly that, not more:
+    - **New table** `proposed_strategy_change` (migration 021,
+      `ProposedStrategyChange` model) — the proposal queue: instance,
+      proposed params, reasoning, who proposed it, status
+      (pending/approved/rejected), who decided and when.
+    - **New API** `xillion/api/proposed_changes.py`
+      (`POST/GET /proposed-changes`, `POST /proposed-changes/{id}/approve`
+      `|/reject`). Approval writes through `update_instance_core`
+      (extracted from the existing PATCH `/instances/{id}` route,
+      2026-09-22, same refactor pattern as `start_instance_core`/
+      `stop_instance_core`) — **an approved proposal is indistinguishable,
+      in what it writes, from Rakesh editing the instance himself**, not a
+      new/parallel write path.
+    - **New MCP tools** `propose_parameter_change` and
+      `list_proposed_changes` (`xillion/mcp_server/server.py`) — the LLM's
+      only params-related capability. Two structural tests
+      (`test_no_tool_can_apply_a_parameter_change_directly`,
+      extending CP7's existing `test_no_order_placement_tool_exists`
+      pattern) assert there is no tool that writes params directly, only
+      one that proposes.
+    - **Telegram**: proposing sends an alert with Approve/Reject inline
+      buttons (reusing item 10's button infrastructure exactly);
+      tapping either calls the same core functions the web UI's buttons
+      call.
+    - **Web UI**: a new "Proposed changes" panel on the Journal page —
+      parity with Telegram, not Telegram-only, so a proposal isn't missed
+      if the phone isn't handy.
+    - **Explicitly out of scope for JEV, correctly**: no order-placement
+      tool exists or was added (CP7's original guarantee, unchanged);
+      no prosper-engine changes were made in this repo's commit (that repo
+      isn't covered by this repo's commit standing-authorization per
+      CLAUDE.md — wiring an actual LLM to call these new tools is
+      prosper-engine's side of the work, for Rakesh to review separately).
+    18 new tests across 3 files (`test_proposed_changes.py`,
+    `test_mcp_server.py` additions, `test_telegram_commands.py` unaffected
+    since the new callback path is additive). 649/649 total tests passing,
+    ruff/black/mypy clean on every touched file.
+
+**This closes out the full 17-item session sprint from
+`docs/status/task-tracker.md`'s SESSION SPRINT, 2026-09-22.** See the
+Gold Sweep-Reversal strategy-viability decision (manual-tasks.md's 🔴 item)
+for what's still open — that decision was never part of this sprint and
+remains Rakesh's own call.
 
 ---
 

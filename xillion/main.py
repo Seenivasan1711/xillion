@@ -33,6 +33,7 @@ from xillion.api import logs as logs_router
 from xillion.api import mt5_bridge as mt5_bridge_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import positions as positions_router
+from xillion.api import proposed_changes as proposed_changes_router
 from xillion.api import reconciliation as reconciliation_router
 from xillion.api import risk as risk_router
 from xillion.api import settings as settings_router
@@ -672,6 +673,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(strategies.router, prefix="/api")
 app.include_router(instances.router, prefix="/api")
+app.include_router(proposed_changes_router.router, prefix="/api")
 app.include_router(risk_router.router, prefix="/api")
 app.include_router(brokers.router, prefix="/api")
 app.include_router(backtest.router, prefix="/api")

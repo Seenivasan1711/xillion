@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { BookOpen, Download, RefreshCw } from 'lucide-react'
-import { api, type JournalEntryRow, type StrategyClass } from '../lib/api'
+import { api, type JournalEntryRow, type ProposedStrategyChange, type StrategyClass } from '../lib/api'
 import { Badge, fmtINR, fmtTime, SkeletonRows } from '../components/ui'
 
 const FAILURE_MODES = [
@@ -122,6 +122,8 @@ export default function Journal() {
         </div>
       </div>
 
+      <ProposedChangesPanel />
+
       <div className="card" style={{ overflow: 'hidden' }}>
         <div className="card-head">
           <div className="row" style={{ gap: 10 }}>
@@ -191,6 +193,94 @@ export default function Journal() {
               })}
             </tbody>
           </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── JEV proposed changes (2026-09-22) ──────────────────────────────────────
+// Web-UI parity for the same propose -> notify -> approve/reject flow the
+// Telegram bot's Approve/Reject buttons already do -- an LLM proposes a
+// parameter change with reasoning via the MCP server, and it's never
+// applied until explicitly approved here or on Telegram (either surface
+// calls the same approve_proposed_change_core underneath).
+function ProposedChangesPanel() {
+  const [proposals, setProposals] = useState<ProposedStrategyChange[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [error, setError] = useState('')
+
+  const load = () => {
+    setLoading(true)
+    api.proposedChanges.list().then(r => setProposals(r.proposals)).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  const pending = proposals.filter(p => p.status === 'pending')
+  const decided = proposals.filter(p => p.status !== 'pending').slice(0, 5)
+
+  const decide = async (id: number, approve: boolean) => {
+    setBusyId(id)
+    setError('')
+    try {
+      await (approve ? api.proposedChanges.approve(id) : api.proposedChanges.reject(id))
+      load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (loading || (pending.length === 0 && decided.length === 0)) return null
+
+  return (
+    <div className="card" style={{ overflow: 'hidden' }}>
+      <div className="card-head">
+        <span className="title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          Proposed changes {pending.length > 0 && <Badge tone="warn">{pending.length} pending</Badge>}
+        </span>
+      </div>
+      <div className="card-pad stack" style={{ gap: 10 }}>
+        {error && <p style={{ fontSize: 11.5, color: 'var(--neg)', margin: 0 }}>{error}</p>}
+        {pending.map(p => (
+          <div key={p.id} className="card" style={{ padding: 12, background: 'var(--surface-2)' }}>
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>{p.strategy_instance_id}</span>
+              <span className="faint" style={{ fontSize: 10.5 }}>by {p.proposed_by} · {fmtTime(p.created_at)}</span>
+            </div>
+            <div className="dim" style={{ fontSize: 11.5, marginBottom: 8, lineHeight: 1.5 }}>{p.reasoning}</div>
+            <div className="faint mono-num" style={{ fontSize: 11, marginBottom: 10 }}>
+              {JSON.stringify(p.params)}
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                className="btn primary sm"
+                onClick={() => decide(p.id, true)}
+                disabled={busyId === p.id}
+              >
+                ✅ Approve
+              </button>
+              <button
+                className="btn ghost sm"
+                onClick={() => decide(p.id, false)}
+                disabled={busyId === p.id}
+                style={{ color: 'var(--neg)' }}
+              >
+                ❌ Reject
+              </button>
+            </div>
+          </div>
+        ))}
+        {decided.length > 0 && (
+          <div className="faint" style={{ fontSize: 10.5 }}>
+            {decided.map(p => (
+              <div key={p.id} style={{ padding: '4px 0' }}>
+                {p.status === 'approved' ? '✅' : '❌'} {p.strategy_instance_id} — {p.status} by {p.decided_by}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

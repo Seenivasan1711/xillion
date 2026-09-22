@@ -301,6 +301,15 @@ export const api = {
       }),
   },
 
+  proposedChanges: {
+    list: (status?: string) =>
+      request<{ proposals: ProposedStrategyChange[] }>(`/proposed-changes${status ? `?status=${status}` : ''}`),
+    approve: (id: number) =>
+      request<{ approved: boolean }>(`/proposed-changes/${id}/approve`, { method: 'POST' }),
+    reject: (id: number) =>
+      request<{ rejected: boolean }>(`/proposed-changes/${id}/reject`, { method: 'POST' }),
+  },
+
   data: {
     coverage: () => request<{ coverage: BarCoverage[] }>('/data/coverage'),
     backfill: (body: BackfillRequest) =>
@@ -633,6 +642,18 @@ export interface SignalLogEntry {
   outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | null
   outcome_notes: string | null
   outcome_recorded_at: string | null
+}
+
+export interface ProposedStrategyChange {
+  id: number
+  strategy_instance_id: string
+  params: Record<string, unknown>
+  reasoning: string
+  proposed_by: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  decided_at: string | null
+  decided_by: string | null
 }
 
 export interface JournalEntryRow {
