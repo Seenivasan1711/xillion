@@ -68,10 +68,14 @@ the full writeup, not hidden here:
   - Spread filter (the card's "skip if spread > 0.30") is NOT applied --
     Twelve Data's time_series endpoint returns OHLC only, no bid/ask, so
     there's no spread figure available to check.
-  - News veto (no entry within 15 min of a red-folder USD release) is a
-    stub, `_news_veto_active` below, until the Finnhub ritual check (G3)
-    is wired -- always returns False (never vetoes) rather than silently
-    pretending to check something real.
+  - News veto (no entry within 15 min of a red-folder USD release) calls
+    `ctx.news_veto_active()` (wired 2026-09-22) -- but Finnhub's *free*
+    tier returns 403 on the economic-calendar endpoint this needs
+    (confirmed live, not assumed), so it fails open (never vetoes) and
+    logs a one-time daily warning rather than silently pretending to
+    check something real. See the strategy doc's Section 7 and
+    xillion/engine/strategy_engine.py's `news_veto_active` for the honest
+    writeup of why.
   - On a freshly started instance, `ctx.history()` only has whatever bars
     have accumulated live in memory (see xillion/data/history.py) plus
     whatever's in the DB warehouse for this symbol/exchange, which is
@@ -109,13 +113,6 @@ _LEVEL_PD_NY_LOW = "PD NY-overlap Low"
 # closed weekend consume any of this budget).
 _LEVEL_LOOKBACK_BARS = 700
 _PREV_DAY_SEARCH_DAYS = 5
-
-
-def _news_veto_active(ctx: StrategyContext) -> bool:
-    """Stub for the news/econ-calendar ritual check (G3, Finnhub) -- not
-    wired yet. Always False (no veto) rather than silently pretending to
-    check something real. See the strategy doc's Section 7."""
-    return False
 
 
 def _cooldown_active(ctx: StrategyContext, bar: Bar) -> bool:
@@ -423,7 +420,7 @@ class GoldSweepReversal(Strategy):
         can_fire = (
             ctx.state["trades_today"] < p["max_trades_per_day"]
             and not _cooldown_active(ctx, bar)
-            and not _news_veto_active(ctx)
+            and not await ctx.news_veto_active()
             # Alert mode tracks no real position (never has -- it's a
             # notify-only signal, see the module docstring), so this gate
             # doesn't apply there. Paper/live/backtest track a real fill,

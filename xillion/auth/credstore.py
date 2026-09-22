@@ -80,3 +80,20 @@ async def list_credential_names(db: AsyncSession) -> list[dict]:
         {"name": r.name, "broker_name": r.broker_name, "updated_at": r.updated_at}
         for r in result.scalars().all()
     ]
+
+
+async def load_finnhub_api_key() -> str:
+    """DB-first (Settings -> Finnhub, xillion/api/settings.py), env-fallback.
+    Lives here (not in xillion/main.py, where every other _load_*_credentials
+    helper lives) specifically so xillion/engine/strategy_engine.py can call
+    it too, for the news-veto check (2026-09-22) -- importing from
+    xillion.main there would be circular, since main.py itself imports
+    StrategyEngine."""
+    from xillion.config import get_settings
+    from xillion.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        creds = await load_credentials(db, "Finnhub")
+    if creds and creds.get("api_key"):
+        return creds["api_key"]
+    return get_settings().finnhub_api_key

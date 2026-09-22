@@ -33,9 +33,13 @@
 
 ## Automation platform
 
-| Item | Why deferred | Revisit when |
-|---|---|---|
-| DB/UI-configurable Twelve Data + Finnhub credentials | Shipped 2026-09-21 as `.env`-only (`TWELVE_DATA_API_KEY`, `FINNHUB_API_KEY`) to get real Gold data flowing fast — same shortcut `MT5_FUNDING_PIPS_ENABLED` uses. Dhan/Zerodha/MT5 all have the proper DB-backed Settings-page pattern; these two don't yet. Not urgent for a single-user local setup (edit `.env` + restart). Real fix: a Settings → Data Providers card + `POST/GET /settings/twelve-data` mirroring Dhan's single-field shape | Rakesh wants to rotate/change either key without editing `.env`, or a second person/machine needs its own key |
+**DB/UI-configurable Twelve Data + Finnhub credentials — done, 2026-09-22,
+no longer deferred.** Twelve Data's live-feed broker now reads the same
+DB-backed credential the backtest data provider's existing Settings UI
+already wrote to; Finnhub got a new `Settings -> Finnhub` card. See
+`docs/status/task-tracker.md`'s SESSION SPRINT item 12 for the full
+writeup, including the real (not assumed) finding that Finnhub's free tier
+doesn't support the economic-calendar endpoint the news-veto check needs.
 
 ## Engine features
 

@@ -209,10 +209,36 @@ session, per this repo's update protocol.
     + `vite build` clean; 626/626 backend tests unaffected (frontend-only
     change). Same standing caveat as items 1/2: not yet visually confirmed
     in a logged-in browser session.
-12. ⬜ **DB/UI-configurable Twelve Data + Finnhub credentials** — currently
-    `.env`-only (deferred-backlog's "Automation platform" item).
-    **Folds in the old Finnhub news-veto wiring too** (`_news_veto_active()`
-    is still a stub) — same small scope, doing both together.
+12. ✅ **DB/UI-configurable Twelve Data + Finnhub credentials — built
+    2026-09-22, plus the news-veto wiring folded in.**
+    - **Twelve Data**: the live feed broker (`brokers/twelve_data_feed.py`)
+      now reads its key from the *same* DB-backed credential the backtest
+      data provider already had a working Settings UI for ("Twelve Data
+      (Gold History)") instead of inventing a second storage location for
+      the same account. Saving that credential now also reconnects the
+      live broker immediately (same save-then-reconnect flow
+      Zerodha/Dhan's cards already use).
+    - **Finnhub**: new `Settings -> Finnhub` card (`GET/PUT/DELETE
+      /settings/finnhub`), reusing the generic `BrokerCredential` store the
+      same way Telegram's non-broker secret already does.
+    - **News-veto wiring**: `_news_veto_active()` (a module-level stub in
+      `gold_sweep_reversal.py`) is gone — replaced with a new
+      `StrategyContext.news_veto_active()` capability (mirroring the
+      `notify()`/`notify_critical()` pattern: abstract in
+      `strategy_base.py`, real HTTP call in `strategy_engine.py`, always-
+      False in `backtest_engine.py` for reproducibility). **Verified live
+      against the real Finnhub API, not assumed**: the free tier returns
+      `403 "You don't have access to this resource"` on
+      `/calendar/economic` — it's a premium-only endpoint. The real
+      implementation still makes one genuine attempt per UTC day (not
+      per-bar — no reason to hammer an endpoint already confirmed to
+      reject the key), logs a clear one-time warning explaining why, and
+      fails open (never vetoes), same as the honest stub before it, but
+      now for a documented reason instead of "not wired yet."
+    - Frontend: `tsc --noEmit` + `vite build` clean. Backend: 14 new tests
+      (`tests/unit/test_news_veto.py` + additions to
+      `test_gold_sweep_reversal.py`), 631/631 total passing, ruff/black/
+      mypy clean (same one pre-existing unrelated mypy error as always).
 13. ⬜ **Strategy enable/disable from the UI** — a real on/off switch per
     instance (separate ask from #11/#12, called out explicitly in Rakesh's
     end-of-session outcome list) — this is what "finalize a setup and make

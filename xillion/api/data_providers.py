@@ -86,6 +86,23 @@ async def put_provider_credentials(
         raise HTTPException(404, f"Data provider '{name}' not found")
     await save_provider_credentials(db, name, name, body.payload)
     logger.info("data provider credentials saved", provider=name, user=user.username)
+
+    # "Twelve Data (Gold History)" is also read by the live Twelve Data
+    # BROKER (brokers/twelve_data_feed.py, via main.py's
+    # _load_twelve_data_api_key) -- same account/key, one place to enter
+    # it. Reconnect immediately, same save-then-reconnect flow
+    # Zerodha/Dhan's Settings cards already use, so a saved key takes
+    # effect without a process restart. Non-fatal if it fails -- this
+    # endpoint's job is saving the credential, not guaranteeing the feed
+    # connects (e.g. a bad key still saves, just won't connect).
+    if name == "Twelve Data (Gold History)":
+        try:
+            from xillion.main import _try_connect_twelve_data
+
+            await _try_connect_twelve_data(request.app)
+        except Exception as exc:
+            logger.error("twelve_data: reconnect after credential save failed", error=str(exc))
+
     return {"saved": True}
 
 

@@ -184,6 +184,12 @@ export const api = {
       request<RiskLimits>('/settings/risk-limits'),
     saveRiskLimits: (body: RiskLimits) =>
       request<{ saved: boolean }>('/settings/risk-limits', { method: 'PUT', body: JSON.stringify(body) }),
+    getFinnhub: () =>
+      request<FinnhubSettings>('/settings/finnhub'),
+    saveFinnhub: (body: FinnhubSettings) =>
+      request<{ saved: boolean }>('/settings/finnhub', { method: 'PUT', body: JSON.stringify(body) }),
+    deleteFinnhub: () =>
+      request<{ deleted: boolean }>('/settings/finnhub', { method: 'DELETE' }),
     resetData: () =>
       request<{ reset: boolean }>('/settings/reset-data', { method: 'POST' }),
     wipeAll: () =>
@@ -452,6 +458,10 @@ export interface BacktestTrade {
   exit_price: number
   bars_held: number
   pnl: number
+}
+
+export interface FinnhubSettings {
+  api_key: string
 }
 
 export interface NotificationSettings {

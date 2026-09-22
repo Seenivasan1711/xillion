@@ -467,6 +467,74 @@ class _StrategyContextImpl(StrategyContext):
         except Exception as exc:
             logger.error("notify: alert failed", instance_id=self.instance_id, error=str(exc))
 
+    async def news_veto_active(self) -> bool:
+        """Best-effort check against Finnhub's economic calendar (2026-09-22,
+        Gold Sweep-Reversal's ritual check). Confirmed the same day that
+        Finnhub's *free* tier returns 403 "You don't have access to this
+        resource" on /calendar/economic -- it's a premium-only endpoint, not
+        a bug on our side. This still makes one real attempt per UTC day
+        (cached in self.state, not per-bar -- an endpoint already known to
+        reject the key has no reason to be hit every 5 minutes) and logs a
+        one-time warning explaining why, rather than a silently-always-False
+        stub that gives no visibility into why the veto never fires."""
+        today = _now().date().isoformat()
+        if self.state.get("_finnhub_calendar_unavailable_date") == today:
+            return False
+
+        from xillion.auth.credstore import load_finnhub_api_key
+
+        api_key = await load_finnhub_api_key()
+        if not api_key:
+            return False
+
+        try:
+            from httpx import AsyncClient
+
+            async with AsyncClient() as client:
+                resp = await client.get(
+                    "https://finnhub.io/api/v1/calendar/economic",
+                    params={"token": api_key},
+                    timeout=10,
+                )
+            if resp.status_code == 403:
+                self.state["_finnhub_calendar_unavailable_date"] = today
+                logger.warning(
+                    "news_veto_active: Finnhub free tier doesn't support "
+                    "/calendar/economic (403, confirmed 2026-09-22) -- "
+                    "veto stays off (fails open) until a paid plan or a "
+                    "different provider is wired",
+                    instance_id=self.instance_id,
+                )
+                return False
+            if not resp.is_success:
+                logger.warning(
+                    "news_veto_active: Finnhub call failed",
+                    status=resp.status_code,
+                    instance_id=self.instance_id,
+                )
+                return False
+
+            events = resp.json().get("economicCalendar", [])
+            now = _now()
+            for event in events:
+                if event.get("impact") != "high" or event.get("country") != "US":
+                    continue
+                event_time_str = event.get("time")
+                if not event_time_str:
+                    continue
+                try:
+                    event_time = datetime.fromisoformat(event_time_str.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if abs((event_time - now).total_seconds()) <= 15 * 60:
+                    return True
+            return False
+        except Exception as exc:
+            logger.error(
+                "news_veto_active: exception", error=str(exc), instance_id=self.instance_id
+            )
+            return False
+
     # ── Instrument resolution (options) ──────────────────────────────────────────
 
     _INDEX_SPOT_SYMBOLS = {

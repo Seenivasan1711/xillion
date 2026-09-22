@@ -684,6 +684,8 @@ function DataProvidersTab() {
         </div>
       )}
 
+      <FinnhubCard />
+
       <CoverageAndBackfill providers={providers} />
 
       {msg && (
@@ -695,6 +697,101 @@ function DataProvidersTab() {
           {msg}
         </div>
       )}
+    </div>
+  )
+}
+
+// Finnhub (2026-09-22) -- not a registered data provider (it's a news/econ-
+// calendar API key, not an OHLC bar source), so it doesn't come through
+// api.dataProviders.classes() like the cards above. Same DB-backed
+// save/remove shape, standalone card.
+function FinnhubCard() {
+  const [apiKey, setApiKey] = useState('')
+  const [configured, setConfigured] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const load = () => {
+    api.settings.getFinnhub().then(r => {
+      setApiKey(r.api_key)
+      setConfigured(Boolean(r.api_key))
+    }).catch(() => {})
+  }
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    setSaving(true)
+    setMsg('')
+    try {
+      await api.settings.saveFinnhub({ api_key: apiKey })
+      setMsg('Finnhub key saved')
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!confirm('Remove the Finnhub key?')) return
+    try {
+      await api.settings.deleteFinnhub()
+      setApiKey('')
+      setConfigured(false)
+      setMsg('Finnhub key removed')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Remove failed')
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="title">Finnhub</span>
+        {configured
+          ? <Badge tone="pos"><CheckCircle size={11} style={{ marginRight: 4 }} />Ready</Badge>
+          : <Badge tone="warn">Not configured</Badge>
+        }
+      </div>
+      <div className="card-pad stack" style={{ gap: 12 }}>
+        <div className="dim" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+          Gold Sweep-Reversal's news/econ-calendar ritual check (free key, no card, from finnhub.io).
+          Note: Finnhub's free tier does not include the economic-calendar endpoint this needs — confirmed
+          2026-09-22 — so the check currently fails open (never vetoes) even with a key saved here, and logs
+          why. Saving a key here still doesn't hurt anything and is ready the moment a paid plan or a
+          different provider is wired.
+        </div>
+        <div className="field">
+          <label>API key</label>
+          <input
+            type="password"
+            className="input"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            autoComplete="new-password"
+          />
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn primary sm" onClick={save} disabled={saving || !apiKey}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {configured && (
+            <button className="btn ghost sm" onClick={remove} style={{ color: 'var(--neg)' }}>
+              Remove
+            </button>
+          )}
+        </div>
+        {msg && (
+          <div style={{
+            fontSize: 12, padding: '8px 12px', borderRadius: 7,
+            background: msg.includes('saved') || msg.includes('removed') ? 'var(--pos-dim)' : 'var(--neg-dim)',
+            color: msg.includes('saved') || msg.includes('removed') ? 'var(--pos)' : 'var(--neg)',
+          }}>
+            {msg}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

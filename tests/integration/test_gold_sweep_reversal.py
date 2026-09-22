@@ -37,6 +37,7 @@ class FakeContext:
         # buy()/sell() below are market orders (no price param), so this is
         # how a test controls what "fill price" the strategy sees.
         self.next_fill_price: Decimal | None = None
+        self.news_veto: bool = False  # tests can flip this to exercise the veto gate
 
     async def place_order(self, request: OrderRequest) -> Order:
         self.placed.append(request)
@@ -101,6 +102,9 @@ class FakeContext:
 
     async def notify(self, title: str, body: str, severity: str = "info") -> None:
         self.notifications.append((title, body, severity))
+
+    async def news_veto_active(self) -> bool:
+        return self.news_veto  # settable per test; defaults to False below
 
     async def history(self, symbol: str, timeframe: str, lookback: int) -> list[Bar]:
         return self._history_bars
@@ -633,3 +637,16 @@ async def test_confidence_score_appended_to_reason_when_enabled():
     assert "Setup confidence:" in reason
     assert "/100" in reason
     assert "does not gate this entry" in reason
+
+
+@pytest.mark.asyncio
+async def test_news_veto_blocks_entry_when_active():
+    strat = GoldSweepReversal()
+    ctx = FakeContext(DEFAULT_PARAMS, _base_history())
+    ctx.news_veto = True
+    await strat.on_start(ctx)
+
+    await strat.on_bar(_bar(_london(9, 0), 2629, 2632, 2628, 2631.5), ctx)
+    await strat.on_bar(_bar(_london(9, 5), 2630.5, 2629.5, 2628.5, 2629.0), ctx)
+
+    assert ctx.placed == []  # would have fired if news_veto_active() returned False

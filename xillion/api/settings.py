@@ -352,6 +352,62 @@ async def put_risk_limits(
     return {"saved": True}
 
 
+# ── Finnhub (Gold Sweep-Reversal's news-veto ritual check) ────────────────────
+# Same "reuse the generic BrokerCredential store for a non-broker secret"
+# pattern as Notifications above -- not a real broker, just one API key that
+# needs somewhere secure to live. Added 2026-09-22 (deferred-backlog's
+# "Automation platform" item): was .env-only before this.
+
+FINNHUB_NAME = "Finnhub"
+FINNHUB_BROKER = "Finnhub"
+
+
+class FinnhubSettings(BaseModel):
+    api_key: str = ""
+
+
+@router.get("/finnhub", response_model=FinnhubSettings)
+async def get_finnhub(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    creds = await load_credentials(db, FINNHUB_NAME)
+    if not creds:
+        return FinnhubSettings()
+    return FinnhubSettings(**creds)
+
+
+@router.put("/finnhub")
+async def put_finnhub(
+    body: FinnhubSettings,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    """Saves the key. Does NOT guarantee the news-veto check actually works
+    -- confirmed 2026-09-22 that Finnhub's free tier returns "You don't
+    have access to this resource" on /calendar/economic (a premium-only
+    endpoint), so _news_veto_active in gold_sweep_reversal.py fails open
+    (never vetoes) and logs a one-time warning rather than silently
+    pretending the check ran, whether or not a key is saved here."""
+    await save_credentials(db, FINNHUB_NAME, FINNHUB_BROKER, body.model_dump())
+    logger.info("finnhub settings saved", user=user.username, configured=bool(body.api_key))
+    return {"saved": True}
+
+
+@router.delete("/finnhub")
+async def delete_finnhub(
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+):
+    from xillion.db.models import BrokerCredential
+
+    row = await db.get(BrokerCredential, FINNHUB_NAME)
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return {"deleted": True}
+
+
 # ── Danger zone ──────────────────────────────────────────────────────────────
 
 # Tables cleared by /reset-data: trade history, log records, strategy run

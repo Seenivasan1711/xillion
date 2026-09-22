@@ -273,6 +273,14 @@ class _BacktestContext(StrategyContext):
         # very first entry.
         logger.info(title, mode="backtest", detail=body, severity=severity)
 
+    async def news_veto_active(self) -> bool:
+        # Always False -- a backtest replays fixed historical bars and must
+        # be reproducible; making a live call to "today's" real economic
+        # calendar while replaying, say, March 2026 would be both wrong and
+        # non-deterministic. Same "no real Telegram/API for backtest" spirit
+        # as notify()/notify_critical() above.
+        return False
+
     # ── Options resolution (Options Stage 2 / CP11 follow-up) ──────────────────
 
     def _current_date(self):

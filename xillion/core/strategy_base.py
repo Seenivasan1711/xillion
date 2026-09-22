@@ -291,6 +291,18 @@ class StrategyContext(ABC):
         a-log-line, never-raises contract."""
         raise NotImplementedError
 
+    async def news_veto_active(self) -> bool:
+        """True if a high-impact economic release is imminent and a
+        strategy's own "don't enter near red-folder news" rule should skip
+        firing (added 2026-09-22 for Gold Sweep-Reversal's ritual check,
+        generic to any strategy that wants it). Routes through the same
+        DB-configured credential (Settings -> Finnhub) a strategy plugin
+        must never reach directly -- see xillion/core's "no DB/auth
+        imports in strategies/*.py" convention. Best-effort: returns False
+        (no veto) rather than raising if the check can't actually run
+        (unconfigured, or the provider's plan doesn't support it)."""
+        raise NotImplementedError
+
 
 class Strategy(ABC):
     """

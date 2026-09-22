@@ -310,14 +310,34 @@ async def _try_connect_mt5(app: FastAPI) -> None:
         }
 
 
+async def _load_twelve_data_api_key() -> str:
+    """DB-first, env-fallback -- but reuses the *data provider* credential
+    already entered under Settings -> Data Providers -> "Twelve Data (Gold
+    History)" (xillion/auth/data_provider_credstore.py), rather than
+    inventing a second storage location for the same Twelve Data account's
+    key. Added 2026-09-22 (deferred-backlog's "Automation platform" item)
+    -- before this, the live feed broker only ever read
+    TWELVE_DATA_API_KEY from .env, even though the backtest-side data
+    provider already had a working DB-backed Settings UI for the same key."""
+    from xillion.auth.data_provider_credstore import load_provider_credentials
+    from xillion.db.session import get_session_factory
+
+    async with get_session_factory()() as db:
+        creds = await load_provider_credentials(db, "Twelve Data (Gold History)")
+    if creds and creds.get("api_key"):
+        return creds["api_key"]
+    return settings.twelve_data_api_key
+
+
 async def _try_connect_twelve_data(app: FastAPI) -> None:
     """Gold Sweep-Reversal alert engine's live price feed -- see
     brokers/twelve_data_feed.py's module docstring for why this is a
     separate "broker" from MT5 Funding Pips above (data-only, no orders,
-    no Wine/bridge dependency). Gated on settings.twelve_data_api_key so it
-    doesn't silently appear as a usable broker for everyone by default,
-    same pattern as _try_connect_mt5."""
-    if not settings.twelve_data_api_key:
+    no Wine/bridge dependency). Gated on having a key configured (DB or
+    env) so it doesn't silently appear as a usable broker for everyone by
+    default, same pattern as _try_connect_mt5."""
+    api_key = await _load_twelve_data_api_key()
+    if not api_key:
         app.state.broker_instances.pop("Twelve Data Gold Feed", None)
         return
 
@@ -325,7 +345,7 @@ async def _try_connect_twelve_data(app: FastAPI) -> None:
         from brokers.twelve_data_feed import TwelveDataBroker
 
         broker = TwelveDataBroker()
-        await broker.connect({"api_key": settings.twelve_data_api_key})
+        await broker.connect({"api_key": api_key})
         app.state.broker_instances["Twelve Data Gold Feed"] = {
             "name": "Twelve Data Gold Feed",
             "broker_name": "Twelve Data (Gold Feed)",
