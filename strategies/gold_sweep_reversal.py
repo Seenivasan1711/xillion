@@ -238,7 +238,18 @@ class GoldSweepReversal(Strategy):
         bar_date = bar.ts.date().isoformat()
         hour = bar.ts.hour + bar.ts.minute / 60.0
 
-        if ctx.state.get("trade_date") != bar_date:
+        # Roll only once we've reached the trading window's own start hour,
+        # not on the calendar day's first bar (typically ~00:00 UTC, deep
+        # inside the Asian session) -- found 2026-09-22 running a real
+        # backtest: rolling at day-start meant TODAY's own Asian-session
+        # bars were never yet in ctx.history() (they hadn't been processed
+        # yet), so Asian High/Low came back missing on every single day of
+        # a 6-month backtest, not just as a first-day bootstrap artifact.
+        # Waiting until the trading window's start hour means the day's
+        # earlier (Asian-session) bars have each already been processed
+        # via their own on_bar call by then, so they're genuinely visible
+        # in history when levels are actually computed.
+        if ctx.state.get("trade_date") != bar_date and hour >= p["session_start_utc_hour"]:
             await self._roll_day(bar, ctx, bar_date)
 
         ctx.state["bar_index"] = ctx.state.get("bar_index", 0) + 1
@@ -452,7 +463,6 @@ class GoldSweepReversal(Strategy):
             sl=sl,
             tp=tp,
             trades_today=trades_today,
-            mode=ctx.mode,
         )
 
     async def on_tick(self, tick: Tick, ctx: StrategyContext) -> None:

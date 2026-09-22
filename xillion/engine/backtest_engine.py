@@ -262,6 +262,17 @@ class _BacktestContext(StrategyContext):
         # other backtest log line goes through).
         logger.critical(title, mode="backtest", detail=body)
 
+    async def notify(self, title: str, body: str, severity: str = "info") -> None:
+        # Same reasoning as notify_critical above -- no real Telegram push
+        # for a routine (non-critical) notification either; a backtest
+        # replaying months of history shouldn't spam a phone regardless.
+        # Found 2026-09-22: this override was missing entirely, so every
+        # non-alert-mode entry/exit notification (Gold Sweep-Reversal's
+        # paper/live/backtest path) hit the abstract base's
+        # NotImplementedError and crashed the whole backtest run on the
+        # very first entry.
+        logger.info(title, mode="backtest", detail=body, severity=severity)
+
     # ── Options resolution (Options Stage 2 / CP11 follow-up) ──────────────────
 
     def _current_date(self):
@@ -457,6 +468,17 @@ class BacktestEngine:
                     continue
                 ctx._set_time(bar)
                 await strategy.on_bar(bar, ctx)
+                # Synthesize a Tick at this bar's own close for its own
+                # primary symbol, so on_tick-driven logic actually runs in
+                # backtest for a strategy that isn't options-shaped (Gold
+                # Sweep-Reversal's SL/TP monitoring, for one) -- found
+                # 2026-09-22: without this, on_tick only ever fired for
+                # dynamically-resolved option legs below, so a plain
+                # non-options strategy's on_tick simply never ran in
+                # backtest at all, and any position it opened never closed.
+                # Bar-close-only precision (not true intrabar), same honest
+                # limitation as the option-leg case just below.
+                await strategy.on_tick(Tick(symbol=bar.symbol, ltp=bar.close, ltt=bar.ts), ctx)
                 # Synthesize a daily Tick for any dynamically-resolved option
                 # leg (see _BacktestContext.subscribe_instrument) so on_tick-
                 # driven logic -- e.g. CP11's protective-order monitoring --
