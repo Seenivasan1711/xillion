@@ -55,6 +55,57 @@ The v1-v3 sections below remain accurate as a record of what was tested
 and found at each stage — they're just not the final word on whether these
 10 candidates have any edge, which is why C1 sits above them now.
 
+## C2 — timeframe experiment: the "config change only" fix doesn't hold
+
+Tested the obvious next step: move the 6 gross-positive strategies from M1
+entries to M5/M15 bars, same code, real cost, no retuning — per the
+external review's own claim that this should work as "same signal logic,
+config change only," since a fixed ~$3.80/trade cost should bite less
+hard against a coarser bar's naturally wider price swings.
+
+**Result: no.** Full table and reasoning in
+`research/xauusd_scalping/03c_timeframe_experiment.md`. Headline: no
+strategy meaningfully crosses net PF 1.0 on a usable sample (the one
+above-1.0 result, S06 at M15, has only 7 trades — the same underpowered-
+noise trap this project already learned from S06 once before). Several
+strategies got *worse*, not better, at a coarser timeframe. Root cause:
+every strategy's lookback/threshold parameters are counted in **bars**,
+not minutes — unchanged code on M5 bars looks back 5x further in real
+time than on M1, so it fires on qualitatively different, much rarer
+setups, not "the same setups with more room to breathe." Trade counts
+collapsed accordingly (S08: 109 at M1 → 2 at M5 → 11 at M15).
+
+**This doesn't kill the idea, it kills the cheap version of it.** A
+proper timeframe redesign (lookback windows converted to be
+time-equivalent, not bar-count-equivalent; stop/target distances
+redesigned around each timeframe's own structural swing sizes rather than
+the M1-calibrated `risk_floor.py` floor) is a real re-engineering task,
+untested here by design (no retuning in this pass, to test the "config
+change only" claim honestly on its own terms).
+
+**Recommendation before investing in that redesign** (from the fork that
+ran this experiment, and it's sound): confirm C1's gross-edge finding is
+*robust* first — does S07's gross PF 1.67 (the strongest candidate) hold
+up under the real walk-forward/holdout protocol P3 was always supposed to
+use (still not built — see `04_plan.md`), or was even the gross-level
+result partly an in-sample artifact? Spending real engineering effort on
+a timeframe redesign before that check risks polishing a signal that
+hasn't been verified out-of-sample at all.
+
+**Also found in the same pass, unrelated to this experiment's conclusion
+but a real defect**: `engine/cost_model.py`'s `VolBucket` classification
+is dead code — `entry_cost_pts`/`exit_cost_pts` are called with
+`VolBucket.MEDIUM` hardcoded at both call sites in `backtest_engine.py`
+(confirmed directly, `_open_position` and `_close_position`), so despite
+being documented as a "session×volatility-bucket cost model," costs have
+never actually varied by realized volatility in any run this project has
+done — only by session. Constant across every comparison run so far, so
+it doesn't invalidate C1/C2's conclusions, but it means every backtest's
+absolute cost numbers are less realistic than the harness's own
+documentation claims (probably understating cost in high-vol regimes,
+overstating it in low-vol ones). See D28 in
+`decisions-and-open-questions.md`.
+
 ---
 
 ## Data actually used (honest accounting)

@@ -56,11 +56,25 @@ none of it auto-appears as a live selectable strategy (see D21 in
   ~$3.80/trade fixed cost (spread+slippage on a tight M1 stop) eats a real
   but modest edge. Only S05 (0.69 gross) and S09 (0.92 gross) look
   genuinely no-edge. Full detail: `03_results.md`'s new "C1" section.
-  **Highest-value next step, now running**: test moving the 6 promising
-  strategies from M1 entries to M5/M15 with proportionally wider stops —
-  cost stays ~fixed in $ terms while the per-trade edge available to
-  absorb it grows, which is exactly what should flip several of these
-  net-positive if the gross edge is real.
+  **C2 follow-up (2026-09-23) — tested, and the cheap fix doesn't work.**
+  Moved the 6 gross-positive strategies to M5/M15 bars, same code, real
+  cost, no retuning, per the external review's "config change only" claim.
+  **No strategy meaningfully crosses net PF 1.0 on a usable sample** —
+  root cause: lookback/threshold params are counted in bars not minutes,
+  so unchanged code on M5 looks back 5x further in real time and fires on
+  qualitatively different, much rarer setups (S08's trade count collapsed
+  109→2→11). This kills the *cheap* version of the fix, not the idea
+  itself — a real timeframe redesign (time-equivalent lookbacks, timeframe
+  -native stop/target sizing) is untested and would be real engineering,
+  not a config flag. Full detail: `03_results.md`'s C2 section,
+  `03c_timeframe_experiment.md`. **Also found**: `engine/cost_model.py`'s
+  `VolBucket` is dead code — costs have only ever varied by session, never
+  by volatility, in every run to date (D28 — deferred fix, bundled into
+  the walk-forward harness build rather than fixed in isolation).
+  **Recommended next step, not yet started**: before investing in a real
+  timeframe redesign, confirm C1's gross-edge finding survives the actual
+  walk-forward/holdout protocol (still not built, see `04_plan.md`) — the
+  gross-level edge itself hasn't been checked out-of-sample yet.
 - 🔴 **P3 v3 (2026-09-23) — full 6.5-month continuous backfill done,
   8 of 10 strategies now have a credible negative verdict, 2 genuinely
   unresolved (one blocked by a confirmed bug, not a data gap).** The

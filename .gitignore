@@ -51,6 +51,7 @@ research/xauusd_scalping/data/backups/
 # 03_results.md is the actual reviewed deliverable
 research/xauusd_scalping/_backtest_results_raw.json
 research/xauusd_scalping/_zero_cost_results.json
+research/xauusd_scalping/_timeframe_experiment_raw.json
 
 # Testing & coverage
 .pytest_cache/
