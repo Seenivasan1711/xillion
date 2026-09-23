@@ -2839,6 +2839,7 @@ from the Mac.
 | ~~14~~ | ~~Confirm before running: apply migration 020 to the real Supabase DB~~ | ~~Taken/skipped/outcome columns existing on the real DB~~ | ✅ **Resolved 2026-09-21** — applied, verified via `information_schema` |
 | ~~15~~ | ~~Supabase project paused/gone — hostname returned NXDOMAIN~~ | ~~Everything~~ | ✅ **Resolved 2026-09-21** — Rakesh resumed it from the dashboard |
 | 16 | 🔴 Decide how to proceed on Gold Sweep-Reversal after two failed parameter sweeps (net loss on real 6mo backtest, SL cap/floor sweeps both net-negative) | Further parameter work, real paper trading | Open — see `manual-tasks.md`, not urgent |
+| 17 | Upload `.env` + `data/.encryption_key` + XAUUSD backfill + warehouse DB backups to Drive | Continuing this project from a new laptop without a ~23-hour redo or lost broker/API access | Open — see `manual-tasks.md`, full checklist with what to skip |
 
 ---
 
