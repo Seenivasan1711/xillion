@@ -5,15 +5,15 @@ Each strategy's real trade count, session mix, and (stop_pts, target_pts) pairs 
 
 | Strategy | n | Real PnL | Random p5 | Random p50 | Random p95 | Verdict |
 |---|---|---|---|---|---|---|
-| S01 Liquidity Sweep + Displacement + FVG Retest | 114 | $-416.29 | $-527.37 | $-428.10 | $-334.91 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S01 Liquidity Sweep + Displacement + FVG Retest | 144 | $-716.29 | $-616.40 | $-514.04 | $-404.46 | BELOW random p5 -- worse than random noise |
 | S02 Multi-Timeframe Liquidity + CHoCH | 0 | $0.00 | — | — | — | n=0 -- no comparison possible |
-| S03 Order Block Retest after BOS | 178 | $-612.94 | $-777.96 | $-675.27 | $-565.53 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
-| S04 Wyckoff Spring/Upthrust | 0 | $0.00 | — | — | — | n=0 -- no comparison possible |
-| S05 NR7/Inside-Bar Compression Breakout | 174 | $-811.50 | $-775.44 | $-665.83 | $-543.58 | BELOW random p5 -- worse than random noise |
-| S06 Premium/Discount OTE Fib Retracement | 49 | $-146.06 | $-235.06 | $-179.83 | $-119.51 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
-| S07 Market Profile Value-Area Rotation | 106 | $-278.77 | $-490.15 | $-403.16 | $-318.31 | ABOVE random p95 -- distinguishable from random (positive signal) |
-| S08 BOS Pullback Continuation | 109 | $-419.31 | $-508.01 | $-417.21 | $-331.15 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
-| S09 Session Liquidity Run + Reversal | 72 | $-278.57 | $-348.82 | $-261.55 | $-188.52 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
-| S10 Equal Highs/Lows + RSI Divergence | 172 | $-564.07 | $-756.96 | $-645.67 | $-549.50 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S03 Order Block Retest after BOS | 245 | $-1374.61 | $-1039.66 | $-908.30 | $-780.67 | BELOW random p5 -- worse than random noise |
+| S04 Wyckoff Spring/Upthrust | 3 | $1.93 | $-21.44 | $-12.72 | $20.40 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S05 NR7/Inside-Bar Compression Breakout | 238 | $-1304.10 | $-1016.37 | $-878.91 | $-745.28 | BELOW random p5 -- worse than random noise |
+| S06 Premium/Discount OTE Fib Retracement | 56 | $-194.87 | $-259.51 | $-198.42 | $-134.98 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S07 Market Profile Value-Area Rotation | 128 | $-724.54 | $-574.39 | $-475.76 | $-373.23 | BELOW random p5 -- worse than random noise |
+| S08 BOS Pullback Continuation | 159 | $-892.41 | $-711.68 | $-593.88 | $-481.67 | BELOW random p5 -- worse than random noise |
+| S09 Session Liquidity Run + Reversal | 86 | $-365.10 | $-397.74 | $-298.07 | $-205.23 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S10 Equal Highs/Lows + RSI Divergence | 237 | $-1264.62 | $-1001.96 | $-872.85 | $-740.23 | BELOW random p5 -- worse than random noise |
 
-**Summary**: 6 of 10 statistically indistinguishable from random noise, 1 below the random band (worse than noise), 1 above the random band (distinguishable positive signal), 2 with no comparison possible (zero real trades).
+**Summary**: 3 of 10 statistically indistinguishable from random noise, 6 below the random band (worse than noise), 0 above the random band (distinguishable positive signal), 1 with no comparison possible (zero real trades).

@@ -66,11 +66,18 @@ none of it auto-appears as a live selectable strategy (see D21 in
 > disappears. A real FundingPips $5k evaluation (#20635994) is Ongoing in
 > Phase 1: **none of these eleven strategies should be run on it, at any
 > size.**
-> **Do not resume signal-hunting at M1.** The open questions, if this track
-> continues at all, are: does S07 (the only strategy that beat a random
-> baseline) survive a walk-forward, and does the same toolkit show anything
-> at H1/H4 — where swap (**-93.17 pts/night on longs**) must be modelled
-> and currently is not.
+> **Do not resume signal-hunting at M1.** **The S07 question is closed
+> (2026-09-24):** the random-entry benchmark re-run on corrected geometry
+> found **zero of ten strategies beat random, and six (incl. S07) are
+> *worse* than random** — table in `07_...verdict.md` "Update 2" and
+> `03b`. The only remaining question, if this track continues at all, is
+> whether the toolkit shows anything at H1/H4 — where swap (**-93.17
+> pts/night on longs**) must be modelled and currently is not.
+> **Lane decision pending with Rakesh (2026-09-24):** Claude recommended
+> switching Track B's end-to-end target to the Options credit spread
+> (Lane A — direction-independent edge, multi-year NIFTY backfill already
+> in place, real multi-year Stage 2 backtest never actually run). Not
+> switched until Rakesh confirms.
 
 **One-paragraph version:** this track spent its first phase asking "which
 of these 11 strategies has an edge," and the answer turned out to be that
@@ -125,14 +132,11 @@ reading 3-5 real spread values off MT5 settles it** (see
   `research/xauusd_scalping/06_rr_geometry_finding_and_plan.md` for
   whatever landed after.
 
-**The next concrete task, in order:**
-1. Get the real spread numbers (Rakesh, `manual-tasks.md`).
-2. Re-run the cost model with them. If costs are materially lower, redo
-   Phase 1's viability arithmetic; if not, the structural conclusion is
-   confirmed.
-3. Only then decide: pivot to a slower timeframe where cost is a small
-   fraction of the trade (and account for swap), or stop this track.
-   **Do not resume signal-hunting at M1 until step 2 answers.**
+**The next concrete task (updated 2026-09-24 — steps 1-2 of the old list
+are done: real spread = 31pts, structural conclusion confirmed; S07 benchmark
+done, no strategy beats random):** Rakesh decides the Track B lane — Options
+credit spread end-to-end (Claude's recommendation), gold at H1/H4 with swap
+modelled, or stop gold research. **Do not resume signal-hunting at M1.**
 
 **The standing prior worth carrying into any new work here:** a near-zero
 signal count has meant "structurally unsatisfiable condition combination"

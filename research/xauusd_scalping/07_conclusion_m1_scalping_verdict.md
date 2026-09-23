@@ -142,6 +142,31 @@ when taken together.
 lands in shared machinery, every ranking derived from the old machinery is
 void, not merely suspect.**
 
+## Update 2 (same day): the random-entry benchmark on corrected geometry — no strategy beats random
+
+The benchmark (`random_entry_benchmark.py`, 500 matched random runs per
+strategy, same sessions/stops/targets as each real trade) was re-run on the
+fixed engine. Full table in `03b_random_entry_benchmark.md`.
+
+| Strategy | n | Real P&L | Random p5 / p50 / p95 | Verdict |
+|---|---|---|---|---|
+| S01 | 144 | -$716.29 | -$616 / -$514 / -$404 | **worse than random** |
+| S02 | 0 | — | — | no trades, untestable |
+| S03 | 245 | -$1,374.61 | -$1,040 / -$908 / -$781 | **worse than random** |
+| S04 | 3 | +$1.93 | -$21 / -$13 / +$20 | indistinguishable (n=3, meaningless) |
+| S05 | 238 | -$1,304.10 | -$1,016 / -$879 / -$745 | **worse than random** |
+| S06 | 56 | -$194.87 | -$260 / -$198 / -$135 | indistinguishable |
+| S07 | 128 | -$724.54 | -$574 / -$476 / -$373 | **worse than random** |
+| S08 | 159 | -$892.41 | -$712 / -$594 / -$482 | **worse than random** |
+| S09 | 86 | -$365.10 | -$398 / -$298 / -$205 | indistinguishable |
+| S10 | 237 | -$1,264.62 | -$1,002 / -$873 / -$740 | **worse than random** |
+
+**Zero of ten beat random. Six are below the random 5th percentile** — their
+entries are systematically *worse* than chance, not merely uninformative.
+S07, the former "one candidate," is among them. This closes the last open
+question on M1: there is no strategy here with a credential to build on,
+and no walk-forward is worth running.
+
 ## Recommendation
 
 **Stop signal-hunting at M1 on XAUUSD.** The question "which of these
@@ -150,10 +175,9 @@ independent measurements. Continuing to test variants of the same idea at
 the same timeframe would be motion, not progress.
 
 The genuinely open questions, if this track continues:
-- **Does ANY strategy still beat a random baseline on corrected geometry?**
-  The old answer (S07) is void — see the Update above. The benchmark is
-  being re-run on the fixed engine; until it returns, no strategy here has
-  a live credential.
+- ~~Does ANY strategy still beat a random baseline on corrected geometry?~~
+  **Answered 2026-09-24: no** — see "Update 2" above. None of the nine
+  testable strategies beats random; six are worse than it.
 - Does the same toolkit applied at H1/H4 (with swap modelled) show
   anything? At the 24h horizon the median move (46pts) finally exceeds the
   39pt round-trip cost — the only horizon where the arithmetic opens up at
