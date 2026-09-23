@@ -44,6 +44,39 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
+- 🔴 **S11 (first video-sourced candidate) tested end-to-end (2026-09-24)
+  — no demonstrable edge, plus a third instance of a recurring bug
+  class.** Rakesh supplied a YouTube gold-scalping strategy (transcript +
+  local video) and asked for it encoded, backtested separately, and
+  journaled alongside future video-sourced candidates in
+  `05_consolidated_findings_and_strategy_request.md` section 8. Encoded
+  using existing toolkit primitives only, with 5 transcript ambiguities
+  documented rather than silently resolved, and the video's own
+  discretionary mid-trade stop-removal deliberately excluded (this
+  project's real MT5 log already shows that behavior causing its largest
+  real losses). **v1 fired 1 trade in 6.5 months — an encoding bug, found
+  by instrumenting every gate** (`s11_funnel.py`, 34,871 sampled bars):
+  it required a 15m break-of-structure to be *firing* AND price to be
+  *simultaneously* inside the order block that caused it —
+  near-mutually-exclusive, since a BOS fires precisely because price moved
+  away from that zone. **The initial hypothesis (hard 1H/15m alignment
+  filter) was measured and proven wrong** — 25% of bars cleared it.
+  **v2 restructured into an explicit state machine** (bias + zone held as
+  persistent state, sequential IDLE→ARMED→MITIGATED→entry), with a prior
+  expectation stated before running (low hundreds = fixed, <20 = not
+  fixed, thousands = gate broken). **Result: 90 trades** — in range, fix
+  accepted. **v2 verdict is negative**: real-cost PF 0.19 (-$342.11),
+  gross PF 1.036 (thinner than every gross-positive strategy except S08),
+  and the random-entry benchmark puts it essentially *on the random
+  median* (real -$342.11 vs random p50 -$346.18) — **statistically
+  indistinguishable from random entry**. Not a P4 candidate. Cost drag
+  $3.88/trade, consistent with the ~$3.80 measured everywhere else.
+  Full detail: `03d_s11_video_strategy_result.md`.
+  **Recurring pattern now worth treating as a standing prior**: S02, S04,
+  and S11 v1 all reported near-zero signals, and all three turned out to
+  be structurally unsatisfiable condition combinations — 3 for 3, never
+  "the market didn't offer this setup." Instrument and trace before
+  believing any near-zero result.
 - 🔴 **C3 random-entry benchmark + S04 redesign complete (2026-09-23) —
   only S07 is actually distinguishable from random; S04's bug is fixed but
   the strategy is now underpowered, not resolved.**
