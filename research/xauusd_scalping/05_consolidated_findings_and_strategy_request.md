@@ -233,16 +233,67 @@ version would need each strategy's parameters redesigned to be
 time-equivalent (not bar-count-equivalent) at the new timeframe, which is
 real engineering, not yet attempted.
 
-### 4.4 Still open / in progress as of this writing
+### 4.4 The random-entry benchmark: only ONE of the 6 "gross edge" strategies is real
 
-- S04's three-gate redesign (§4.1) — implementation in progress, not
-  finalized, not yet re-tested against real data end-to-end.
-- A random-entry benchmark (same session mix, same stop/target profile,
-  same costs, same risk limits as each real strategy, entries randomized)
-  is being built to answer: are the 8 firing strategies' results actually
-  distinguishable from noise at all, or would random entries with the
-  same risk profile produce similar-looking numbers? Not complete as of
-  this writing.
+§4.2 found 6 strategies with real gross (pre-cost) edge. That still left a
+question unanswered: does the strategy's specific entry *timing* add
+value, or would a random entry with the same session mix and the same
+(stop, target) sizing do just as well? Built exactly that comparison —
+same real cost, same tested engine fill logic, 500 runs per strategy of
+randomly-timed entries matched to each strategy's own real session
+distribution and (stop_pts, target_pts) pairs:
+
+| Strategy | Real PnL | Random p5 | Random p50 | Random p95 | Verdict |
+|---|---|---|---|---|---|
+| S01 | -$416.29 | -$527.37 | -$428.10 | -$334.91 | Indistinguishable from random |
+| S03 | -$612.94 | -$777.96 | -$675.27 | -$565.53 | Indistinguishable from random |
+| S05 | -$811.50 | -$775.44 | -$665.83 | -$543.58 | **Worse than random** |
+| S06 | -$146.06 | -$235.06 | -$179.83 | -$119.51 | Indistinguishable from random |
+| **S07** | -$278.77 | -$490.15 | -$403.16 | -$318.31 | **Beats random — real signal** |
+| S08 | -$419.31 | -$508.01 | -$417.21 | -$331.15 | Indistinguishable from random |
+| S09 | -$278.57 | -$348.82 | -$261.55 | -$188.52 | Indistinguishable from random |
+| S10 | -$564.07 | -$756.96 | -$645.67 | -$549.50 | Indistinguishable from random |
+
+**Only S07 is actually distinguishable from a same-profile random entry.**
+The other 5 gross-positive strategies (S01, S03, S06, S08, S10) perform
+statistically the same as randomly timing entries with their own R:R/
+session shape — their §4.2 gross edge most likely comes from that
+structural shape being favorable in this window (e.g. the shared
+`risk_floor.py` sizing, or a directional bias in the sessions they happen
+to trade), not from the entry logic predicting anything. **This
+substantially narrows the field: S07 is now the single strongest
+candidate, backed by two independent pieces of evidence (gross PF 1.67
+AND a real edge over random), not one of six roughly-equal candidates.**
+Any combination idea should treat S07 as the anchor, not weight all 6
+equally.
+
+### 4.5 S04's redesign — done, but the fixed detector is more conservative than expected
+
+The three-gate redesign referenced in §4.1 is complete: a corrected
+Kaufman Efficiency Ratio (trend gate), a random-walk containment envelope
+using a real *measured* instrument constant (not guessed —
+`sigma_to_atr=1.4628`, computed directly from this dataset's own ATR/
+volatility relationship), and a boundary-touch count. Two more real bugs
+were found and fixed along the way (a tautology where the range window
+included "today," so today's own bars could never break out of a range
+that already contained them; and a real performance bug that made a full
+backtest take ~40 minutes before a per-day caching fix brought it to 64
+seconds).
+
+**Honest result**: the corrected detector's gate passes on only 7.12% of
+real windows (below the 10-25% expected going in), and a synthetic
+validation test (Ornstein-Uhlenbeck mean-reverting series vs. trending
+GBM, never checked against real gold P&L, exactly per the honesty-clause
+methodology in §5) shows it correctly keeps only 63.3% of genuine ranges
+as ranges (target was ≥70%), while correctly rejecting 85% of trends
+(target ≤20% false positive, met). **S04 now fires 2 real trades over the
+full dataset** — technically working, but nowhere near enough to verdict
+either way, and notably fewer than the redesign's own prediction of
+~1-5 signals/month. No threshold was loosened to close this gap — that
+would be exactly the curve-fitting this project is trying to avoid.
+
+### 4.6 Still open
+
 - **No real walk-forward or holdout validation has been run yet.**
   Everything above is a single pooled backtest over the whole 6.5-month
   dataset — in-sample by construction. The original research spec calls
@@ -358,10 +409,14 @@ each proposal, be specific about:
    `IndicatorSignals`' RSI/EMA/ADX/VWAP as confirmation).
 3. **Why you think it's more likely to survive real costs and a real
    walk-forward** than the 10 already tested — ideally grounded in
-   something specific from §4 (e.g., "S07 and S03 have the highest gross
-   PF and overlapping liquidity-based logic — does requiring both to agree
-   within N bars cut trade count but raise PF enough to survive cost,
-   tested against a random pairing as a control?").
+   something specific from §4. **S07 is the one strategy backed by two
+   independent pieces of evidence (real gross edge AND a real edge over a
+   random-entry benchmark, §4.4) — treat it as the anchor for any
+   combination idea, not one of several equally-weighted candidates.** For
+   example: "S07 fades back to the point of control on a balance day —
+   does requiring S03's order-block retest condition as additional
+   confluence within N bars cut S07's trade count but raise its PF enough
+   to survive cost, tested against a random pairing as a control?"
 4. **The exact validation protocol** for testing it, honoring §5 — sample
    size needed, whether it needs synthetic pre-validation, what result
    would make you say "debug, don't retune."
@@ -373,3 +428,104 @@ them, is likely to clear a real bar, say that plainly and suggest what
 would need to be fundamentally different (a different instrument, a
 different timeframe philosophy, a different data source) rather than
 proposing an 11th minor variant of the same idea.
+
+---
+
+## 8. Video-sourced strategy candidates (ongoing log)
+
+The project owner is periodically sourcing additional candidate
+strategies from third-party trading-education content (YouTube videos,
+etc.) and asking for each one to be encoded, implemented against the
+existing toolkit, and backtested exactly like S01-S10 — same rigor, same
+honesty clause, no exceptions. This section is a running log, appended to
+as each new one comes in, so the full history stays in one place for
+whoever reviews this document next (including a separate teammate the
+project owner may run a consolidated review with).
+
+### 8.1 "S11" — Brad Gold's multi-timeframe liquidity + market structure scalp
+
+**Source**: YouTube video, "How I Made $566K Trading Gold" (creator: Brad
+Gold / "1% Club" / "Edge Flow"), transcript provided 2026-09-23. Two
+specific live trades are referenced in the video as examples (documented
+on the creator's second channel, "Brad Trades") — **the large profit
+figures cited ($566K, two trades of $292K/$274K) are the video's own
+marketing claims about the creator's own account size and are explicitly
+NOT part of the strategy specification** — they say nothing about this
+project's $5,000 FundingPips account or its 0.08-lot sizing, and must not
+be treated as evidence of anything. Only the mechanistic rules below are
+being tested.
+
+**Mechanism, as precisely as the transcript specifies it:**
+
+1. **Directional bias (soft filter)**: determine trend on both the 1-hour
+   and 15-minute timeframes via market structure — a "market shift"
+   (price breaking the most recent opposing swing point, e.g. a
+   higher-high after a run of lower-highs/lower-lows) followed by
+   confirmed higher-highs/higher-lows (bullish) or lower-highs/lower-lows
+   (bearish). Prefer trading only when both timeframes agree; the video's
+   own second example trade explicitly took a trade against this rule
+   (1H bearish, 15m bullish) and still describes it as viable, just lower
+   quality ("I'll give it a 5 out of 10") — so this is a confidence
+   modifier, not a hard gate, per the video's own framing.
+2. **Mark points of interest (POI)** in the bias direction: on the 1H
+   timeframe, demand zones (bullish) or supply zones (bearish) — defined
+   as the last opposing-color candle before a strong impulsive move away
+   (this is exactly this project's existing `order_block` primitive,
+   already implemented — no new detector needed for this part). Also mark
+   1H and 15m swing highs/lows as available liquidity (unswept levels).
+3. **Wait for price to reach (mitigate) a 15-minute POI** in the bias
+   direction. No trade is considered before this.
+4. **Entry trigger — two variants, both from the same transcript**:
+   - **Aggressive**: once price is at the 15m POI, wait for a liquidity
+     sweep (price trades beyond a nearby, not-yet-swept swing low [for
+     longs] or swing high [for shorts]) — enter on the sweep, optionally
+     after one additional same-direction confirmation candle closes (the
+     video's own live trade execution used this extra candle, not a raw
+     sweep-and-enter).
+   - **Conservative**: after the same liquidity sweep, additionally wait
+     for a "market shift" on a lower/execution timeframe (an internal
+     break of structure past the most recent opposing internal swing),
+     then wait for a pullback to the zone that caused that shift, and
+     enter on mitigation of that zone.
+5. **Stop-loss**: just beyond the extreme of the specific candle/wick
+   that performed the liquidity sweep (the "protected" swing point) — a
+   small buffer beyond it, not a wide discretionary stop.
+6. **Take-profit**: the nearest opposing point of interest. The video
+   explicitly recommends the conservative choice for scalping — the
+   nearest 15-minute opposing swing high/low, not the further 1-hour one
+   ("I'm not trying to catch some massive move... I'm just going to
+   target the nearest logical liquidity").
+
+**A deliberate, explicit deviation from the video's own live execution**:
+in the second example trade, the creator manually removes their stop-loss
+mid-trade based on discretionary "gut feeling," explicitly against their
+own stated beginner advice ("if you're in your first year of trading, I
+would highly discourage you from moving your stop loss"). **This
+implementation must NOT encode that behavior.** This project already has
+direct, real evidence (§6 above — the project owner's own real MT5 trade
+log) that exactly this behavior (removing/ignoring a stop) produced the
+largest losses in a real account, dwarfing all the small disciplined
+wins combined. S11 is specified and must be implemented as a fully
+mechanical strategy with an unconditional stop, full stop — the video's
+own discretionary override is noted here for completeness, not as
+something to replicate.
+
+**Implementation mapping to the existing toolkit** (no new primitives
+needed, only new composition + multi-timeframe resampling, reusing
+`timeframe_experiment.py`'s already-built generic `resample_bars`):
+market structure / market shift → `break_of_structure` /
+`change_of_character` (run on 1H- and 15m-resampled bars for steps 1 and
+the conservative variant's internal shift); demand/supply zone → the
+existing `order_block` primitive; liquidity sweep → the existing
+`liquidity_sweep` primitive; nearest opposing swing for the target → the
+existing swing-point detection already used by `equal_highs_lows`/
+`_find_swing_points`.
+
+**Status as of this writing**: specification complete, implementation and
+backtest not yet run — see the task tracker for current progress. Results
+will be appended below once available, in the same format as §4's tables
+(real-cost PF, gross/zero-cost PF, and — given what §4.4 found — a
+random-entry comparison from the start, not as an afterthought).
+
+### 8.2 (reserved for the next video/source the project owner provides)
+
