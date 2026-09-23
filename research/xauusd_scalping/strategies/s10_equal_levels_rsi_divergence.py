@@ -26,6 +26,7 @@ ind = IndicatorSignals()
 
 @dataclass
 class Params:
+    fallback_target_pts: float = 7.5  # was a bare 7.5 literal; a param so instruments.py can scale it
     min_sl_pts: float = 3.0
     sl_buffer_pts: float = 0.5
     tolerance_pct: float = 0.1
@@ -75,11 +76,11 @@ class EqualLevelsRsiDivergenceStrategy:
             if pool.is_high:
                 side = Side.SHORT
                 stop = max(sweep.extreme_price + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
-                target = min((p.level_price for p in opposite), default=entry - 7.5)
+                target = min((p.level_price for p in opposite), default=entry - self.p.fallback_target_pts)
             else:
                 side = Side.LONG
                 stop = min(sweep.extreme_price - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
-                target = max((p.level_price for p in opposite), default=entry + 7.5)
+                target = max((p.level_price for p in opposite), default=entry + self.p.fallback_target_pts)
 
             reason = (
                 f"{pool.reason} swept + reclaimed, RSI divergence {divergence:.1f} "

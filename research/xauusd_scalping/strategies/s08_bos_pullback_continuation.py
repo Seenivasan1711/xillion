@@ -22,6 +22,7 @@ ind = IndicatorSignals()
 @dataclass
 class Params:
     min_sl_pts: float = 3.0
+    sl_buffer_pts: float = 0.5  # was a bare 0.5 literal in _fire_entry; a param so instruments.py can scale it
     swing_lookback: int = 3
     decisive_atr_mult: float = 0.3
     max_pullback_pct: float = 38.2
@@ -99,11 +100,11 @@ class BosPullbackContinuationStrategy:
         entry = bar.close
         if pend.direction == Direction.UP:
             side = Side.LONG
-            stop = min(pend.extreme_price - 0.5, entry - self.p.min_sl_pts)
+            stop = min(pend.extreme_price - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
             target = entry + self.p.target_leg_mult * pend.impulse_leg
         else:
             side = Side.SHORT
-            stop = max(pend.extreme_price + 0.5, entry + self.p.min_sl_pts)
+            stop = max(pend.extreme_price + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
             target = entry - self.p.target_leg_mult * pend.impulse_leg
         reason = f"BOS continuation, {pend.impulse_leg:.2f}pt impulse, pullback broken at {entry:.2f}"
         self._pending = None

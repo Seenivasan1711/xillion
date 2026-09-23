@@ -21,6 +21,7 @@ pa = PriceActionSignals()
 
 @dataclass
 class Params:
+    fallback_target_pts: float = 7.5  # was a bare 7.5 literal; a param so instruments.py can scale it
     min_sl_pts: float = 3.0
     sl_buffer_pts: float = 0.5
     min_levels_in_run: int = 2
@@ -69,11 +70,11 @@ class SessionLiquidityRunReversalStrategy:
         if run.direction == Direction.UP:
             side = Side.SHORT
             stop = max(run.final_extreme + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
-            target = max(untouched_opposite) if untouched_opposite else entry - 7.5
+            target = max(untouched_opposite) if untouched_opposite else entry - self.p.fallback_target_pts
         else:
             side = Side.LONG
             stop = min(run.final_extreme - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
-            target = min(untouched_opposite) if untouched_opposite else entry + 7.5
+            target = min(untouched_opposite) if untouched_opposite else entry + self.p.fallback_target_pts
 
         reason = f"{run.reason}, displacement reversal at {entry:.2f}, targeting opposing pool {target:.2f}"
         # NOTE: the cost-clearing stop/target floor is enforced ENGINE-SIDE

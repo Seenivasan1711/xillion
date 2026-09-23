@@ -19,7 +19,9 @@ validation protocol this was actually designed for.
 
 from __future__ import annotations
 
+import functools
 import glob
+import os
 import random
 import sys
 from pathlib import Path
@@ -30,6 +32,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from engine.backtest_engine import Bar, BacktestEngine, RiskLimits, SizingConfig  # noqa: E402
 from engine.cost_model import CostModel  # noqa: E402
+from engine.instruments import (  # noqa: E402
+    equivalent_lots,
+    get_instrument,
+    measure_price_scale,
+    scale_strategy_params,
+)
 
 from strategies.s01_liquidity_sweep_fvg import LiquiditySweepFvgStrategy  # noqa: E402
 from strategies.s02_mtf_liquidity_choch import MtfLiquidityChochStrategy  # noqa: E402
@@ -59,12 +67,18 @@ STRATEGIES = [
     ("S10 Equal Highs/Lows + RSI Divergence", EqualLevelsRsiDivergenceStrategy),
 ]
 
-DATA_DIR = Path(__file__).parent / "data" / "xauusd"
+# Which symbol this run is for. Env var rather than argv so that
+# random_entry_benchmark.py (which imports this module) follows it too:
+#   RESEARCH_SYMBOL=EURUSD python run_backtests.py
+SYMBOL = os.environ.get("RESEARCH_SYMBOL", "XAUUSD").upper()
 UNDERPOWERED_THRESHOLD = 200
 
 
-def load_all_bars() -> list[Bar]:
-    frames = [pd.read_parquet(f) for f in sorted(glob.glob(str(DATA_DIR / "*.parquet")))]
+def load_all_bars(symbol: str | None = None) -> list[Bar]:
+    data_dir = get_instrument(symbol or SYMBOL).data_dir
+    frames = [pd.read_parquet(f) for f in sorted(glob.glob(str(data_dir / "*.parquet")))]
+    if not frames:
+        raise FileNotFoundError(f"no parquet data in {data_dir} -- run data/download_dukascopy.py first")
     df = pd.concat(frames, ignore_index=True).drop_duplicates(subset="ts").sort_values("ts")
     return [
         Bar(ts=row.ts, open=row.open, high=row.high, low=row.low, close=row.close, volume=row.volume)
@@ -72,12 +86,45 @@ def load_all_bars() -> list[Bar]:
     ]
 
 
+@functools.cache
+def instrument():
+    """The active symbol's spec. For anything but XAUUSD, price_scale is
+    MEASURED here from real overlapping data (never guessed) and printed."""
+    if SYMBOL == "XAUUSD":
+        return get_instrument("XAUUSD")
+    scale = measure_price_scale(load_all_bars(SYMBOL), load_all_bars("XAUUSD"))
+    inst = get_instrument(SYMBOL, price_scale=scale)
+    print(f"{SYMBOL}: measured price_scale={scale:.6f} (median daily range vs XAUUSD), "
+          f"equivalent lots={equivalent_lots(inst):.3f}, spread measured={inst.spread_is_measured}", flush=True)
+    return inst
+
+
 def make_engine() -> BacktestEngine:
+    inst = instrument()
+    if inst.symbol == "XAUUSD":
+        cost, lots = CostModel(), 0.08
+    else:
+        cost, lots = CostModel.for_instrument(inst), equivalent_lots(inst)
     return BacktestEngine(
-        cost_model=CostModel(),
-        sizing=SizingConfig(mode="fixed_lot", fixed_lots=0.08),
+        cost_model=cost,
+        sizing=SizingConfig(mode="fixed_lot", fixed_lots=lots, point_value_usd=inst.point_value_usd),
         risk=RiskLimits(max_trades_per_session=4, daily_loss_cap_usd=50.0, consecutive_loss_halt=2),
     )
+
+
+def make_strategy(cls):
+    """Strategy instance with its gold-dollar distance params scaled to the
+    active symbol (identity for XAUUSD)."""
+    inst = instrument()
+    if inst.symbol == "XAUUSD":
+        return cls()
+    params_cls = sys.modules[cls.__module__].Params
+    return cls(scale_strategy_params(params_cls(), inst))
+
+
+def results_suffix() -> str:
+    """'' for XAUUSD (keeps existing output filenames), '_eurusd' etc otherwise."""
+    return "" if SYMBOL == "XAUUSD" else f"_{SYMBOL.lower()}"
 
 
 def compute_metrics(trades, initial_equity=5000.0) -> dict:
@@ -156,6 +203,7 @@ def monte_carlo(trades, n_sims=5000, seed=42) -> dict:
 
 def main():
     all_bars = load_all_bars()
+    instrument()  # prints the measured scale up front for non-XAUUSD runs
     march_bars = [b for b in all_bars if b.ts.month == 3]
     sept_bars = [b for b in all_bars if b.ts.month == 9]
     print(f"Total bars: {len(all_bars)} ({all_bars[0].ts} -> {all_bars[-1].ts})")
@@ -164,14 +212,14 @@ def main():
 
     results = {}
     for name, cls in STRATEGIES:
-        strat_all = cls()
+        strat_all = make_strategy(cls)
         eng_all = make_engine()
         res_all = eng_all.run(all_bars, strat_all)
 
-        strat_mar = cls()
+        strat_mar = make_strategy(cls)
         res_mar = make_engine().run(march_bars, strat_mar)
 
-        strat_sep = cls()
+        strat_sep = make_strategy(cls)
         res_sep = make_engine().run(sept_bars, strat_sep)
 
         m_all = compute_metrics(res_all.trades)
@@ -195,9 +243,10 @@ def main():
               f"[sept n={m_sep.get('n', 0)} PnL=${m_sep.get('total_pnl', 0):.2f}]")
 
     import json
-    with open(Path(__file__).parent / "_backtest_results_raw.json", "w") as f:
+    out = Path(__file__).parent / f"_backtest_results_raw{results_suffix()}.json"
+    with open(out, "w") as f:
         json.dump(results, f, indent=2, default=str)
-    print("\nRaw results written to _backtest_results_raw.json")
+    print(f"\nRaw results written to {out.name}")
 
 
 if __name__ == "__main__":

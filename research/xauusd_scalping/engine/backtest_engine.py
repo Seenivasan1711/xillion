@@ -25,7 +25,7 @@ from enum import Enum
 import bisect
 from collections import deque
 
-from .cost_model import POINT_SIZE, CostModel, Session, VolBucket, session_for, vol_bucket_for
+from .cost_model import CostModel, Session, VolBucket, session_for, vol_bucket_for
 
 
 class Side(str, Enum):
@@ -174,7 +174,7 @@ class BacktestEngine:
         if self.sizing.mode == "fixed_lot":
             return self.sizing.fixed_lots
         risk_usd = equity * self.sizing.risk_pct
-        stop_pts = abs(entry - stop) / POINT_SIZE
+        stop_pts = abs(entry - stop) / self.cost_model.point_size
         if stop_pts <= 0:
             return 0.0
         return risk_usd / (stop_pts * self.sizing.point_value_usd)
@@ -257,8 +257,8 @@ class BacktestEngine:
                     if position.side == Side.LONG
                     else bar.high - position.entry_price
                 )
-                position.mfe_pts = max(position.mfe_pts, favourable / POINT_SIZE)
-                position.mae_pts = max(position.mae_pts, adverse / POINT_SIZE)
+                position.mfe_pts = max(position.mfe_pts, favourable / self.cost_model.point_size)
+                position.mae_pts = max(position.mae_pts, adverse / self.cost_model.point_size)
 
                 if exit_price is not None:
                     trade = self._close_position(
@@ -321,7 +321,7 @@ class BacktestEngine:
         from signals.risk_floor import apply_floor
 
         is_news = self._is_news_window(bar.ts)
-        entry_cost = self.cost_model.entry_cost_pts(session, vol_bucket, is_news) * POINT_SIZE
+        entry_cost = self.cost_model.entry_cost_pts(session, vol_bucket, is_news) * self.cost_model.point_size
         entry_price = (
             bar.close + entry_cost if signal.side == Side.LONG else bar.close - entry_cost
         )
@@ -336,8 +336,8 @@ class BacktestEngine:
         if self.risk.min_sl_pts is not None and self.risk.min_target_pts is not None:
             stop_price, target_price = apply_floor(
                 entry_price, stop_price, target_price, signal.side,
-                min_sl_pts=self.risk.min_sl_pts * POINT_SIZE,
-                min_target_pts=self.risk.min_target_pts * POINT_SIZE,
+                min_sl_pts=self.risk.min_sl_pts * self.cost_model.point_size,
+                min_target_pts=self.risk.min_target_pts * self.cost_model.point_size,
             )
         lots = self._lots_for(equity, entry_price, stop_price)
         return Position(
@@ -405,7 +405,7 @@ class BacktestEngine:
         # Volatility bucket AT EXIT TIME (not entry): the spread you actually
         # pay getting out is the one prevailing then, which can differ from
         # entry on a trade held across a volatility change.
-        exit_cost = self.cost_model.exit_cost_pts(session, vol_bucket, is_news) * POINT_SIZE
+        exit_cost = self.cost_model.exit_cost_pts(session, vol_bucket, is_news) * self.cost_model.point_size
         # exit_cost widens the exit further against the position -- this is
         # the pessimistic "you pay the spread/slippage getting out too" rule.
         adj_exit = exit_price - exit_cost if position.side == Side.LONG else exit_price + exit_cost
@@ -414,12 +414,12 @@ class BacktestEngine:
             (adj_exit - position.entry_price)
             if position.side == Side.LONG
             else (position.entry_price - adj_exit)
-        ) / POINT_SIZE
+        ) / self.cost_model.point_size
         gross_usd = gross_pts * position.lots * self.sizing.point_value_usd
         commission = self.cost_model.commission_usd(position.lots)
         net_usd = gross_usd - commission
 
-        stop_pts = abs(position.entry_price - position.stop_price) / POINT_SIZE
+        stop_pts = abs(position.entry_price - position.stop_price) / self.cost_model.point_size
         r_multiple = gross_pts / stop_pts if stop_pts else 0.0
 
         return Trade(

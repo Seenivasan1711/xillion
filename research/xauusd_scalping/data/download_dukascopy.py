@@ -40,23 +40,35 @@ from pathlib import Path
 import httpx
 import pandas as pd
 
-DATA_DIR = Path(__file__).parent / "xauusd"
-MANIFEST_PATH = DATA_DIR / "_manifest.json"
 DEFAULT_DELAY_SECONDS = 2.5  # conservative pacing after observing 429s at higher rates
-PRICE_DIVISOR = 1000  # verified empirically, see module docstring
+
+# Per-symbol Dukascopy price divisors (raw bi5 int / divisor = price).
+# XAUUSD 1000 verified empirically (module docstring); 5-digit FX pairs are
+# 100000 -- verified on first download by checking the parsed price against
+# the pair's known level. Mirrors engine/instruments.py (kept as a literal
+# here so this script stays runnable standalone, without the engine package).
+PRICE_DIVISORS = {"XAUUSD": 1000, "EURUSD": 100_000, "GBPUSD": 100_000}
+
+
+def _data_dir(symbol: str) -> Path:
+    # One directory AND one manifest per symbol: the manifest keys hours by
+    # symbol already, but a shared file would be rewritten concurrently by
+    # two downloaders running side by side (e.g. XAUUSD backfill + EURUSD).
+    return Path(__file__).parent / symbol.lower()
 
 DUKASCOPY_URL = "https://datafeed.dukascopy.com/datafeed/{symbol}/{year}/{month:02d}/{day:02d}/{hour:02d}h_ticks.bi5"
 
 
-def _load_manifest() -> dict:
-    if MANIFEST_PATH.exists():
-        return json.loads(MANIFEST_PATH.read_text())
+def _load_manifest(symbol: str) -> dict:
+    path = _data_dir(symbol) / "_manifest.json"
+    if path.exists():
+        return json.loads(path.read_text())
     return {"completed_hours": [], "empty_hours": [], "failed_hours": []}
 
 
-def _save_manifest(manifest: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
+def _save_manifest(symbol: str, manifest: dict) -> None:
+    _data_dir(symbol).mkdir(parents=True, exist_ok=True)
+    (_data_dir(symbol) / "_manifest.json").write_text(json.dumps(manifest, indent=2))
 
 
 def _hour_key(symbol: str, dt: datetime) -> str:
@@ -95,7 +107,7 @@ def _fetch_hour(client: httpx.Client, symbol: str, dt: datetime) -> bytes | None
     raise last_exc  # exhausted retries -- a real failure, not transient flakiness
 
 
-def _parse_ticks(raw_bi5: bytes, hour_start: datetime) -> list[dict]:
+def _parse_ticks(raw_bi5: bytes, hour_start: datetime, divisor: int = PRICE_DIVISORS["XAUUSD"]) -> list[dict]:
     if not raw_bi5:
         return []
     decompressed = lzma.decompress(raw_bi5)
@@ -108,8 +120,8 @@ def _parse_ticks(raw_bi5: bytes, hour_start: datetime) -> list[dict]:
         ticks.append(
             {
                 "ts": ts,
-                "ask": ask_raw / PRICE_DIVISOR,
-                "bid": bid_raw / PRICE_DIVISOR,
+                "ask": ask_raw / divisor,
+                "bid": bid_raw / divisor,
                 "ask_vol": ask_vol,
                 "bid_vol": bid_vol,
             }
@@ -134,7 +146,8 @@ def _ticks_to_m1_bars(ticks: list[dict]) -> pd.DataFrame:
 
 
 def download_range(symbol: str, from_date: date, to_date: date, delay: float = DEFAULT_DELAY_SECONDS) -> None:
-    manifest = _load_manifest()
+    divisor = PRICE_DIVISORS[symbol]
+    manifest = _load_manifest(symbol)
     completed = set(manifest["completed_hours"])
     empty = set(manifest["empty_hours"])
     failed = set(manifest["failed_hours"])
@@ -155,7 +168,7 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
 
             try:
                 raw = _fetch_hour(client, symbol, current)
-                ticks = _parse_ticks(raw, current)
+                ticks = _parse_ticks(raw, current, divisor)
                 bars = _ticks_to_m1_bars(ticks)
                 if bars.empty:
                     empty.add(key)
@@ -171,7 +184,7 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
             manifest["completed_hours"] = sorted(completed)
             manifest["empty_hours"] = sorted(empty)
             manifest["failed_hours"] = sorted(failed)
-            _save_manifest(manifest)
+            _save_manifest(symbol, manifest)
 
             # Flush at least once a day (not just monthly) -- found 2026-09-22
             # running a real 6-month backfill in the background: a mid-run
@@ -203,9 +216,10 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
 
 
 def _flush_month(symbol: str, month_key: str, bars_list: list[pd.DataFrame]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    data_dir = _data_dir(symbol)
+    data_dir.mkdir(parents=True, exist_ok=True)
     combined = pd.concat(bars_list, ignore_index=True).drop_duplicates(subset="ts").sort_values("ts")
-    out_path = DATA_DIR / f"{symbol}_{month_key}.parquet"
+    out_path = data_dir / f"{symbol}_{month_key}.parquet"
     if out_path.exists():
         existing = pd.read_parquet(out_path)
         combined = pd.concat([existing, combined], ignore_index=True).drop_duplicates(subset="ts").sort_values("ts")
@@ -215,7 +229,7 @@ def _flush_month(symbol: str, month_key: str, bars_list: list[pd.DataFrame]) -> 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbol", default="XAUUSD")
+    parser.add_argument("--symbol", default="XAUUSD", choices=sorted(PRICE_DIVISORS))
     parser.add_argument("--from", dest="from_date", required=True, type=date.fromisoformat)
     parser.add_argument("--to", dest="to_date", required=True, type=date.fromisoformat)
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS)

@@ -75,7 +75,9 @@ N_RUNS = 500
 MAX_WINDOW_BARS = 20000  # ~13.9 trading days -- generous, cheap now that
 # each bar-step is O(1) via direct method calls, not a full engine.run().
 SEED = 20260923  # fixed, reproducible; advanced per strategy below
-REAL_TRADES_CACHE = Path(__file__).parent / "_real_trades_cache.json"
+# Per-symbol cache (RESEARCH_SYMBOL, see run_backtests.SYMBOL). DELETE it after any
+# engine/cost change -- it silently holds trades from the old machinery.
+REAL_TRADES_CACHE = Path(__file__).parent / f"_real_trades_cache{rb.results_suffix()}.json"
 
 
 def resolve_one_trade(engine: BacktestEngine, bars: list, entry_idx: int, side: Side,
@@ -129,7 +131,7 @@ def get_real_trade_data(bars: list) -> dict:
     data = {}
     for name, cls in rb.STRATEGIES:
         t0 = time.time()
-        strat = cls()
+        strat = rb.make_strategy(cls)
         engine = rb.make_engine()
         real_result = engine.run(bars, strat)
         trades = real_result.trades
@@ -215,8 +217,8 @@ def main():
               f"p95=${p95:.2f} mean=${mean_r:.2f}] timeouts={timeouts}/{n*N_RUNS} -> {verdict}",
               flush=True)
 
-    with open(Path(__file__).parent / "03b_random_entry_benchmark.md", "w") as f:
-        f.write("# C3 Diagnostic -- Random-Entry Benchmark\n\n")
+    with open(Path(__file__).parent / f"03b_random_entry_benchmark{rb.results_suffix()}.md", "w") as f:
+        f.write(f"# C3 Diagnostic -- Random-Entry Benchmark ({rb.SYMBOL})\n\n")
         f.write(
             f"Seed: {SEED}, **{N_RUNS} runs per strategy** (reduced from an originally "
             f"planned 1,000 -- the one-time real-strategy rerun needed regardless of N_RUNS "

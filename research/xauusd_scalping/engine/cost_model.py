@@ -108,6 +108,17 @@ class CostModel:
     exit_slippage_pts: float = 5.0  # stop-out slippage is worse than entry -- spec's own note
     news_slippage_multiplier: float = 3.0  # applied during a news blackout window if a strategy still fires
     spread_table: dict[tuple[Session, VolBucket], float] | None = None  # None -> module default
+    point_size: float = POINT_SIZE  # price units per point; XAUUSD default, see instruments.py
+
+    @classmethod
+    def for_instrument(cls, instrument) -> CostModel:
+        """Costs for a non-default symbol (engine/instruments.py). Slippage
+        stays in points (3/5pts = 0.3/0.5 pip on a 5-digit FX pair)."""
+        return cls(
+            commission_per_lot_per_side=instrument.commission_per_lot_per_side,
+            spread_table=instrument.spread_table,
+            point_size=instrument.point_size,
+        )
 
     @classmethod
     def zero(cls) -> "CostModel":
