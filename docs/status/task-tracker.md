@@ -45,6 +45,25 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 ### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
 
+> **⛔ THE P1-P3 RESEARCH QUESTION IS NOW ANSWERED — see
+> `research/xauusd_scalping/07_conclusion_m1_scalping_verdict.md`.**
+> M1 XAUUSD scalping as specified does not work, for TWO independent,
+> separately-fatal reasons, both measured rather than assumed:
+> **(1) the signals carry no directional information** — walking forward
+> from 223 S11 signals, the win rate is 31.1% at 2:1 where a coin flip
+> needs 33.3%, *before any costs at all*; and **(2) the spread exceeds the
+> move being traded** — Rakesh's live MT5 reading of **31 points**
+> (bid 4284.50 / ask 4284.81, NY session) matches the assumed 30 almost
+> exactly (1.03x), so round-trip cost is **98% of a 40pt risk budget** and
+> **~3.9x the median 8-point favourable move in the hour after a signal.**
+> Fixing either one alone changes nothing, which is why every "make it
+> profitable" avenue dead-ended.
+> **Do not resume signal-hunting at M1.** The open questions, if this track
+> continues at all, are: does S07 (the only strategy that beat a random
+> baseline) survive a walk-forward, and does the same toolkit show anything
+> at H1/H4 — where swap (**-93.17 pts/night on longs**) must be modelled
+> and currently is not.
+
 **One-paragraph version:** this track spent its first phase asking "which
 of these 11 strategies has an edge," and the answer turned out to be that
 the question was wrong. Two project-wide mechanical bugs were found and

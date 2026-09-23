@@ -39,36 +39,6 @@ of JEV/LLM work which he's deliberately sequencing last.)
 
 ## Open
 
-- [ ] **🔴 HIGHEST PRIORITY — read 3-5 real XAUUSD spread values off MT5.**
-      **This is the single thing blocking the whole XAUUSD research track.**
-      Everything that track has concluded rests on an assumed spread table
-      that `research/xauusd_scalping/engine/cost_model.py`'s own docstring
-      calls *"a PESSIMISTIC ASSUMPTION, not measured from a real broker
-      feed."* Phase 1 (2026-09-24) found modelled round-trip cost is
-      **82-170% of a 40-point trade's entire risk budget** — which is what
-      makes M1 scalping look structurally unviable. If real spreads are
-      roughly half the assumed values, that conclusion changes materially.
-      If they're accurate, it's confirmed and the track should stop looking
-      for a better entry signal at this timeframe.
-      **How (30 seconds, no Wine setup needed):**
-      1. In MT5, right-click the **Market Watch** panel → tick **"Spread"**
-         to add the spread column.
-      2. Note the XAUUSD number at a few different times of day — ideally
-         one during Asia (early morning IST), one during London
-         (~12:30-18:30 IST), one during the London/NY overlap
-         (~18:30-22:30 IST). A high-volatility moment (news) is a bonus.
-      3. Tell Claude the numbers. That's it.
-      **Alternative if you'd rather do it once and properly:** export tick
-      data (View → Symbols → XAUUSD → **Ticks** tab, not Bars → set a 2-4
-      week range → Request → Export Ticks → CSV), then
-      `python research/xauusd_scalping/measure_real_spread.py <file>.csv`
-      — it prints measured vs assumed side by side and can emit a drop-in
-      replacement table (`--emit-table`). Run with `--help-export` for the
-      same instructions in-terminal.
-      **Blocks:** any further meaningful XAUUSD strategy work — every
-      result in that track is downstream of this one number.
-      **Cost:** free.
-
 - [ ] **(Optional, low priority) confirm how your broker bills commission.**
       The symbol spec says "5 USD per lot"; your MT5 statement shows -$0.50
       per closed 0.10-lot position. That reads as **$5/lot round turn**
@@ -117,6 +87,20 @@ of JEV/LLM work which he's deliberately sequencing last.)
 ---
 
 ## Done
+
+- [x] **Read a real XAUUSD spread off MT5 — DONE 2026-09-24.**
+      Reported **31 points** (bid 4284.50 / ask 4284.81) at 22:27 server
+      time, NY session. This matches the assumed table's NY value of 30
+      almost exactly (1.03x) — so the cost assumptions were **accurate, not
+      pessimistic**, and the structural conclusion they supported stands
+      rather than being overturned. Round-trip cost is 98% of a 40pt risk
+      budget, and ~3.9x the median 8-point move in the hour after a signal.
+      See `research/xauusd_scalping/07_conclusion_m1_scalping_verdict.md`.
+      *Optional follow-up, low value now:* readings during Asia and the
+      dead zone (assumed 40/60) are still unsampled, and this was a
+      MetaQuotes demo rather than the live FundingPips account. Neither
+      changes the verdict, which rests primarily on a cost-independent
+      finding.
 
 - [x] **Uploaded local backups + secrets to Drive — done 2026-09-23.**
       All four items confirmed: `.env`, `data/.encryption_key`, the XAUUSD
