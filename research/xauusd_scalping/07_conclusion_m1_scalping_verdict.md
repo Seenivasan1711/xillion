@@ -27,9 +27,10 @@ friction. It is the absence of an edge, and it independently confirms the
 random-entry benchmark's earlier verdict (`03b`) by a completely different
 method.
 
-The same applies to the other ten: of eleven strategies, exactly one (S07)
-beat a matched random baseline, and one (S05) was measurably worse than
-random.
+The same applied to the other ten when measured on the old geometry:
+exactly one (S07) beat a matched random baseline and one (S05) was worse
+than random. **That ranking is now void** — see the Update below; those
+comparisons were made through the broken geometry and are being re-run.
 
 ## Finding 2 — the spread is larger than the move being traded
 
@@ -120,6 +121,27 @@ None of that changes Finding 1, which is cost-independent. It would only
 move the magnitude of Finding 2, not its direction — and Finding 1 alone
 is sufficient to stop pursuing these eleven strategies.
 
+## Update (same day): S07's credential did not survive the geometry fix
+
+The verdict above named S07 as "the one strategy that beat random" and the
+only candidate worth further work. **Re-running all ten on corrected
+geometry retracts that.** S07 collapsed harder than any other strategy —
+win rate 44.3% → **10.2%**, PF 0.33 → **0.05**, among the worst of the
+eleven. Its "beats random" result came from a benchmark run on the broken
+geometry, so it is void until re-measured, and the random-entry benchmark
+is being re-run on the fixed engine.
+
+This strengthens rather than weakens the verdict. It was never "ten bad
+strategies and one promising one" — the apparent spread between strategies
+was substantially an artifact of the same geometry bug. On corrected
+geometry they are uniformly poor, which is exactly what Finding 1 (no
+directional information) and Finding 2 (spread exceeds the move) predict
+when taken together.
+
+**Standing lesson recorded in `08_correction_history.md` #16: when a fix
+lands in shared machinery, every ranking derived from the old machinery is
+void, not merely suspect.**
+
 ## Recommendation
 
 **Stop signal-hunting at M1 on XAUUSD.** The question "which of these
@@ -128,10 +150,16 @@ independent measurements. Continuing to test variants of the same idea at
 the same timeframe would be motion, not progress.
 
 The genuinely open questions, if this track continues:
-- Does S07 — the one strategy that beat random — survive an honest
-  walk-forward? It is the only candidate with any evidence behind it.
+- **Does ANY strategy still beat a random baseline on corrected geometry?**
+  The old answer (S07) is void — see the Update above. The benchmark is
+  being re-run on the fixed engine; until it returns, no strategy here has
+  a live credential.
 - Does the same toolkit applied at H1/H4 (with swap modelled) show
-  anything? That is a different question, not a continuation of this one.
+  anything? At the 24h horizon the median move (46pts) finally exceeds the
+  39pt round-trip cost — the only horizon where the arithmetic opens up at
+  all. That is a different question, not a continuation of this one, and it
+  requires modelling swap (-93.17 pts/night on longs) which the harness
+  does not do yet.
 
 **What was built here retains value regardless**: a tested event-driven
 backtest harness with a realistic cost model, a composable signal toolkit,

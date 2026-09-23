@@ -135,6 +135,19 @@ three months.
 - **Actually:** **wrong again** — Rakesh's live MT5 reading was **31 points** (bid 4284.50 / ask 4284.81, NY session) against an assumed 30. A 1.03x match.
 - **Changed:** confirmed rather than overturned the structural conclusion. A prediction recorded in advance and falsified by measurement.
 
+### 16. S07's "beats random" credential was itself an artifact — recommendation retracted
+- **Believed:** S07 was the one strategy of eleven with real evidence behind it (it beat a matched random-entry baseline in `03b`), making it the natural foundation to build on. **I recommended exactly that to Rakesh.**
+- **Actually:** that benchmark ran on the *broken* R:R geometry (correction #12). On corrected geometry S07 collapses harder than any other strategy — win rate 44.3% → **10.2%**, PF 0.33 → **0.05**, among the worst of the eleven.
+- **Found by:** re-running all ten on the fixed engine immediately after Phase 1, rather than assuming earlier rankings survived a change to the machinery underneath them.
+- **Fix:** recommendation retracted within one message of making it; the random-entry benchmark is being re-run on corrected geometry before *any* strategy is called a foundation again.
+- **Changed:** the picture became more unified, not less — it is not "ten bad strategies and one promising one." The apparent differences between strategies were substantially an artifact of the geometry bug. **Lesson: when a fix lands in shared machinery, every ranking derived from the old machinery is void, not merely suspect.**
+
+### 17. A 3% discrepancy that looked like engine non-determinism, and wasn't
+- **Believed (briefly):** two runs of S01 on identical data disagreed (-$739.33 vs -$716.29), which would mean the engine was non-deterministic — a serious bug.
+- **Actually:** the commission fix (correction #13) landed *between* the two runs. The first process had already imported `cost_model.py` and kept the stale $3.50/side; the second used the corrected $2.50.
+- **Found by:** predicting the exact expected gap from the change — `(3.50-2.50) × 0.08 lots × 2 sides × 144 trades = $23.04` — and checking it against the observed `$739.33 - $716.29 = $23.04`. **Exact to the cent.**
+- **Changed:** nothing in the conclusions (PF 0.04-0.20 either way), but it retired a suspected engine bug in one step rather than leaving it as background doubt. **Lesson: an exact arithmetic prediction distinguishes "stale input" from "real bug" far faster than re-running things.** Also a live reminder that long-running background jobs hold the module state they started with.
+
 ---
 
 ## Predictions made in advance, and how they scored
@@ -148,9 +161,11 @@ Recording these because calibration matters more than any single result.
 | Fixing R:R geometry will *lower* win rates | ✅ Right (35.6% → 17.0%) |
 | S11's gap over random stays ~zero at every scale | ✅ Right |
 | Spread assumption is probably too pessimistic | ❌ **Wrong** — it was accurate (1.03x) |
+| S07 is the one strategy worth building on | ❌ **Wrong** — its edge was a geometry artifact; retracted |
+| An S01 run discrepancy meant engine non-determinism | ❌ **Wrong** — it was a stale module import, predicted to the cent |
 | S04's gate would pass on 10-25% of windows | ❌ Missed low (7.12%), reported honestly rather than retuned |
 
-**Score: 3 of 6.** Worth knowing when weighing my future predictions — they are worth stating in advance precisely so they can be checked, not because they're reliable.
+**Score: 3 of 8.** Worth knowing when weighing my future predictions — they are worth stating in advance precisely so they can be checked, not because they're reliable.
 
 ---
 

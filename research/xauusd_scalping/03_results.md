@@ -15,13 +15,54 @@
 > intended 2:1 geometry as well as removing cost — two effects conflated.
 > Full detail and the resulting plan: `06_rr_geometry_finding_and_plan.md`.
 
-**Status (2026-09-23, C3 diagnostic, the most current read): of the 6
-strategies C1 found with real gross (pre-cost) edge, only ONE (S07) is
-actually distinguishable from a random entry with the same session/R:R/
-cost profile.** The other 5 likely owe their gross-positive edge to the
-R:R/session structure itself, not genuine entry-timing skill. Read C1,
-C2, and C3 below in order — each qualifies the one before it, and C3 is
-the most important caveat on the whole "6 of 10 have real edge" story.
+**Status (2026-09-24, most current read): read the PHASE 1 RE-RUN section
+immediately below — it supersedes every table in this file.** The C1/C2/C3
+sections that follow are kept as the record of how the investigation
+progressed, but all of their numbers were measured through the R:R
+geometry bug. In particular, C3's finding that S07 was the one strategy
+distinguishable from random **is void** — on corrected geometry S07 is
+among the worst of the eleven (see `07_conclusion_m1_scalping_verdict.md`).
+
+## PHASE 1 RE-RUN (2026-09-24) — all 10 on CORRECTED geometry
+
+These supersede every table below. Same strategies, same data, run through
+the engine after the R:R geometry fix (floor enforced against the actual
+fill), the `VolBucket` wiring, and the O(n²) fix.
+
+| # | n | Win% (old → **new**) | PF (old → **new**) | PnL (new) |
+|---|---|---|---|---|
+| S01 | 144 | 34.2 → **13.9** | 0.21 → **0.08** | -$739.33 |
+| S02 | 0 | — | — | $0.00 |
+| S03 | 245 | 37.6 → **8.2** | 0.23 → **0.04** | -$1,413.81 |
+| S04 | 3 | — → 33.3 | — → 1.14 | +$1.45 *(n=3, meaningless)* |
+| S05 | 238 | 26.4 → **9.2** | 0.13 → **0.05** | -$1,342.18 |
+| S06 | 56 | 42.9 → **28.6** | 0.29 → **0.20** | -$203.83 |
+| **S07** | 128 | 44.3 → **10.2** | 0.33 → **0.05** | -$745.02 |
+| S08 | 159 | 33.9 → **8.8** | 0.19 → **0.05** | -$917.85 |
+| S09 | 86 | 30.6 → **20.9** | 0.23 → **0.18** | -$378.86 |
+| S10 | 237 | 39.0 → **11.0** | 0.25 → **0.07** | -$1,302.54 |
+
+**Every strategy collapsed, and S07 — the only one that had beaten a random
+baseline — collapsed hardest.** Its earlier advantage was measured through
+the broken geometry, so that credential is void until re-measured. This
+makes the picture *more* unified: it was never "ten bad strategies and one
+promising one"; the apparent differences were substantially a geometry
+artifact.
+
+**Sanity-checked that the collapse is mechanically real, not a broken fix.**
+At the measured 31pt spread, entry cost is 18.5pts, so the fill sits that
+far above the decision price. From that decision price the market must
+travel **+98.5 pts to win but only −21.5 pts to lose — a 4.6:1 adverse
+ratio.** A driftless random walk would win ~18% of the time, and the engine
+resolves same-bar ties as stops, pushing it lower. Observed: 8.2-28.6%,
+clustering near 10%. Consistent.
+
+*(Caveat: these figures used commission $3.50/side — the process had
+already imported the cost model before the correction to $2.50 landed.
+Effect is $0.16/trade, e.g. S01 reads -$739.33 here vs -$716.29 with the
+corrected value. Directionally irrelevant; noted for accuracy.)*
+
+---
 
 ## C1 — zero-cost diagnostic (external review finding, verified directly)
 
