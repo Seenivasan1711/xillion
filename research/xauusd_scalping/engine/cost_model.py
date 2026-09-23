@@ -87,7 +87,16 @@ _SPREAD_TABLE: dict[tuple[Session, VolBucket], float] = {
 
 @dataclass(frozen=True)
 class CostModel:
-    commission_per_lot_per_side: float = 3.50  # USD, parameterised per spec
+    # MEASURED against Rakesh's real broker, 2026-09-24 (was an assumed 3.50).
+    # The XAUUSD symbol spec states "Commissions: instant by deal volume, in
+    # deals, 0-1000: 5 USD per lot", and his real MT5 statement shows -$0.50
+    # on each closed 0.10-lot position => $5/lot ROUND TURN => $2.50/side.
+    # NOTE the residual ambiguity: if that statement column reports only the
+    # entry deal rather than the position total, the true figure is $5/lot
+    # PER SIDE and this should be 5.00. Flagged rather than silently picked;
+    # commission is ~10% of total cost either way (spread+slippage dominates),
+    # so this does not change any conclusion -- see 06_rr_geometry_finding.
+    commission_per_lot_per_side: float = 2.50  # USD/lot/side
     entry_slippage_pts: float = 3.0  # market-order entry slippage, price points
     exit_slippage_pts: float = 5.0  # stop-out slippage is worse than entry -- spec's own note
     news_slippage_multiplier: float = 3.0  # applied during a news blackout window if a strategy still fires

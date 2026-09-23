@@ -43,6 +43,83 @@ scalping edge, isolated under `research/xauusd_scalping/` specifically so
 none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
+### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
+
+**One-paragraph version:** this track spent its first phase asking "which
+of these 11 strategies has an edge," and the answer turned out to be that
+the question was wrong. Two project-wide mechanical bugs were found and
+fixed (a risk/reward geometry inversion, and a dead volatility-bucket in
+the cost model), and with them fixed the real blocker is visible:
+**modelled round-trip cost is 82-170% of the entire risk budget of a
+40-point-stop trade** — in Asia and the dead zone you pay more in costs
+than you risk. No entry signal survives that, so signal-hunting at M1 is
+not the useful next move. **The whole conclusion rests on a spread table
+the code itself labels an unvalidated pessimistic assumption, and Rakesh
+reading 3-5 real spread values off MT5 settles it** (see
+`manual-tasks.md`, top item). That is the gate on everything else.
+
+**What is DONE and verified:**
+- P1 (10-strategy shortlist), P2 (harness), P3 (backtests, three rounds).
+- 174,554 real M1 bars, one continuous series 2026-03-01→2026-09-16.
+- Phase 1 fixes, all with regression tests, 685 passing: engine-side R:R
+  floor against the actual fill; `VolBucket` wired up (was dead code);
+  `StrategyContext` no longer copies full history per bar (was O(n²)).
+- Commission corrected from an assumed $3.50/side to a measured
+  $2.50/side, from Rakesh's real broker spec + statement.
+- S11 (first video-sourced strategy) implemented, debugged, and tested.
+
+**What is KNOWN, with evidence:**
+1. **Cost, not signal quality, is the binding constraint.** Round-trip
+   cost is 82% (London/NY overlap) to 170% (dead zone) of a 40pt risk
+   budget. For cost to be a sane ~10% of risk you'd need 330-680pt stops —
+   an intraday swing trade, not a scalp.
+2. **No entry logic here beats random.** Of 11 strategies, only S07 beat a
+   matched random-entry baseline; the rest were statistically
+   indistinguishable, and S05 was worse than random.
+3. **No trade size rescues it either.** Sweeping S11's stop/target from
+   40/80 to 800/1600: profit factor climbs (0.11→0.88, exactly as the
+   cost-ratio arithmetic requires) but the trade count collapses
+   (112→29→6→3→0) and S11 never beats its random control at any scale with
+   a usable sample. **Cause: bigger stops collide with the $50 daily loss
+   cap** — at 400pt stops one loss is ~$32, so two losses halt the day.
+   The original build spec predicted exactly this collision.
+4. **Swap makes the "just go bigger/slower" escape worse for longs**:
+   -93.17 points per night on longs (shorts earn 21.68). A 400pt-stop long
+   held overnight burns ~23% of its risk budget in swap alone.
+5. **Verified correct**: the harness's unit economics match the real
+   broker exactly (100oz contract × 0.01 tick = $1.00/point/lot).
+
+**What is NOT yet known / deliberately not done:**
+- Real spread (blocked on Rakesh — the gate on everything above).
+- Walk-forward/holdout validation: still never run. Deliberately last —
+  running it on unvalidated cost assumptions would validate an artifact.
+- MAE/MFE profile and the 10-strategy re-run on fixed geometry were still
+  executing when this was written; check
+  `research/xauusd_scalping/06_rr_geometry_finding_and_plan.md` for
+  whatever landed after.
+
+**The next concrete task, in order:**
+1. Get the real spread numbers (Rakesh, `manual-tasks.md`).
+2. Re-run the cost model with them. If costs are materially lower, redo
+   Phase 1's viability arithmetic; if not, the structural conclusion is
+   confirmed.
+3. Only then decide: pivot to a slower timeframe where cost is a small
+   fraction of the trade (and account for swap), or stop this track.
+   **Do not resume signal-hunting at M1 until step 2 answers.**
+
+**The standing prior worth carrying into any new work here:** a near-zero
+signal count has meant "structurally unsatisfiable condition combination"
+3 times out of 3 in this codebase (S02, S04, S11 v1) — never "the market
+didn't offer this setup." Instrument and trace before believing one.
+
+**Full detail:** `06_rr_geometry_finding_and_plan.md` (the finding + the
+5-phase plan), `03_results.md` (all backtests, flagged provisional),
+`03b`/`03c`/`03d` (random-entry, timeframe, S11), and
+`05_consolidated_findings_and_strategy_request.md` (the self-contained
+brief for an external reviewer, including the video-strategy log).
+
+---
+
 **Status, most recent first:**
 - 🔴🔴 **R:R GEOMETRY BUG FOUND (2026-09-24) — every result in this track
   so far is provisional.** Found while researching how to make S11

@@ -13,11 +13,7 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-23 (new item: upload `.env` + `data/.encryption_key`
-+ XAUUSD backfill + warehouse DB backups to Drive, so a new laptop can pick
-up this project without redoing the ~23-hour Dukascopy backfill or losing
-broker/API credentials — full checklist below, including what's safe to
-skip.)
+**Last updated:** 2026-09-24 (XAUUSD research track is BLOCKED on one 30-second manual step: reading 3-5 real spread values off MT5 — see the top Open item. Every conclusion that track has reached rests on an unvalidated assumed spread table, and this settles it.)
 
 **Previously, 2026-09-22:** (Gold Sweep-Reversal's full analysis queue
 (session-window, richer-level-data, finer SL/TP sweeps, confidence
@@ -42,6 +38,46 @@ of JEV/LLM work which he's deliberately sequencing last.)
 ---
 
 ## Open
+
+- [ ] **🔴 HIGHEST PRIORITY — read 3-5 real XAUUSD spread values off MT5.**
+      **This is the single thing blocking the whole XAUUSD research track.**
+      Everything that track has concluded rests on an assumed spread table
+      that `research/xauusd_scalping/engine/cost_model.py`'s own docstring
+      calls *"a PESSIMISTIC ASSUMPTION, not measured from a real broker
+      feed."* Phase 1 (2026-09-24) found modelled round-trip cost is
+      **82-170% of a 40-point trade's entire risk budget** — which is what
+      makes M1 scalping look structurally unviable. If real spreads are
+      roughly half the assumed values, that conclusion changes materially.
+      If they're accurate, it's confirmed and the track should stop looking
+      for a better entry signal at this timeframe.
+      **How (30 seconds, no Wine setup needed):**
+      1. In MT5, right-click the **Market Watch** panel → tick **"Spread"**
+         to add the spread column.
+      2. Note the XAUUSD number at a few different times of day — ideally
+         one during Asia (early morning IST), one during London
+         (~12:30-18:30 IST), one during the London/NY overlap
+         (~18:30-22:30 IST). A high-volatility moment (news) is a bonus.
+      3. Tell Claude the numbers. That's it.
+      **Alternative if you'd rather do it once and properly:** export tick
+      data (View → Symbols → XAUUSD → **Ticks** tab, not Bars → set a 2-4
+      week range → Request → Export Ticks → CSV), then
+      `python research/xauusd_scalping/measure_real_spread.py <file>.csv`
+      — it prints measured vs assumed side by side and can emit a drop-in
+      replacement table (`--emit-table`). Run with `--help-export` for the
+      same instructions in-terminal.
+      **Blocks:** any further meaningful XAUUSD strategy work — every
+      result in that track is downstream of this one number.
+      **Cost:** free.
+
+- [ ] **(Optional, low priority) confirm how your broker bills commission.**
+      The symbol spec says "5 USD per lot"; your MT5 statement shows -$0.50
+      per closed 0.10-lot position. That reads as **$5/lot round turn**
+      (now modelled as $2.50/side). If that statement column actually shows
+      only the *entry* deal, the true figure is $5/lot **per side** and the
+      model should be 5.00. Easiest check: total commission ÷ number of
+      trades ÷ lot size. Commission is ~10% of total cost either way
+      (spread dominates), so this changes no conclusion — worth correcting
+      for accuracy, not urgency.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
