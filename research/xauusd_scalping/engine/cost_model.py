@@ -64,6 +64,13 @@ def vol_bucket_for(atr_percentile: float) -> VolBucket:
     return VolBucket.HIGH
 
 
+# MT5 point size for XAUUSD, in price units. Bars, stops and targets are all
+# in PRICE (dollars/oz); everything this module returns is in POINTS. Every
+# points<->price boundary in the engine must go through this constant --
+# until 2026-09-24 none did, so a 30-point ($0.30) spread was applied as a
+# $30.00 price move (100x). See 08_correction_history.md.
+POINT_SIZE = 0.01
+
 # Spread in price points (XAUUSD: 1 point = $0.01, so 30 = $0.30/oz spread).
 # PESSIMISTIC ASSUMPTION -- see module docstring.
 _SPREAD_TABLE: dict[tuple[Session, VolBucket], float] = {

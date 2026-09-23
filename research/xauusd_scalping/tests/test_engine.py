@@ -70,8 +70,11 @@ def test_deterministic_staircase_matches_hand_computed_pnl():
     2000,2001,...,2009. Target=2005 hits exactly at bar index 5 (touch,
     not a gap through). Stop=1900 never hit.
 
-    By hand: gross = 2005 - 2000 = 5 points. lots=1.0, point_value=1.0 ->
-    gross_usd = $5.00. Zero commission -> net = $5.00 exactly.
+    By hand: gross = 2005 - 2000 = $5.00 of PRICE = 500 points (1pt=$0.01).
+    lots=1.0 (100oz), point_value=$1/pt/lot -> gross_usd = $500.00, which is
+    also 100oz x $5 -- the real broker's economics. Zero commission -> net =
+    $500.00. (Until 2026-09-24 this asserted $5.00: the engine treated a
+    $1 price move as one $0.01 point, understating USD P&L 100x.)
     """
     bars = [_bar(_ts(9, i), 2000 + i, 2000 + i, 2000 + i, 2000 + i) for i in range(10)]
     strategy = _EntersOnceStrategy(stop_price=1900.0, target_price=2005.0)
@@ -83,7 +86,7 @@ def test_deterministic_staircase_matches_hand_computed_pnl():
     trade = result.trades[0]
     assert trade.entry_price == 2000.0
     assert trade.exit_price == 2005.0
-    assert trade.pnl_usd == 5.0
+    assert abs(trade.pnl_usd - 500.0) < 1e-6
     assert trade.exit_reason == "target"
     assert not trade.ambiguous_bar
 
@@ -110,7 +113,8 @@ def test_gap_through_stop_fills_at_gap_not_at_stop_price():
     trade = result.trades[0]
     assert trade.exit_reason == "stop"
     assert trade.exit_price == 1980.0  # the gap price, NOT 1990 (the stop level)
-    assert trade.pnl_usd == 1980.0 - 2000.0  # -20.0, the real gapped loss
+    # -$20 of price x 100oz x 1 lot = -$2,000, the real gapped loss
+    assert abs(trade.pnl_usd - (1980.0 - 2000.0) * 100) < 1e-6
 
 
 def test_no_lookahead_possible_through_the_strategy_context():
@@ -150,7 +154,7 @@ def test_costed_vs_zero_cost_differs_by_exactly_the_modelled_cost():
     # using the same session/vol-bucket the engine actually used (London,
     # medium vol bucket -- see BacktestEngine.run's hardcoded VolBucket.MEDIUM
     # for entries/exits until a real ATR feed is wired into ctx).
-    from research.xauusd_scalping.engine.cost_model import Session, VolBucket, session_for
+    from research.xauusd_scalping.engine.cost_model import POINT_SIZE, Session, VolBucket, session_for
 
     sess = session_for(_ts(9, 0))
     assert sess == Session.LONDON
@@ -163,18 +167,22 @@ def test_costed_vs_zero_cost_differs_by_exactly_the_modelled_cost():
 
     # LONG: entry costs push entry price UP, exit costs push exit price DOWN
     # -- both work against the trade, per _open_position/_close_position.
-    expected_entry = zero_trade.entry_price + entry_cost_pts
-    expected_exit = zero_trade.exit_price - exit_cost_pts
-    expected_gross = expected_exit - expected_entry
-    expected_net = expected_gross * 1.0 - commission
+    # Costs are in POINTS; prices are in dollars -> convert via POINT_SIZE.
+    # London/MEDIUM: entry 28/2+3 = 17pts = $0.17, exit 28/2+5 = 19pts = $0.19.
+    assert abs(entry_cost_pts - 17.0) < 1e-9 and abs(exit_cost_pts - 19.0) < 1e-9
+    expected_entry = zero_trade.entry_price + entry_cost_pts * POINT_SIZE
+    expected_exit = zero_trade.exit_price - exit_cost_pts * POINT_SIZE
+    expected_gross_pts = (expected_exit - expected_entry) / POINT_SIZE  # 500 - 36 = 464
+    assert abs(expected_gross_pts - 464.0) < 1e-6
+    expected_net = expected_gross_pts * 1.0 - commission
 
     assert abs(real_trade.entry_price - expected_entry) < 1e-9
     assert abs(real_trade.exit_price - expected_exit) < 1e-9
-    assert abs(real_trade.pnl_usd - expected_net) < 1e-9
+    assert abs(real_trade.pnl_usd - expected_net) < 1e-6
 
     diff = zero_trade.pnl_usd - real_trade.pnl_usd
     expected_diff = zero_trade.pnl_usd - expected_net
-    assert abs(diff - expected_diff) < 1e-9
+    assert abs(diff - expected_diff) < 1e-6
 
 
 def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
@@ -214,7 +222,8 @@ def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
     strategy = _AlwaysLosesStrategy()
     engine = BacktestEngine(
         cost_model=CostModel.zero(),
-        sizing=SizingConfig(fixed_lots=1.0),
+        # 0.01 lot (1oz): a $10 price stop-out = 1000pts x $0.01 = -$10.
+        sizing=SizingConfig(fixed_lots=0.01),
         risk=RiskLimits(daily_loss_cap_usd=15.0, min_sl_pts=None, min_target_pts=None),
     )
 
@@ -229,7 +238,7 @@ def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
     # that triggers the halt, not the one before it. Two -$10 losses
     # (-$20 cumulative) cross the -$15 cap; a third never gets a chance.
     assert len(day1_trades) == 2
-    assert sum(t.pnl_usd for t in day1_trades) == -20.0
+    assert abs(sum(t.pnl_usd for t in day1_trades) - (-20.0)) < 1e-6
     # Day 2 must still get its own fresh trade -- proves the halt is a
     # daily circuit breaker, not permanent for the rest of the backtest.
     assert len(day2_trades) >= 1
@@ -271,7 +280,7 @@ def test_consecutive_loss_halt_resets_on_a_new_day():
     strategy = _AlwaysLosesStrategy()
     engine = BacktestEngine(
         cost_model=CostModel.zero(),
-        sizing=SizingConfig(fixed_lots=1.0),
+        sizing=SizingConfig(fixed_lots=0.01),  # -$10 per stop-out, see above
         risk=RiskLimits(consecutive_loss_halt=2, min_sl_pts=None, min_target_pts=None),
     )
 
@@ -286,10 +295,10 @@ def test_consecutive_loss_halt_resets_on_a_new_day():
     # leaking across days again.
     assert len(day2_trades) >= 1
     assert "2026-01-06" not in result.halted_days
-    assert all(t.pnl_usd == -10.0 for t in day1_trades)
+    assert all(abs(t.pnl_usd - (-10.0)) < 1e-6 for t in day1_trades)
     # Day 2 is a fresh day -- the halt must not carry over.
     assert len(day2_trades) == 1
-    assert day2_trades[0].pnl_usd == -10.0
+    assert abs(day2_trades[0].pnl_usd - (-10.0)) < 1e-6
 
 
 def _ts_seq(i: int) -> datetime:
@@ -316,7 +325,10 @@ def test_cost_clearing_floor_is_measured_from_the_fill_not_the_reference_price()
     # so the trade closes and its recorded levels can be inspected.
     bars = [_bar(_ts_seq(i), 2000 + i * 2, 2000 + i * 2, 2000 + i * 2, 2000 + i * 2) for i in range(80)]
     # Structural levels far tighter than the floor, so the floor must bind.
-    strategy = _EntersOnceStrategy(stop_price=1999.0, target_price=2001.0)
+    # Floor is 40/80 POINTS = $0.40/$0.80 of price. Fill = 2000 + 17pts =
+    # 2000.17, so a 2000.00 stop (0.17 away) and 2000.30 target (0.13 away)
+    # are both inside it.
+    strategy = _EntersOnceStrategy(stop_price=2000.0, target_price=2000.3)
     real_cost = CostModel(commission_per_lot_per_side=3.50, entry_slippage_pts=3.0, exit_slippage_pts=5.0)
     engine = BacktestEngine(
         cost_model=real_cost,
@@ -330,8 +342,8 @@ def test_cost_clearing_floor_is_measured_from_the_fill_not_the_reference_price()
     stop_dist = abs(t.entry_price - t.stop_price)
     target_dist = abs(t.target_price - t.entry_price)
 
-    assert abs(stop_dist - 40.0) < 1e-9, f"stop is {stop_dist} from the fill, expected exactly 40"
-    assert abs(target_dist - 80.0) < 1e-9, f"target is {target_dist} from the fill, expected exactly 80"
+    assert abs(stop_dist - 0.40) < 1e-9, f"stop is {stop_dist} from the fill, expected exactly $0.40 (40pts)"
+    assert abs(target_dist - 0.80) < 1e-9, f"target is {target_dist} from the fill, expected exactly $0.80 (80pts)"
     # The bug's signature was these summing to 120 while the RATIO was ~0.9.
     # Assert the ratio directly -- that is the property that actually matters.
     assert abs((target_dist / stop_dist) - 2.0) < 1e-9, "realised R:R must equal the designed 2:1"
@@ -419,3 +431,30 @@ def _run_and_collect(bar_series):
     )
     result = engine.run(series, strategy, initial_equity=5000.0)
     return [t.spread_paid_pts for t in result.trades]
+
+
+def test_units_match_the_real_broker_not_100x_off():
+    """Regression lock for the points-vs-price unit bug found 2026-09-24.
+
+    Bars are in dollars/oz; the cost model is in MT5 points (1pt = $0.01).
+    Until this fix the engine added cost POINTS straight onto PRICE, so a
+    28pt ($0.28) London spread moved the fill by $14 instead of $0.14 --
+    every cost conclusion in 03_results/07 was inflated 100x. And it turned
+    a price move straight into "points", understating USD P&L 100x.
+
+    Real broker facts (Rakesh's MT5 spec, 2026-09-24): 1 lot = 100oz, so a
+    $5.00 move on 0.08 lot = 8oz x $5 = $40.00; live NY spread ~31pts = $0.31.
+    """
+    bars = [_bar(_ts(9, i), 2000 + i, 2000 + i, 2000 + i, 2000 + i) for i in range(10)]
+    cost = CostModel(commission_per_lot_per_side=0.0, entry_slippage_pts=0.0, exit_slippage_pts=0.0)
+    engine = BacktestEngine(
+        cost_model=cost, sizing=SizingConfig(fixed_lots=0.08),
+        risk=RiskLimits(min_sl_pts=None, min_target_pts=None),
+    )
+    t = engine.run(bars, _EntersOnceStrategy(stop_price=1900.0, target_price=2005.0)).trades[0]
+
+    # London/MEDIUM spread 28pts -> half-spread $0.14 each side, NOT $14.
+    assert abs(t.entry_price - 2000.14) < 1e-9
+    assert abs(t.exit_price - (2005.0 - 0.14)) < 1e-9
+    # Net move $4.72 of price x 8oz = $37.76 (the $5 move minus $0.28 spread).
+    assert abs(t.pnl_usd - 4.72 * 8) < 1e-6

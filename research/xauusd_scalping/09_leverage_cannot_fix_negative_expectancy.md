@@ -1,5 +1,12 @@
 # Can leverage make this profitable? No — and here is the arithmetic
 
+> **⚠️ 2026-09-24 CORRECTION — read `10_unit_bug_and_corrected_rerun.md` first.**
+> A 100x points-vs-price unit bug in the research engine inflated every
+> modelled cost 100x (a $0.30 spread was applied as $30). **The cost/risk
+> numbers below (110% etc.) are void.** The general arithmetic — leverage
+> scales a negative expectancy, it never fixes one — still holds.
+
+
 **Asked 2026-09-24, while a real FundingPips 2-Step Flex $5k evaluation
 (#20635994) is Ongoing in Phase 1.** Recorded permanently because it is
 one of the most expensive misconceptions in retail trading, and because a

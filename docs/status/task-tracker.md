@@ -45,6 +45,26 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 ### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
 
+> **🔴🔴 LATEST (2026-09-24, later same day) — a 100x points-vs-price unit bug
+> voids the cost conclusions below. Read
+> `research/xauusd_scalping/10_unit_bug_and_corrected_rerun.md` first.**
+> The research engine added cost *points* ($0.01) straight onto *prices*
+> (dollars), so a $0.30 spread was charged as $30 and the "40/80pt floor"
+> was really a $40/$80 stop. Fixed (`POINT_SIZE` in `cost_model.py`, tests
+> re-derived, new real-broker regression test). **Void:** 07 Finding 2
+> ("spread exceeds the move"), 09's cost/risk numbers, the pre-fix 03b
+> benchmark, the S11 scale sweep. **Survives:** 07 Finding 1 (cost-free).
+> **Corrected re-run result (`10` §4-5):** no strategy clears the bar
+> (net-positive, n≥100, above random p95). **S07 Value-Area Rotation is the
+> lead: +$411.69 on 204 trades, $1,148 above the random median, below p95.**
+> Only S10 is worse than random now (was 6/10 pre-fix). M1 XAUUSD is not
+> dead, not proven. **Next concrete task: backfill 2-3yrs more XAUUSD M1
+> (narrows the random band), then S07 study + walk-forward, then forex.** **Rakesh's direction (2026-09-24):
+> stay on Track B, XAUUSD first then forex** — if no M1 strategy qualifies,
+> next is slower XAUUSD timeframes + forex majors, now genuinely testable at
+> real (~$0.40-0.70/oz) costs. App's own Sweep-Reversal backtest is NOT
+> affected (different engine, units verified).
+
 > **⛔ THE P1-P3 RESEARCH QUESTION IS NOW ANSWERED — see
 > `research/xauusd_scalping/07_conclusion_m1_scalping_verdict.md`.**
 > M1 XAUUSD scalping as specified does not work, for TWO independent,
@@ -73,11 +93,8 @@ none of it auto-appears as a live selectable strategy (see D21 in
 > `03b`. The only remaining question, if this track continues at all, is
 > whether the toolkit shows anything at H1/H4 — where swap (**-93.17
 > pts/night on longs**) must be modelled and currently is not.
-> **Lane decision pending with Rakesh (2026-09-24):** Claude recommended
-> switching Track B's end-to-end target to the Options credit spread
-> (Lane A — direction-independent edge, multi-year NIFTY backfill already
-> in place, real multi-year Stage 2 backtest never actually run). Not
-> switched until Rakesh confirms.
+> **Lane decided (2026-09-24):** Rakesh declined the Options-lane switch —
+> XAUUSD first, forex next, stay on Track B.
 
 **One-paragraph version:** this track spent its first phase asking "which
 of these 11 strategies has an edge," and the answer turned out to be that
@@ -132,11 +149,12 @@ reading 3-5 real spread values off MT5 settles it** (see
   `research/xauusd_scalping/06_rr_geometry_finding_and_plan.md` for
   whatever landed after.
 
-**The next concrete task (updated 2026-09-24 — steps 1-2 of the old list
-are done: real spread = 31pts, structural conclusion confirmed; S07 benchmark
-done, no strategy beats random):** Rakesh decides the Track B lane — Options
-credit spread end-to-end (Claude's recommendation), gold at H1/H4 with swap
-modelled, or stop gold research. **Do not resume signal-hunting at M1.**
+**The next concrete task (updated 2026-09-24, after the 100x unit-bug fix —
+supersedes the older lines above and below):** lane decided by Rakesh —
+**XAUUSD first, forex next, stay on Track B**. Plan in
+`research/xauusd_scalping/10_unit_bug_and_corrected_rerun.md` §5: (1) backfill
+2-3yrs XAUUSD M1, (2) S07 re-run + random benchmark + walk-forward on it,
+(3) cheap re-run of S01/S09, (4) forex pairs with per-symbol point size.
 
 **The standing prior worth carrying into any new work here:** a near-zero
 signal count has meant "structurally unsatisfiable condition combination"
@@ -924,7 +942,7 @@ and killed before any of today's restarts.
 
 ---
 
-**Last updated:** 2026-09-22
+**Last updated:** 2026-09-24
 **Current position:** **2026-09-22: Track B is now the main roadmap** (see
 the 🔴 Priority decision section immediately below) — the near-term goal is
 Gold Lane B1 fully usable end-to-end from UI/Telegram. Options work stays

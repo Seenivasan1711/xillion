@@ -151,6 +151,13 @@ three months.
 
 ---
 
+### 18. 🔴 A 100x points-vs-price unit bug — costs were never what the docs said
+- **Believed:** round-trip cost was 82-170% of a 40pt risk budget, "the spread exceeds the move being traded" (07, Finding 2), and Rakesh's live 31pt spread *confirmed* the model.
+- **Actually:** bars/stops/targets are in **price (dollars/oz)**; the cost model is in **MT5 points ($0.01)**. The engine added cost points straight onto price, so a 30pt ($0.30) spread moved the fill by **$30**, and the floor's "40/80 points" became **$40/$80** stops. P&L did the reverse: a $1 price move was booked as one $0.01 point, understating USD P&L 100x (R-multiples looked sane because both sides shared the error). Rakesh's reading ($0.31) matched the *number* 30, never the *applied* $30.
+- **Found by:** asking why a 40-"point" stop and an 8-"point" hourly move looked implausible for gold (~$40/day range), then reading one real trade: entry 5093.875, stop 5133.875 (exactly $40), exit 5153.875 (exactly $20 = NY spread/2 + slippage, in dollars).
+- **Fix:** `POINT_SIZE = 0.01` in `cost_model.py`; every points<->price boundary in `backtest_engine.py` (entry/exit cost, floor, P&L, sizing, MAE/MFE) converts through it. Tests re-derived by hand in correct units; new `test_units_match_the_real_broker_not_100x_off` pins real broker economics (0.08 lot x $5 = $40).
+- **Changed:** Finding 2 and every cost-driven conclusion (08 #12's geometry magnitude, 09's leverage arithmetic, the S11 scale sweep, 03b's benchmark) are **void** and re-run. The floor itself (`risk_floor.py`) was a response to this bug — its own docstring compares a "$3 stop" to "27-108pt costs" that were really $0.27-$1.08. Finding 1 (S11 signals ~coin-flip, cost-free) is untouched. **Lesson: when two modules both say "points", check they mean the same unit — and sanity-check any headline number against the instrument's real daily range.**
+
 ## Predictions made in advance, and how they scored
 
 Recording these because calibration matters more than any single result.

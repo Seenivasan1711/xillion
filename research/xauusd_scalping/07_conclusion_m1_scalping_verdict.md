@@ -1,5 +1,10 @@
 # Verdict: M1 XAUUSD scalping, as specified, does not work — and why
 
+> **⚠️ 2026-09-24 CORRECTION — read `10_unit_bug_and_corrected_rerun.md` first.**
+> A 100x points-vs-price unit bug in the research engine inflated every
+> modelled cost 100x (a $0.30 spread was applied as $30). **Finding 2 below
+> is void**; Finding 1 (cost-free) survives. Corrected re-run in `10`.
+
 **Date: 2026-09-24. This closes the P1-P3 research question.** Two
 independent, separately-fatal findings, both now measured rather than
 assumed. Neither is fixable by choosing a better entry signal.
