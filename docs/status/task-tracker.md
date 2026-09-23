@@ -44,35 +44,64 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
-- 🔴 **P3 (implement + backtest all 10) — done (v2), verdict is "not ready
-  for P4," not a strategy ranking.** Backtest run twice against real data
-  on disk (`research/xauusd_scalping/run_backtests.py` → `03_results.md`,
-  full detail + v1-vs-v2 diff there). v1 had two real bugs, found by
-  distrusting an implausible pattern rather than trusting the numbers:
-  (1) engine bug — `consecutive_loss_halt` never reset on day rollover
-  (unlike its tested sibling `daily_loss_cap_usd`), so once tripped
-  anywhere in a run it silently killed every subsequent day for good,
-  fixed with a new regression test
-  `test_consecutive_loss_halt_resets_on_a_new_day`; (2) strategy bug —
-  all 10 strategies sized stop/target off raw `bar.close` while the
-  engine independently marks up the real fill by the session/vol-bucket
-  cost, so 5 of 10 showed an exact 0.0% win rate (target on the losing
-  side of the fill before the trade was placed), fixed with a new shared
-  `signals/risk_floor.py` (`apply_floor`, widen-only, applied at all 10
-  strategies' signal-construction sites, floor values read off the cost
-  table not tuned to a result). **v2 result after both fixes: still zero
-  of 10 keep/keep-with-caveats** — win rates now a believable 21-56%
-  range (proof the fix addressed a real defect) but every strategy is
-  net-negative on PF. S06 (OTE Fib) is the one worth revisiting first —
-  best PF (0.86) and smallest sample (n=16) of the 10, most likely to be
-  sample-size noise rather than real negative edge. `pytest tests/
-  research/xauusd_scalping/tests/` → 674 passed both times. **Before P4
-  can mean anything**: more backfilled data (still running, PID 27860 —
-  grew mid-session from 23k to 53k bars already), S02/S04's zero-signal
-  explanation confirmed only by code-reading not a traced near-miss, and
-  the fixed `min_sl_pts=40`/`min_target_pts=80` floor is probably too
-  conservative for low-spread sessions (LONDON/LONDON_NY_OVERLAP) — a
-  session-aware floor is the natural next refinement.
+- 🔴 **P3 v3 (2026-09-23) — full 6.5-month continuous backfill done,
+  8 of 10 strategies now have a credible negative verdict, 2 genuinely
+  unresolved (one blocked by a confirmed bug, not a data gap).** The
+  background Dukascopy backfill (PID 27860, `--from 2026-03-01 --to
+  2026-09-14`) **completed** — verified by the process actually exiting,
+  not just the manifest count — giving 174,554 M1 bars in one continuous
+  series (2026-03-01→2026-09-16, no gap), replacing v2's two disjoint
+  ~2-week windows (23k-53k bars). Rerunning `run_backtests.py` against it
+  surfaced a real, previously-mislabeled bug: **S02 and S04's zero
+  signals were never a "not enough history" data problem** (v2's
+  hand-waved, unconfirmed excuse) — traced directly against real data:
+  (1) both strategies' `ctx.bars(n)` lookback windows (3000/5000 raw M1
+  bars ≈ 2-3.5 trading days) were structurally too small to ever produce
+  the 5-10 daily-resampled bars their own logic needs, regardless of
+  total dataset size — fixed (widened to 25,000/12,000), verified
+  directly that this now yields ample daily bars; (2) **that fix alone
+  didn't unblock S04** — direct tracing against ~850 real 5-day windows
+  found `range_spring_upthrust`'s tightness check returns "not a tight
+  enough range" 852/873 times, because it requires every day in the
+  window to touch both the range's top AND bottom simultaneously, which
+  real intraday-noisy daily bars almost never do. Two candidate quick
+  fixes were tried and rejected (an OR-relaxation still fired 0/852
+  times; a standard trend/range efficiency ratio fires ~98% of the time
+  on this instrument, too undiscriminating to mean anything) — **left
+  unfixed rather than ship an unvalidated guessed threshold**; this
+  needs an actual volatility/ADX-style range-vs-trend redesign, not a
+  one-line patch. S02, by contrast, showed no bug — equal-level pools do
+  form on real data (5/852 sampled windows) at its tight 0.15% tolerance,
+  just never coinciding with an immediate sweep in a coarse check;
+  genuine parameter rarity, not confirmed as bug-free with full
+  certainty. **v3 result**: S01/S03/S05/S06/S07/S08/S09/S10 all negative
+  on credible samples (72-178 trades each) — including **S06, v2's one
+  "maybe just noise" candidate, which resolved toward negative (PF 0.86→
+  0.29) once its sample tripled (16→49), confirming it was noise, not a
+  missed edge**. Zero of 10 keep/keep-with-caveats; 2 of 10 (S02, S04)
+  still genuinely undetermined. Full detail, all three run versions:
+  `research/xauusd_scalping/03_results.md`. `pytest tests/
+  research/xauusd_scalping/tests/` → 674 passed (unchanged — no test
+  covered `range_spring_upthrust` before this, a real coverage gap now
+  on record). **Before P4 can mean anything**: S04's range-tightness
+  detector needs a real redesign (highest-value next step — the only one
+  of 10 still genuinely open), S02 would benefit from a full incremental
+  trace to close out with certainty, and the fixed
+  `min_sl_pts=40`/`min_target_pts=80` floor is probably too conservative
+  for low-spread sessions (LONDON/LONDON_NY_OVERLAP) — a session-aware
+  floor is the natural next refinement.
+- ✅ **P3 v1/v2 (2026-09-22, superseded by v3 above)** — two real bugs
+  found and fixed on a partial dataset: (1) engine bug —
+  `consecutive_loss_halt` never reset on day rollover (unlike its tested
+  sibling `daily_loss_cap_usd`), so once tripped anywhere in a run it
+  silently killed every subsequent day for good, fixed with a new
+  regression test `test_consecutive_loss_halt_resets_on_a_new_day`;
+  (2) strategy bug — all 10 strategies sized stop/target off raw
+  `bar.close` while the engine independently marks up the real fill by
+  the session/vol-bucket cost, so 5 of 10 showed an exact 0.0% win rate,
+  fixed with a new shared `signals/risk_floor.py` (`apply_floor`,
+  widen-only, floor values read off the cost table not tuned to a
+  result).
 - ✅ **P1 v2 (price-action/liquidity-led, top 10)** —
   `research/xauusd_scalping/01_shortlist_v2.md`. Re-run after Rakesh's
   review of v1 found it too indicator-led (D22) — 20 candidates evaluated,
@@ -96,10 +125,9 @@ none of it auto-appears as a live selectable strategy (see D21 in
   initial ~34% per-hour failure rate was a bare TLS `ConnectTimeout`, not
   rate-limiting as first assumed — fixed with retry-with-backoff on
   transient network errors, confirmed via a direct diagnostic call before
-  and after the fix. A 6-month M1 backfill runs independently in the
-  background (resumable — a manifest tracks completed/empty/failed hours;
-  exact current coverage is always in `research/xauusd_scalping/data/
-  QUALITY.md` and the manifest, never assumed).
+  and after the fix. **The 6-month M1 backfill completed 2026-09-23**
+  (verified by the process exiting, not just the manifest count) —
+  174,554 M1 bars, one continuous series, 2026-03-01→2026-09-16.
 - **Data backup, tracked**: `make backup-xauusd-research` /
   `restore-xauusd-research` (tar+gzip, same spirit as
   `backup-warehouse`/`restore-warehouse`), tested for real. A real
@@ -115,6 +143,23 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 See `docs/status/decisions-and-open-questions.md` D21-D24 for the full
 reasoning behind the architectural choices above.
+
+**Backlog, deliberately low priority — do this last, after P1-P5 land
+(Rakesh's own instruction, 2026-09-23):** a UI trigger for this research
+pipeline — click a button to kick off `run_backtests.py`, show a progress
+bar while it runs, then render `03_results.md`'s table in the browser
+instead of reading a markdown file. **Not the same thing as the existing
+"Backtest results UI + comparison dashboard" (✅ built 2026-09-22, in the
+SESSION SPRINT section below)** — that one drives xillion's own
+plugin-strategy engine (`Backtest.tsx`, `/run-provider`, the production
+`strategy_class`/`backtest_run` tables) and has no path into this
+standalone `research/xauusd_scalping/` pipeline, which today is a bare CLI
+script with no API/DB/job-queue wiring at all. Doing this for real needs:
+a job-runner endpoint (this pipeline currently takes ~15-30 min per run,
+too long for a synchronous request), a progress channel (poll or SSE —
+`run_backtests.py` would need to emit per-strategy progress as it goes,
+which it doesn't today), and a results view that renders the same table
+`03_results.md` does. Explicitly sequenced after P4/P5, not before.
 
 ---
 

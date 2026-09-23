@@ -37,7 +37,13 @@ class WyckoffSpringUpthrustStrategy:
     def on_bar(self, bar: Bar, ctx) -> Signal | None:
         if ctx.has_open_position:
             return None
-        bars = ctx.bars(5000)
+        # 5000 M1 bars (~3.5 trading days) was never enough to produce
+        # `range_min_days=5` resampled daily bars -- found 2026-09-23 once
+        # 6.5 months of real continuous data still showed zero signals,
+        # ruling out "not enough history in the dataset" as the cause.
+        # 12000 bars (~8.3 trading days on a 24/5 market) gives comfortable
+        # margin above the 5-day gate even accounting for thin/holiday days.
+        bars = ctx.bars(12000)
         if len(bars) < 30:
             return None
         daily = daily_bars_from_m1(bars)

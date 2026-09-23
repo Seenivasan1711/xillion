@@ -135,6 +135,11 @@ A living log of trade-offs the design has committed to, and questions that still
 - **Why:** extends this project's existing, deliberate "an LLM must never invent an order" structural boundary (see the "Explicitly rejected" table in `docs/status/deferred-backlog.md`) to parameter changes, matching Rakesh's own scoping when JEV's boundary was discussed: propose + explain, human approves, only then does code write anything.
 - **Trade-off:** every LLM-proposed tuning idea requires a human round-trip before it takes effect, even an obviously-good one — accepted deliberately, since the alternative (an LLM that can silently retune a live trading strategy) is a real, unacceptable safety risk for a system trading real capital.
 
+### D27. Don't ship a guessed fix for S04's range-detection bug under time pressure — leave it confirmed-but-unfixed instead
+- **Decision:** once the full 6.5-month backfill confirmed `range_spring_upthrust`'s tightness check was a real bug (not a data-volume issue as previously assumed), two candidate quick fixes were tried (relaxing the per-day AND to an OR; a standard trend/range efficiency ratio) — both were rejected as either not firing at all or too undiscriminating to mean anything on this instrument — rather than shipping either one anyway.
+- **Why:** P3's honesty clause explicitly forbids tuning toward a target outcome; an untested, hand-picked heuristic chosen under time pressure specifically because "something needs to fire" is the same failure mode wearing a different hat, even without deliberately picking for profitability. S04 is more honestly reported as "no verdict, blocked by a known bug" than quietly patched with logic nobody's validated.
+- **Trade-off:** S04 stays unresolved (1 of 10 candidates with no verdict at all) until someone deliberately designs a real range-vs-trend criterion — slower than shipping a guess, but the resulting verdict (whatever it turns out to be) will actually mean something.
+
 ## Part B: Open questions (decide before relevant phase)
 
 ### Q1. Auto-login automation: legal status?

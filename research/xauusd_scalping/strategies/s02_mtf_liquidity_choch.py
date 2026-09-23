@@ -48,7 +48,13 @@ class MtfLiquidityChochStrategy:
     def on_bar(self, bar: Bar, ctx) -> Signal | None:
         if ctx.has_open_position:
             return None
-        bars = ctx.bars(3000)
+        # 3000 M1 bars (~2 trading days) could never reach the 5 daily bars
+        # the swing check below needs, let alone a real htf_lookback_days=10
+        # window -- found 2026-09-23 once 6.5 months of real continuous data
+        # still produced zero signals, ruling out "dataset too short" as the
+        # cause. 25000 bars (~17 trading days on a 24/5 market) gives margin
+        # above the 10-day HTF lookback even with thin/holiday days mixed in.
+        bars = ctx.bars(25000)
         if len(bars) < 30:
             return None
 
