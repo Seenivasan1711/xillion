@@ -53,6 +53,8 @@ research/xauusd_scalping/_backtest_results_raw.json
 research/xauusd_scalping/_zero_cost_results.json
 research/xauusd_scalping/_timeframe_experiment_raw.json
 research/xauusd_scalping/_real_trades_cache.json
+research/xauusd_scalping/_s11_trades_real.json
+research/xauusd_scalping/_s11_trades_zero.json
 
 # Testing & coverage
 .pytest_cache/

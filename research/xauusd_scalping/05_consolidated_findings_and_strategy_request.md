@@ -521,11 +521,38 @@ existing `order_block` primitive; liquidity sweep → the existing
 existing swing-point detection already used by `equal_highs_lows`/
 `_find_swing_points`.
 
-**Status as of this writing**: specification complete, implementation and
-backtest not yet run — see the task tracker for current progress. Results
-will be appended below once available, in the same format as §4's tables
-(real-cost PF, gross/zero-cost PF, and — given what §4.4 found — a
-random-entry comparison from the start, not as an afterthought).
+**Status (2026-09-24): implemented and run — no verdict yet, because a
+confirmed encoding bug means it barely fires.** Full detail:
+`03d_s11_video_strategy_result.md`. Summary: S11 produces **1 trade in
+6.5 months** (real cost -$7.00, zero cost -$3.20 — n=1, meaningless
+either way). An instrumented funnel count over 34,871 sampled bars shows
+where it dies: the 1H/15m alignment filter is **not** the bottleneck
+(25% of bars clear it), but only 82 of those 8,767 survivors (0.9%) pass
+the point-of-interest gate, and only 1 of those 82 becomes a trade.
+
+Root cause, confirmed: the implementation requires a 15m break-of-
+structure to be *firing* AND price to be *simultaneously* inside the
+order block that caused that same break — near-mutually-exclusive by
+construction, since a break of structure fires precisely because price
+moved decisively **away** from that zone. The video actually describes a
+sequence over time (structure shifts → price later returns to the zone →
+sweep → entry), which the implementation collapsed into one bar's worth
+of simultaneous conditions.
+
+**This is the third instance of the same bug class in this project**
+(after S02's too-small lookback window and S04's both-extremes-every-day
+range check) — each found by tracing rather than accepting a near-zero
+signal count as a market finding. Worth stating as a standing prior for
+anyone reviewing this work: **in this codebase, a near-zero signal count
+has meant "structurally unsatisfiable condition combination" 3 times out
+of 3, never "the market didn't offer this setup."**
+
+Nothing was loosened or tuned to force trades. S11 needs a genuine
+restructure into sequential stages (persist bias + zone as state, then
+wait for mitigation, then wait for the sweep) before any backtest of it
+means anything. The zero-cost and random-entry benchmarks were
+deliberately not run — with n=1 they'd be noise, and they should follow
+the restructure, not precede it.
 
 ### 8.2 (reserved for the next video/source the project owner provides)
 
