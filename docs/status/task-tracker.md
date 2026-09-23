@@ -85,8 +85,13 @@ none of it auto-appears as a live selectable strategy (see D21 in
   covered `range_spring_upthrust` before this, a real coverage gap now
   on record). **Before P4 can mean anything**: S04's range-tightness
   detector needs a real redesign (highest-value next step — the only one
-  of 10 still genuinely open), S02 would benefit from a full incremental
-  trace to close out with certainty, and the fixed
+  of 10 still genuinely open) — **Rakesh's call, 2026-09-23: get a second
+  opinion from another LLM before implementing**, so a self-contained
+  design question is written up at
+  `research/xauusd_scalping/S04_range_detection_design_question.md`
+  (buggy code, empirical evidence, two rejected fixes and why, exact
+  interface to fit) — not yet answered as of this note. S02 would benefit
+  from a full incremental trace to close out with certainty, and the fixed
   `min_sl_pts=40`/`min_target_pts=80` floor is probably too conservative
   for low-spread sessions (LONDON/LONDON_NY_OVERLAP) — a session-aware
   floor is the natural next refinement.
