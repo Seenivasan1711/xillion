@@ -33,6 +33,7 @@ three months.
 | `06_rr_geometry_finding_and_plan.md` | The R:R geometry bug + the 5-phase plan |
 | `07_conclusion_m1_scalping_verdict.md` | **The verdict — read this for "does this work"** |
 | `08_correction_history.md` | **This file — read this for "what did we learn"** |
+| `09_leverage_cannot_fix_negative_expectancy.md` | Why leverage cannot rescue a losing system (asked 2026-09-24) |
 | `S04_range_detection_design_question.md` | Self-contained design brief handed to an external LLM |
 
 ---
@@ -178,3 +179,4 @@ Recording these because calibration matters more than any single result.
 5. **State the expected result before running.** A result far outside the stated band means debug, not retune.
 6. **Validate an input before optimising anything downstream of it.** Almost every result here was downstream of an unvalidated spread table.
 7. **Prefer an exact identity over a statistical hint** when proving a mechanical bug (#12: 90/90 trades summing to exactly 120).
+8. **Leverage is a multiplier, never a fix.** Cost and risk both scale with position size, so the cost/risk ratio that kills a strategy is scale-invariant. Establish positive expectancy first; size second. See `09_leverage_cannot_fix_negative_expectancy.md`.

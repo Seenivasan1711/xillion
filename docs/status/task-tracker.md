@@ -58,6 +58,14 @@ none of it auto-appears as a live selectable strategy (see D21 in
 > **~3.9x the median 8-point favourable move in the hour after a signal.**
 > Fixing either one alone changes nothing, which is why every "make it
 > profitable" avenue dead-ended.
+> **Leverage does not change this** — asked and answered 2026-09-24
+> (`09_leverage_cannot_fix_negative_expectancy.md`). Cost and risk both
+> scale with position size, so the cost/risk ratio is identical at 0.08 and
+> 0.80 lots (110% both times). Scaling S11 10x turns -$529 into -$5,290 and
+> a 10.6% drawdown into 105.8% — the account, not the loss, is what
+> disappears. A real FundingPips $5k evaluation (#20635994) is Ongoing in
+> Phase 1: **none of these eleven strategies should be run on it, at any
+> size.**
 > **Do not resume signal-hunting at M1.** The open questions, if this track
 > continues at all, are: does S07 (the only strategy that beat a random
 > baseline) survive a walk-forward, and does the same toolkit show anything
