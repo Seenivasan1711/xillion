@@ -44,6 +44,35 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
+- 🔴🔴 **R:R GEOMETRY BUG FOUND (2026-09-24) — every result in this track
+  so far is provisional.** Found while researching how to make S11
+  profitable; the investigation found something far more important.
+  `signals/risk_floor.py`'s `apply_floor` sets a 40/80 (2:1) stop/target
+  against the **pre-cost reference price**, but the engine fills at
+  `ref ± entry_cost` (measured median **23 pts**). The markup is
+  subtracted from the target and added to the stop simultaneously, so the
+  designed 2.00:1 becomes an actual **0.90:1** measured from the real
+  fill. **Proven by an exact algebraic identity, not inference**:
+  `stop_dist + target_dist == exactly 120.0` on **90/90** S11 trades and
+  the large majority of all ~900 trades across S01-S10 (the exceptions
+  are trades where structural levels were already wider than the floor —
+  the expected case, not a contradiction). **Breakeven win rate needed
+  jumps from 33.3% to 52.6%**; observed win rates cluster 26-44%, so
+  several strategies clear the designed bar and none clear the actual
+  one. **Consequence: every "this strategy is net-negative" verdict in
+  `03_results.md`/`03b`/`03c`/`03d` measured strategies carrying a
+  systematic handicap, not the strategies themselves.** It also means C1's
+  zero-cost run was conflating two effects — removing cost AND silently
+  restoring the intended 2:1 geometry. **Honest caveat, stated up front:
+  fixing this does NOT create edge** — win rate will fall as targets
+  widen (the two aren't independent), the random-entry baseline was
+  double-distorted and therefore even more handicapped (so C3's "no entry
+  skill" conclusion holds a fortiori but must be re-measured cleanly), and
+  the ~$3.80/trade cost is still genuinely paid. Full finding + 5-phase
+  plan: `06_rr_geometry_finding_and_plan.md`. **Next: fix the geometry,
+  fix the benchmark's double-distortion, bundle in D28's deferred
+  VolBucket + O(n²) fixes, then re-run everything before any further
+  strategy work or the walk-forward.**
 - 🔴 **S11 (first video-sourced candidate) tested end-to-end (2026-09-24)
   — no demonstrable edge, plus a third instance of a recurring bug
   class.** Rakesh supplied a YouTube gold-scalping strategy (transcript +

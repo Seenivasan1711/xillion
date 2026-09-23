@@ -1,5 +1,20 @@
 # P3 Results — XAUUSD Scalping, 10-Strategy Backtest
 
+> ## ⚠️ ALL NUMBERS IN THIS FILE ARE PROVISIONAL (2026-09-24)
+> A mechanical risk/reward bug was found after these were produced:
+> `apply_floor` sets a 40/80 (2:1) stop/target against the pre-cost
+> reference price, but the engine fills at `ref ± entry_cost` (median 23
+> pts), turning the real structure into ~63/57 (**0.90:1**) from the
+> actual fill. Proven by an exact identity — `stop_dist + target_dist ==
+> 120.0` on 90/90 S11 trades and the large majority of every other
+> strategy's. Breakeven win rate needed jumps from 33.3% to 52.6%, which
+> no strategy here reaches.
+> **Every "this strategy is net-negative" conclusion below was measured
+> through that handicap and must be re-run before being treated as a
+> verdict.** It also means C1's zero-cost run was silently restoring the
+> intended 2:1 geometry as well as removing cost — two effects conflated.
+> Full detail and the resulting plan: `06_rr_geometry_finding_and_plan.md`.
+
 **Status (2026-09-23, C3 diagnostic, the most current read): of the 6
 strategies C1 found with real gross (pre-cost) edge, only ONE (S07) is
 actually distinguishable from a random entry with the same session/R:R/
