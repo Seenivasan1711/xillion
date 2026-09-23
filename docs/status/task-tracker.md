@@ -44,6 +44,23 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
+- 🔴 **C1 zero-cost diagnostic (2026-09-23) — the "all 10 negative" verdict
+  was largely a cost problem, not a no-edge problem.** An external review
+  of P3 v3 predicted (their Section C1) that re-running the same 10
+  strategies with the cost model zeroed would reveal real gross edge
+  hiding under cost drag. Verified directly:
+  `research/xauusd_scalping/run_backtests_zerocost.py`, same trades, only
+  fill/PnL math changed. **6 of 8 firing strategies have gross (pre-cost)
+  PF >= 1.0** — S01 1.07, S03 1.18, S06 1.37, S07 1.67 (strongest), S08
+  1.00, S10 1.28 — all currently net-negative (0.13-0.33) only because a
+  ~$3.80/trade fixed cost (spread+slippage on a tight M1 stop) eats a real
+  but modest edge. Only S05 (0.69 gross) and S09 (0.92 gross) look
+  genuinely no-edge. Full detail: `03_results.md`'s new "C1" section.
+  **Highest-value next step, now running**: test moving the 6 promising
+  strategies from M1 entries to M5/M15 with proportionally wider stops —
+  cost stays ~fixed in $ terms while the per-trade edge available to
+  absorb it grows, which is exactly what should flip several of these
+  net-positive if the gross edge is real.
 - 🔴 **P3 v3 (2026-09-23) — full 6.5-month continuous backfill done,
   8 of 10 strategies now have a credible negative verdict, 2 genuinely
   unresolved (one blocked by a confirmed bug, not a data gap).** The

@@ -1,11 +1,61 @@
 # P3 Results — XAUUSD Scalping, 10-Strategy Backtest
 
-**Status (v3, full continuous 6.5-month backfill + a real S04 bug found by
-tracing, not assumed): all 10 candidates are still net-negative, and this
-is the most trustworthy read yet.** v1 and v2 (below the line, kept for
-the record) ran on a partial/disjoint dataset; v3 runs on the completed
-backfill — one continuous series, no data hole. Read "What changed between
-v2 and v3" before the table.
+**Status (2026-09-23, C1 diagnostic): the "all 10 net-negative" verdict
+from v3 was largely a cost-vs-signal-size problem, not a no-edge problem
+— 6 of the 8 strategies that fire at all have positive-or-breakeven GROSS
+(pre-cost) expectancy.** Read "C1 — zero-cost diagnostic" below before
+anything else in this file; it changes what the v1-v3 sections mean.
+
+## C1 — zero-cost diagnostic (external review finding, verified directly)
+
+An external review of this project's own P3 v3 results made a specific,
+falsifiable prediction (their Section C1): re-run the same 10 strategies'
+exact trade logic with the cost model zeroed out, and check whether gross
+(pre-cost) expectancy is positive or negative. If gross is positive, the
+"8 of 10 negative" verdict is a cost-engineering problem (fixable,
+config-level); if gross is also negative, it's a real no-edge problem.
+
+Ran it for real (`run_backtests_zerocost.py`, same strategies, same bars,
+`CostModel.zero()` in place of the real cost model — same trades, only the
+fill/PnL math changes):
+
+| # | Strategy | n | Real-cost PF (v3) | **Gross (zero-cost) PF** | Verdict |
+|---|---|---|---|---|---|
+| S01 | Liquidity Sweep + Displacement + FVG Retest | 114 | 0.21 | **1.07** | Real gross edge, killed by cost |
+| S02 | Multi-Timeframe Liquidity + CHoCH | 0 | — | — | N/A, still fires no signals |
+| S03 | Order Block Retest after BOS | 178 | 0.23 | **1.18** | Real gross edge, killed by cost |
+| S04 | Wyckoff Spring/Upthrust | 0 | — | — | N/A, blocked by the range-detector bug (see below) |
+| S05 | NR7/Inside-Bar Compression Breakout | 174 | 0.13 | 0.69 | Negative even gross — genuinely no edge |
+| S06 | Premium/Discount OTE Fib Retracement | 49 | 0.29 | **1.37** | Real gross edge, killed by cost |
+| S07 | Market Profile Value-Area Rotation | 106 | 0.33 | **1.67** | Real gross edge, killed by cost — the strongest of the 10 |
+| S08 | BOS Pullback Continuation | 109 | 0.19 | **1.00** | Breakeven gross, killed by cost |
+| S09 | Session Liquidity Run + Reversal | 72 | 0.23 | 0.92 | Negative even gross — genuinely no edge |
+| S10 | Equal Highs/Lows + RSI Divergence | 172 | 0.25 | **1.28** | Real gross edge, killed by cost |
+
+**Verified this isn't an artifact**: spot-checked the actual $ extracted by
+cost per strategy (e.g. S07: $126.87 gross → -$278.77 net = $405.64 total
+cost across 106 trades = $3.83/trade average; S01: $3.79/trade average) —
+a believable, consistent magnitude for a 0.08-lot position, not a bug in
+the diagnostic script.
+
+**What this means**: only S05 and S09 look like genuinely no-edge signals.
+The other 6 (S01, S03, S06, S07, S08, S10) have real, if modest, gross
+expectancy that a fixed per-trade cost (~$3.80, dominated by spread+
+slippage on a tight M1 stop) is currently erasing. **This directly matches
+the external review's own predicted lever**: move from M1 entries to
+M5/M15 with proportionally wider stops (8-15pt instead of the current
+`risk_floor.py` floor's still-tight-relative-to-cost M1 sizing) — cost
+stays roughly fixed in $ terms while the stop distance (and therefore the
+per-trade edge available to absorb it) grows, cutting cost's share of the
+trade from double digits down to single digits. Same signal logic, no new
+strategy needed. This is now the single highest-value next step — see
+`docs/status/task-tracker.md`'s XAUUSD section for what's actually running.
+
+The v1-v3 sections below remain accurate as a record of what was tested
+and found at each stage — they're just not the final word on whether these
+10 candidates have any edge, which is why C1 sits above them now.
+
+---
 
 ## Data actually used (honest accounting)
 
