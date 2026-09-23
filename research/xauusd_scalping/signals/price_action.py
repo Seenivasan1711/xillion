@@ -25,6 +25,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from engine.backtest_engine import Bar
+from signals.indicators import IndicatorSignals
+
+_ind = IndicatorSignals()
 
 
 class Direction(str, Enum):
@@ -112,6 +115,16 @@ class RangeSpringResult:
     direction: Direction | None = None  # UP = upthrust (swept the range high), DOWN = spring
     reclaimed: bool = False
     reason: str = ""
+    # Diagnostics from the 3-gate redesign (2026-09-23 -- see
+    # research/xauusd_scalping/S04_range_detection_design_question.md for
+    # the external design review this implements). Logged so the "gate
+    # should pass on 10-25% of real windows" prior-expectation check is
+    # auditable against real data rather than just asserted.
+    efficiency_ratio: float = 0.0
+    span_atr_ratio: float = 0.0
+    upper_touches: int = 0
+    lower_touches: int = 0
+    gate_failed: str = ""  # "G1_trending" | "G2_uncontained" | "G3_untested" | ""
 
 
 @dataclass(frozen=True)
@@ -410,55 +423,221 @@ class PriceActionSignals:
 
     # ── Wyckoff spring/upthrust (candidate #4) ──────────────────────────────
 
+    # Measured 2026-09-23 from real XAUUSD daily-resampled bars
+    # (research/xauusd_scalping/data/xauusd/*.parquet, 2026-03-01 to
+    # 2026-09-16, 167 resampled daily bars):
+    #   ATR14.mean() / close.pct_change().std() / close.mean() = 1.4628
+    # This is a measured property of gold's own daily volatility structure
+    # (how large a "typical" true range runs relative to daily % volatility),
+    # not a fitted parameter -- see S04_range_detection_design_question.md
+    # section A2 for why that distinction matters. Recompute if the
+    # instrument or timeframe changes; never retune this to move backtest
+    # P&L.
+    _MEASURED_SIGMA_TO_ATR = 1.4628
+
     def range_spring_upthrust(
         self,
         daily_bars: list[Bar],
         intraday_bars: list[Bar],
         range_min_days: int = 5,
-        range_tolerance_pct: float = 1.5,
+        trend_lookback_days: int = 10,  # n: the (broader) ER trend-context window, >= range_min_days
+        atr_period: int = 14,
+        edge_zone_atr_mult: float = 0.5,
+        min_edge_touches: int = 2,
+        min_penetration_atr: float = 0.10,
+        max_penetration_atr: float = 0.75,
+        reclaim_within_bars: int = 15,
+        sigma_to_atr: float = _MEASURED_SIGMA_TO_ATR,
     ) -> RangeSpringResult:
-        """`daily_bars` are one-bar-per-day OHLC (the caller resamples --
-        this method doesn't do timeframe conversion itself, keeping it a
-        pure function of whatever bars it's handed, same as every other
-        method here). Detects a multi-day range (each day's high/low within
-        `range_tolerance_pct`% of the range's own overall high/low), then
-        checks whether the most recent intraday bar swept beyond that range
-        and reclaimed."""
-        if len(daily_bars) < range_min_days:
+        """Three independent gates replace the old "every day touches both
+        extremes" check (which required each of `range_min_days` days to
+        have its high near the top AND its low near the bottom of the
+        window simultaneously -- confirmed by direct tracing against real
+        data to fail 852/873 real windows; see the design doc referenced
+        above for the full derivation of everything below).
+
+        Two windows are used deliberately, not one: `trend_lookback_days`
+        (broader, default 10) asks "is the recent regime trending at all,"
+        while `range_min_days` (tighter, default 5, and always the more
+        recent sub-window) defines the actual tradeable range boundaries
+        that G2/G3 and the entry/target logic use. A range that only holds
+        for the last 5 of a trending 10 days should still be rejected by
+        G1's broader-context check.
+
+        G1 (not trending): Kaufman Efficiency Ratio over `trend_lookback_days`
+        -- net close displacement / sum of ABSOLUTE close-to-close changes
+        (not the sum of daily high-low ranges, which inflates the
+        denominator ~2-3x on gold and crushes the ratio toward zero for
+        every window regardless of regime -- the bug in the originally
+        rejected version of this idea). Threshold `1/sqrt(n)` is the ER a
+        driftless random walk produces -- not fitted to this dataset, and
+        it independently reproduces Kaufman's own conventional 0.30 cutoff
+        at n=10 (1/sqrt(10) = 0.316).
+
+        G2 (contained): the `range_min_days`-day span must sit at or under
+        a random walk's expected range envelope,
+        `ATR14 * (1 + 1.15*sqrt(range_min_days-1))` -- a trend blows past
+        this; a genuine range doesn't.
+
+        G3 (boundaries real): at least `min_edge_touches` distinct days
+        must have their high within `edge_zone_atr_mult * ATR14` of the
+        range top, and at least `min_edge_touches` distinct days within
+        that same zone of the range bottom -- two points define a level. A
+        day whose own range spans both edge zones (an outside day) counts
+        toward neither, since it doesn't establish either boundary
+        specifically.
+
+        Penetration must be `min_penetration_atr..max_penetration_atr` x
+        ATR14 beyond the range (below the floor is spread noise; above the
+        ceiling is a real breakout, not a false one), and the CURRENT bar
+        (`intraday_bars[-1]`) must have closed back inside the range for
+        `fired` to be True -- a penetration still awaiting reclaim reports
+        `fired=False, reclaimed=False`, not a half-true state the caller
+        has to interpret.
+
+        The G2/G3 boundary window deliberately EXCLUDES the most recent
+        daily bar (today, possibly still forming): a range that included
+        today's own action could never be "penetrated" by today's intraday
+        bars, since today's high/low would already BE part of whatever
+        range_high/range_low that included it -- a tautology found
+        2026-09-23 by tracing why gates could pass (12.2% of real windows,
+        exactly the predicted band) yet zero penetrations were ever found
+        even scanning a full day back. `daily_bars[-1]` is reserved for
+        "today," tested against the range established by the
+        `range_min_days` days strictly before it -- `trend_lookback_days`
+        (G1) intentionally still runs through today, since the broader
+        trend-context question ("is the current regime trending") should
+        include the latest data, unlike the range boundaries a fresh
+        breakout needs room to actually break."""
+        needed = max(range_min_days, trend_lookback_days) + atr_period + 2
+        if len(daily_bars) < needed:
             return RangeSpringResult(fired=False, reason="not enough daily history")
-        window = daily_bars[-range_min_days:]
+
+        atr = _ind.atr(daily_bars, period=atr_period)
+        if atr <= 0:
+            return RangeSpringResult(fired=False, reason="degenerate ATR")
+
+        # ── G1: not trending (broader trend_lookback_days window, through today) ──
+        trend_window = daily_bars[-(trend_lookback_days + 1):]
+        net_move = abs(trend_window[-1].close - trend_window[0].close)
+        volatility_sum = sum(
+            abs(trend_window[i].close - trend_window[i - 1].close) for i in range(1, len(trend_window))
+        )
+        efficiency_ratio = (net_move / volatility_sum) if volatility_sum > 0 else 0.0
+        er_threshold = 1.0 / (trend_lookback_days**0.5)
+        if efficiency_ratio >= er_threshold:
+            return RangeSpringResult(
+                fired=False,
+                efficiency_ratio=efficiency_ratio,
+                gate_failed="G1_trending",
+                reason=f"trending: ER {efficiency_ratio:.3f} >= {er_threshold:.3f}",
+            )
+
+        # ── G2 + G3: range_min_days immediately BEFORE today (today excluded) ──
+        window = daily_bars[-(range_min_days + 1) : -1]
         range_high = max(b.high for b in window)
         range_low = min(b.low for b in window)
         span = range_high - range_low
         if span <= 0:
-            return RangeSpringResult(fired=False, reason="degenerate range")
-        tolerance = span * (range_tolerance_pct / 100.0)
-        is_real_range = all(
-            (range_high - b.high) <= tolerance and (b.low - range_low) <= tolerance for b in window
-        )
-        if not is_real_range or not intraday_bars:
-            return RangeSpringResult(fired=False, reason="not a tight enough range")
+            return RangeSpringResult(
+                fired=False, efficiency_ratio=efficiency_ratio, reason="degenerate range"
+            )
+        span_atr_ratio = span / atr
+        # Derivation (design doc section A2): E[range over N steps] ~=
+        # 1.6*sigma*sqrt(N-1) for a driftless random walk, plus ~1 ATR of
+        # slack for intraday extremes closes don't capture:
+        #   span_expected ~= ATR*(1 + (1.6/sigma_to_atr)*sqrt(N-1))
+        # The doc's own worked example used a placeholder sigma_to_atr=1.4
+        # (giving a 1.6/1.4=1.143~=1.15 coefficient); with the actually
+        # measured 1.4628 (see _MEASURED_SIGMA_TO_ATR above) the coefficient
+        # is derived here, not hardcoded, so a future re-measurement of
+        # sigma_to_atr automatically re-derives the right threshold instead
+        # of silently going stale.
+        containment_coeff = 1.6 / sigma_to_atr
+        max_span = atr * (1.0 + containment_coeff * ((range_min_days - 1) ** 0.5))
+        if span > max_span:
+            return RangeSpringResult(
+                fired=False,
+                efficiency_ratio=efficiency_ratio,
+                span_atr_ratio=span_atr_ratio,
+                gate_failed="G2_uncontained",
+                reason=f"uncontained: span {span:.2f} > {max_span:.2f} (={span_atr_ratio:.2f}x ATR)",
+            )
 
-        last = intraday_bars[-1]
-        if last.high > range_high:
+        zone = edge_zone_atr_mult * atr
+        upper_touches = 0
+        lower_touches = 0
+        for b in window:
+            near_top = b.high >= range_high - zone
+            near_bottom = b.low <= range_low + zone
+            if near_top and near_bottom:
+                continue  # outside day -- doesn't establish either boundary specifically
+            if near_top:
+                upper_touches += 1
+            if near_bottom:
+                lower_touches += 1
+        if upper_touches < min_edge_touches or lower_touches < min_edge_touches:
             return RangeSpringResult(
-                fired=True,
+                fired=False,
+                efficiency_ratio=efficiency_ratio,
+                span_atr_ratio=span_atr_ratio,
+                upper_touches=upper_touches,
+                lower_touches=lower_touches,
+                gate_failed="G3_untested",
+                reason=f"untested boundaries: {upper_touches} upper / {lower_touches} lower touches",
+            )
+
+        diagnostics = dict(
+            efficiency_ratio=efficiency_ratio,
+            span_atr_ratio=span_atr_ratio,
+            upper_touches=upper_touches,
+            lower_touches=lower_touches,
+        )
+
+        # ── Penetration + same-bar-or-later reclaim, scanned as a pure ──
+        # function over the trailing reclaim_within_bars intraday bars ──
+        if not intraday_bars:
+            return RangeSpringResult(
+                fired=False, range_high=range_high, range_low=range_low, reason="no intraday bars", **diagnostics
+            )
+        scan_window = intraday_bars[-(reclaim_within_bars + 1):]
+        now = scan_window[-1]
+        penetration_direction: Direction | None = None
+        for b in scan_window:
+            if b.high > range_high:
+                excursion = b.high - range_high
+                if min_penetration_atr * atr <= excursion <= max_penetration_atr * atr:
+                    penetration_direction = Direction.UP
+            if b.low < range_low:
+                excursion = range_low - b.low
+                if min_penetration_atr * atr <= excursion <= max_penetration_atr * atr:
+                    penetration_direction = Direction.DOWN
+
+        if penetration_direction is None:
+            return RangeSpringResult(
+                fired=False,
                 range_high=range_high,
                 range_low=range_low,
-                direction=Direction.UP,
-                reclaimed=last.close < range_high,
-                reason=f"upthrust beyond {range_high:.2f}",
+                reason="no qualifying penetration in window",
+                **diagnostics,
             )
-        if last.low < range_low:
-            return RangeSpringResult(
-                fired=True,
-                range_high=range_high,
-                range_low=range_low,
-                direction=Direction.DOWN,
-                reclaimed=last.close > range_low,
-                reason=f"spring beyond {range_low:.2f}",
-            )
-        return RangeSpringResult(fired=False, range_high=range_high, range_low=range_low, reason="range holding")
+
+        if penetration_direction is Direction.UP:
+            reclaimed = now.close < range_high
+            reason = f"upthrust beyond {range_high:.2f}, reclaimed={reclaimed}"
+        else:
+            reclaimed = now.close > range_low
+            reason = f"spring beyond {range_low:.2f}, reclaimed={reclaimed}"
+
+        return RangeSpringResult(
+            fired=reclaimed,
+            range_high=range_high,
+            range_low=range_low,
+            direction=penetration_direction,
+            reclaimed=reclaimed,
+            reason=reason,
+            **diagnostics,
+        )
 
     # ── Equal highs/lows (candidates #2, #10) ───────────────────────────────
 

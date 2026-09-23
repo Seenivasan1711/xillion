@@ -44,6 +44,37 @@ none of it auto-appears as a live selectable strategy (see D21 in
 `decisions-and-open-questions.md`).
 
 **Status, most recent first:**
+- 🔴 **C3 random-entry benchmark + S04 redesign complete (2026-09-23) —
+  only S07 is actually distinguishable from random; S04's bug is fixed but
+  the strategy is now underpowered, not resolved.**
+  **C3**: built a proper benchmark (`random_entry_benchmark.py`) asking
+  whether each of C1's 6 gross-positive strategies' entry TIMING beats a
+  random entry with the same session mix, (stop,target) distances, and
+  real cost (resolved through the same tested engine fill logic, not
+  reimplemented). **Only S07 beats random** (real PnL above the random
+  p95 band). The other 5 (S01, S03, S06, S08, S10) are statistically
+  indistinguishable from randomly-timed entries with the same R:R/session
+  shape — their C1 gross edge most likely comes from that structural
+  shape being favorable, not from real entry-signal skill. **S05 is
+  confirmed worse than random.** This narrows the field from "6 roughly
+  equal candidates" to "S07 is the one candidate with two independent
+  pieces of evidence." Full detail + methodology/limitations:
+  `03_results.md`'s C3 section, `03b_random_entry_benchmark.md`. Also
+  found: `BacktestEngine.run()` is O(n²) (copies the full running history
+  every flat bar) — a second real performance defect, deferred alongside
+  D28's VolBucket fix rather than fixed in isolation.
+  **S04**: the three-gate redesign (external design review,
+  `S04_range_detection_design_question.md`) is complete and independently
+  verified line-by-line — two more real bugs found along the way (a
+  same-window tautology, and a ~40min→64sec performance fix via
+  per-calendar-day caching, verified 0 mismatches against the naive
+  result). Honest result: gate pass rate 7.12% (this project's own
+  spot-check: 6.62%), below the 10-25% predicted band; synthetic
+  OU-vs-trending-GBM confusion matrix TPR=0.633 (target ≥0.70, not met),
+  FPR=0.150 (target ≤0.20, met) — reported as measured, not re-seeded.
+  **S04 now fires 2 real trades** (win 50%, PF 1.69) — correctly labeled
+  UNDERPOWERED, not a resolved verdict. Full detail: `03_results.md`'s
+  dedicated S04 section. 683/683 tests pass (674 + 9 new S04 tests).
 - 🔴 **C1 zero-cost diagnostic (2026-09-23) — the "all 10 negative" verdict
   was largely a cost problem, not a no-edge problem.** An external review
   of P3 v3 predicted (their Section C1) that re-running the same 10

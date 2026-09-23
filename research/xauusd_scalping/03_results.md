@@ -1,10 +1,12 @@
 # P3 Results — XAUUSD Scalping, 10-Strategy Backtest
 
-**Status (2026-09-23, C1 diagnostic): the "all 10 net-negative" verdict
-from v3 was largely a cost-vs-signal-size problem, not a no-edge problem
-— 6 of the 8 strategies that fire at all have positive-or-breakeven GROSS
-(pre-cost) expectancy.** Read "C1 — zero-cost diagnostic" below before
-anything else in this file; it changes what the v1-v3 sections mean.
+**Status (2026-09-23, C3 diagnostic, the most current read): of the 6
+strategies C1 found with real gross (pre-cost) edge, only ONE (S07) is
+actually distinguishable from a random entry with the same session/R:R/
+cost profile.** The other 5 likely owe their gross-positive edge to the
+R:R/session structure itself, not genuine entry-timing skill. Read C1,
+C2, and C3 below in order — each qualifies the one before it, and C3 is
+the most important caveat on the whole "6 of 10 have real edge" story.
 
 ## C1 — zero-cost diagnostic (external review finding, verified directly)
 
@@ -24,7 +26,7 @@ fill/PnL math changes):
 | S01 | Liquidity Sweep + Displacement + FVG Retest | 114 | 0.21 | **1.07** | Real gross edge, killed by cost |
 | S02 | Multi-Timeframe Liquidity + CHoCH | 0 | — | — | N/A, still fires no signals |
 | S03 | Order Block Retest after BOS | 178 | 0.23 | **1.18** | Real gross edge, killed by cost |
-| S04 | Wyckoff Spring/Upthrust | 0 | — | — | N/A, blocked by the range-detector bug (see below) |
+| S04 | Wyckoff Spring/Upthrust | 0 (at the time) | — | — | Range-detector bug since fixed — now fires 2 trades, underpowered, see "S04's three-gate redesign" below |
 | S05 | NR7/Inside-Bar Compression Breakout | 174 | 0.13 | 0.69 | Negative even gross — genuinely no edge |
 | S06 | Premium/Discount OTE Fib Retracement | 49 | 0.29 | **1.37** | Real gross edge, killed by cost |
 | S07 | Market Profile Value-Area Rotation | 106 | 0.33 | **1.67** | Real gross edge, killed by cost — the strongest of the 10 |
@@ -105,6 +107,105 @@ absolute cost numbers are less realistic than the harness's own
 documentation claims (probably understating cost in high-vol regimes,
 overstating it in low-vol ones). See D28 in
 `decisions-and-open-questions.md`.
+
+## C3 — random-entry benchmark: only S07 actually beats random
+
+C1 found 6 strategies with gross PF >= 1.0 and framed the question as
+"cost vs. no-edge." That framing itself needed a check: does the
+strategy's specific entry TIMING actually add value, or would a random
+entry with the same session mix, the same (stop, target) distances, and
+the same real cost do just as well? Built a proper benchmark to answer
+this (`random_entry_benchmark.py`): for each strategy, resampled its own
+real trades' session distribution and (stop_pts, target_pts) pairs into
+500 runs of n randomly-timed entries each, resolved through the exact
+same tested engine fill/cost logic real trades use (not reimplemented).
+
+| Strategy | n | Real PnL | Random p5 | Random p50 | Random p95 | Verdict |
+|---|---|---|---|---|---|---|
+| S01 | 114 | -$416.29 | -$527.37 | -$428.10 | -$334.91 | Indistinguishable from random |
+| S03 | 178 | -$612.94 | -$777.96 | -$675.27 | -$565.53 | Indistinguishable from random |
+| S05 | 174 | -$811.50 | -$775.44 | -$665.83 | -$543.58 | **Worse than random** |
+| S06 | 49 | -$146.06 | -$235.06 | -$179.83 | -$119.51 | Indistinguishable from random |
+| **S07** | 106 | -$278.77 | -$490.15 | -$403.16 | -$318.31 | **Beats random (real signal)** |
+| S08 | 109 | -$419.31 | -$508.01 | -$417.21 | -$331.15 | Indistinguishable from random |
+| S09 | 72 | -$278.57 | -$348.82 | -$261.55 | -$188.52 | Indistinguishable from random |
+| S10 | 172 | -$564.07 | -$756.96 | -$645.67 | -$549.50 | Indistinguishable from random |
+
+Full detail, methodology, and the documented simplifications (500 runs
+not 1,000 — a real O(n²) cost in `BacktestEngine.run()` made the original
+plan too slow, see below; random entries don't interact through the
+day-level risk limits the way real trades do):
+`03b_random_entry_benchmark.md`.
+
+**Reading this against C1 together**: of the 6 strategies with gross
+pre-cost edge, only **S07** is actually distinguishable from a
+same-profile random entry. The other 5 (S01, S03, S06, S08, S10) — despite
+having real gross PF >= 1.0 — perform statistically the same as randomly
+timing an entry with their own session mix and R:R shape. The most likely
+explanation: their apparent gross edge comes from the R:R/session
+structure itself (e.g. `risk_floor.py`'s asymmetric floor, or a favorable
+directional bias in the sessions they happen to trade) being favorable in
+this window, not from the entry signal actually predicting anything. S07
+is the one candidate where the entry logic itself appears to be adding
+real value beyond that structural effect. **S05 is confirmed worse than
+random** — not just no-edge, actively anti-correlated with a good outcome.
+
+This substantially narrows the P4 candidate list: **S07 is now the
+single strongest candidate**, not one of six roughly-equal ones. It's
+still net-negative at real cost (-$278.77) and still needs real
+out-of-sample validation (see C2's own recommendation) before it means
+anything — but it's the only one of the 10 with two independent pieces of
+evidence (gross PF 1.67, and a statistically real edge over random) rather
+than one.
+
+**Also found in this pass, a separate real performance defect**:
+`BacktestEngine.run()` reconstructs a full copy of the running history
+list on every bar the strategy is flat (`StrategyContext(history=list(
+history), ...)`) — O(n) per call, O(n²) over a full backtest. This is
+almost certainly why full 174k-bar runs take many minutes even for
+strategies with trivial per-bar logic (matches every full-run timing
+observed this session). Not fixed here (out of scope for this diagnostic)
+— worth fixing alongside the VolBucket fix (D28) when the walk-forward
+harness gets built, since both compound into that build's own runtime.
+
+## S04's three-gate redesign — done, verified, fires 2 trades (underpowered)
+
+The redesign scoped as a standalone external design question
+(`S04_range_detection_design_question.md`) is complete and independently
+verified (code read line-by-line, test suite rerun, real-data result
+reproduced from scratch): the old "every day touches both extremes"
+check is replaced by three independent gates (G1 trend/range via a
+correctly-denominated Kaufman Efficiency Ratio, G2 containment via a
+random-walk envelope using a real measured instrument constant
+`sigma_to_atr=1.4628` — computed from real data, not guessed — G3
+boundary validity via a touch count), plus a same-window tautology bug
+found and fixed along the way (the range-defining window was including
+"today," so today's own bars could never penetrate a range that already
+contained them) and a real performance regression found and fixed (full
+daily resampling on every M1 bar cost ~40 minutes per run; per-calendar-
+day caching in the strategy — not the shared detector function, which
+stays pure — cut this to 64 seconds, verified against the naive result
+with 0 mismatches).
+
+**Honest result**: gate pass rate on real data is **7.12%** (this
+project's own independent spot-check: 6.62% on a coarser sample) —
+somewhat below the 10-25% prior-expectation band stated before checking,
+though not under the "<2%, debug don't retune" trigger. The synthetic
+OU-vs-trending-GBM confusion matrix (the anti-curve-fitting validation
+step, checked against synthetic ground truth, never against real gold
+P&L) came back TPR=0.633 (target >=0.70, **not met**) and FPR=0.150
+(target <=0.20, met) — reported as measured, not re-seeded to chase a
+better number. **S04 fires 2 real trades over the full 6.5-month dataset**
+(win rate 50%, PF 1.69, avg R 0.76) — explicitly UNDERPOWERED (n=2 vs the
+200-trade threshold), and far below the design's own expectation of
+~1-5 signals/month (would predict 6.5-32 over 6.5 months); of 14 raw gate
+fires, only 2 became real trades, the rest blocked by the engine's
+open-position/risk-limit constraints. This gap was not closed by loosening
+any threshold — doing so under time pressure to make S04 "work" would be
+exactly the curve-fitting this whole exercise exists to avoid. **S04's
+honest status is now "logic bug fixed, but the fixed detector is more
+conservative than its own design predicted, and still produces an
+underpowered, unverdictable sample."**
 
 ---
 
@@ -234,7 +335,7 @@ not synthetic) instead of reasoned about from the docstring:
 | S01 | Liquidity Sweep + Displacement + FVG Retest | 114 | 34.2 | 0.21 | -0.64 | -$416.29 | 8.4 | Discard (negative, sample now credible) |
 | S02 | Multi-Timeframe Liquidity + CHoCH | 0 | — | — | — | $0.00 | — | No verdict yet — likely genuine parameter rarity (see finding 3 above), not confirmed with full certainty |
 | S03 | Order Block Retest after BOS | 178 | 37.6 | 0.23 | -0.60 | -$612.94 | 12.4 | Discard (negative, sample now credible) |
-| S04 | Wyckoff Spring/Upthrust | 0 | — | — | — | $0.00 | — | **No verdict — blocked by a confirmed, unfixed logic bug** (finding 2 above), not a data or edge question |
+| S04 | Wyckoff Spring/Upthrust | 2 | 50.0 | 1.69 | 0.76 | $5.45 | 0.16 | **Underpowered (n=2)** — logic bug since fixed (three-gate redesign), see the dedicated section below; too few trades for any real verdict |
 | S05 | NR7/Inside-Bar Compression Breakout | 174 | 26.4 | 0.13 | -0.85 | -$811.50 | 16.2 | Discard (worst of the 10, negative, sample now credible) |
 | S06 | Premium/Discount OTE Fib Retracement | 49 | 42.9 | 0.29 | -0.51 | -$146.06 | 3.1 | Discard — the n=16/PF=0.86 result was sample-size noise, not signal: 3x the trades (49) drops PF to 0.29, resolving toward negative like the rest, not toward breakeven |
 | S07 | Market Profile Value-Area Rotation | 106 | 44.3 | 0.33 | -0.43 | -$278.77 | 5.8 | Discard (negative, sample now credible) |
