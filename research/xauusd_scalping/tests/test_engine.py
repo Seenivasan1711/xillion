@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from research.xauusd_scalping.engine.backtest_engine import (
     Bar,
     BacktestEngine,
+    RiskLimits,
     Side,
     Signal,
     SizingConfig,
@@ -74,7 +75,7 @@ def test_deterministic_staircase_matches_hand_computed_pnl():
     """
     bars = [_bar(_ts(9, i), 2000 + i, 2000 + i, 2000 + i, 2000 + i) for i in range(10)]
     strategy = _EntersOnceStrategy(stop_price=1900.0, target_price=2005.0)
-    engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0))
+    engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0), risk=RiskLimits(min_sl_pts=None, min_target_pts=None))
 
     result = engine.run(bars, strategy, initial_equity=5000.0)
 
@@ -101,7 +102,7 @@ def test_gap_through_stop_fills_at_gap_not_at_stop_price():
         _bar(_ts(9, 1), 1980, 1985, 1975, 1978),
     ]
     strategy = _EntersOnceStrategy(stop_price=1990.0, target_price=2100.0)
-    engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0))
+    engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0), risk=RiskLimits(min_sl_pts=None, min_target_pts=None))
 
     result = engine.run(bars, strategy)
 
@@ -118,7 +119,7 @@ def test_no_lookahead_possible_through_the_strategy_context():
     impossible, not just avoided by convention."""
     bars = [_bar(_ts(9, i), 2000 + i, 2000 + i, 2000 + i, 2000 + i) for i in range(20)]
     strategy = _NeverEntersStrategy()
-    engine = BacktestEngine(cost_model=CostModel.zero())
+    engine = BacktestEngine(cost_model=CostModel.zero(), risk=RiskLimits(min_sl_pts=None, min_target_pts=None))
 
     engine.run(bars, strategy)
 
@@ -134,12 +135,12 @@ def test_costed_vs_zero_cost_differs_by_exactly_the_modelled_cost():
     bars = [_bar(_ts(9, i), 2000 + i, 2000 + i, 2000 + i, 2000 + i) for i in range(10)]
 
     zero_strategy = _EntersOnceStrategy(stop_price=1900.0, target_price=2005.0)
-    zero_engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0))
+    zero_engine = BacktestEngine(cost_model=CostModel.zero(), sizing=SizingConfig(fixed_lots=1.0), risk=RiskLimits(min_sl_pts=None, min_target_pts=None))
     zero_result = zero_engine.run(bars, zero_strategy)
 
     real_cost = CostModel(commission_per_lot_per_side=3.50, entry_slippage_pts=3.0, exit_slippage_pts=5.0)
     real_strategy = _EntersOnceStrategy(stop_price=1900.0, target_price=2005.0)
-    real_engine = BacktestEngine(cost_model=real_cost, sizing=SizingConfig(fixed_lots=1.0))
+    real_engine = BacktestEngine(cost_model=real_cost, sizing=SizingConfig(fixed_lots=1.0), risk=RiskLimits(min_sl_pts=None, min_target_pts=None))
     real_result = real_engine.run(bars, real_strategy)
 
     assert len(zero_result.trades) == 1
@@ -192,8 +193,6 @@ def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
                 return None
             return Signal(side=Side.LONG, stop_price=bar.close - 10, target_price=bar.close + 1000)
 
-    from research.xauusd_scalping.engine.backtest_engine import RiskLimits
-
     day1 = datetime(2026, 1, 5, 9, tzinfo=UTC)
     day2 = datetime(2026, 1, 6, 9, tzinfo=UTC)
     bars = []
@@ -216,7 +215,7 @@ def test_daily_loss_cap_halts_new_entries_for_the_rest_of_the_day():
     engine = BacktestEngine(
         cost_model=CostModel.zero(),
         sizing=SizingConfig(fixed_lots=1.0),
-        risk=RiskLimits(daily_loss_cap_usd=15.0),
+        risk=RiskLimits(daily_loss_cap_usd=15.0, min_sl_pts=None, min_target_pts=None),
     )
 
     result = engine.run(bars, strategy, initial_equity=5000.0)
@@ -257,8 +256,6 @@ def test_consecutive_loss_halt_resets_on_a_new_day():
                 return None
             return Signal(side=Side.LONG, stop_price=bar.close - 10, target_price=bar.close + 1000)
 
-    from research.xauusd_scalping.engine.backtest_engine import RiskLimits
-
     day1 = datetime(2026, 1, 5, 9, tzinfo=UTC)
     day2 = datetime(2026, 1, 6, 9, tzinfo=UTC)
     bars = []
@@ -275,7 +272,7 @@ def test_consecutive_loss_halt_resets_on_a_new_day():
     engine = BacktestEngine(
         cost_model=CostModel.zero(),
         sizing=SizingConfig(fixed_lots=1.0),
-        risk=RiskLimits(consecutive_loss_halt=2),
+        risk=RiskLimits(consecutive_loss_halt=2, min_sl_pts=None, min_target_pts=None),
     )
 
     result = engine.run(bars, strategy, initial_equity=5000.0)
@@ -293,3 +290,132 @@ def test_consecutive_loss_halt_resets_on_a_new_day():
     # Day 2 is a fresh day -- the halt must not carry over.
     assert len(day2_trades) == 1
     assert day2_trades[0].pnl_usd == -10.0
+
+
+def _ts_seq(i: int) -> datetime:
+    """Minute-`i` timestamp from a fixed London-session start, safe for i>59
+    (unlike `_ts(hour, minute)`, which takes a literal minute 0-59)."""
+    return datetime(2026, 1, 5, 9, 0, tzinfo=UTC) + timedelta(minutes=i)
+
+def test_cost_clearing_floor_is_measured_from_the_fill_not_the_reference_price():
+    """Regression lock for the R:R geometry bug found 2026-09-24.
+
+    `apply_floor` used to be called strategy-side against `bar.close` (the
+    pre-cost reference). The engine then filled at `bar.close +/- entry_cost`,
+    which SUBTRACTED the markup from the target and ADDED it to the stop at
+    the same time -- turning a designed 2:1 into a realised ~0.9:1. Proven
+    by an exact identity: stop_dist + target_dist == 40+80 == 120 held on
+    90/90 S11 trades, instead of 40 and 80 holding separately.
+
+    The floor is now enforced engine-side against the ACTUAL FILL. This
+    asserts the property that was violated: measured from the fill, the stop
+    is min_sl_pts away and the target min_target_pts away, so the realised
+    risk:reward is the designed 2:1.
+    """
+    # Rise far enough that the floored target (fill + 80) is actually reached,
+    # so the trade closes and its recorded levels can be inspected.
+    bars = [_bar(_ts_seq(i), 2000 + i * 2, 2000 + i * 2, 2000 + i * 2, 2000 + i * 2) for i in range(80)]
+    # Structural levels far tighter than the floor, so the floor must bind.
+    strategy = _EntersOnceStrategy(stop_price=1999.0, target_price=2001.0)
+    real_cost = CostModel(commission_per_lot_per_side=3.50, entry_slippage_pts=3.0, exit_slippage_pts=5.0)
+    engine = BacktestEngine(
+        cost_model=real_cost,
+        sizing=SizingConfig(fixed_lots=1.0),
+        risk=RiskLimits(min_sl_pts=40.0, min_target_pts=80.0),
+    )
+    result = engine.run(bars, strategy, initial_equity=5000.0)
+
+    assert len(result.trades) == 1
+    t = result.trades[0]
+    stop_dist = abs(t.entry_price - t.stop_price)
+    target_dist = abs(t.target_price - t.entry_price)
+
+    assert abs(stop_dist - 40.0) < 1e-9, f"stop is {stop_dist} from the fill, expected exactly 40"
+    assert abs(target_dist - 80.0) < 1e-9, f"target is {target_dist} from the fill, expected exactly 80"
+    # The bug's signature was these summing to 120 while the RATIO was ~0.9.
+    # Assert the ratio directly -- that is the property that actually matters.
+    assert abs((target_dist / stop_dist) - 2.0) < 1e-9, "realised R:R must equal the designed 2:1"
+
+
+class _EntersAfterNBarsStrategy:
+    """Fires one LONG once `after` bars have been seen -- so the engine has
+    accumulated enough volatility history for a real percentile rank."""
+
+    def __init__(self, after: int, stop_price: float, target_price: float):
+        self.after = after
+        self.stop_price = stop_price
+        self.target_price = target_price
+        self.seen = 0
+        self.fired = False
+
+    def on_bar(self, bar, ctx):
+        self.seen += 1
+        if self.fired or self.seen < self.after:
+            return None
+        self.fired = True
+        return Signal(side=Side.LONG, stop_price=self.stop_price, target_price=self.target_price)
+
+
+def test_volatility_bucket_actually_varies_with_realised_volatility():
+    """`vol_bucket_for` existed but was dead code -- both cost call sites
+    hardcoded VolBucket.MEDIUM, so the documented "session x volatility"
+    cost model was effectively session-only (found 2026-09-24). The engine
+    now ranks the current ATR within its own trailing history and passes a
+    real bucket.
+
+    A series that is calm and then turns violent must end up costed wider
+    than one that stays calm throughout -- same session, same everything
+    else, so any difference is the volatility bucket doing its job.
+    """
+
+    def spread_paid(bar_series):
+        strategy = _EntersAfterNBarsStrategy(after=595, stop_price=1000.0, target_price=3000.0)
+        engine = BacktestEngine(
+            cost_model=CostModel(),
+            sizing=SizingConfig(fixed_lots=1.0),
+            risk=RiskLimits(min_sl_pts=None, min_target_pts=None),
+        )
+        engine.run(bar_series, strategy, initial_equity=5000.0)
+        # Position never closes (stop/target far away), so read the spread
+        # off the engine's own recorded entry rather than a closed trade.
+        return strategy, engine
+
+    # Calm throughout.
+    calm = [_bar(_ts_seq(i), 2000, 2000.5, 1999.5, 2000) for i in range(600)]
+    # Calm for most of the window, then a violent burst right before entry --
+    # so the trailing percentile rank puts the current ATR at the top.
+    spiky = [_bar(_ts_seq(i), 2000, 2000.5, 1999.5, 2000) for i in range(560)]
+    spiky += [_bar(_ts_seq(560 + i), 2000, 2060, 1940, 2000) for i in range(40)]
+
+    calm_trades = _run_and_collect(calm)
+    spiky_trades = _run_and_collect(spiky)
+    assert calm_trades and spiky_trades, "both runs should have opened a position"
+    assert spiky_trades[0] > calm_trades[0], (
+        f"a volatility spike should widen the modelled spread "
+        f"(calm={calm_trades[0]}, spiky={spiky_trades[0]}) -- if these are equal, "
+        f"the volatility bucket has become dead code again"
+    )
+
+
+def _run_and_collect(bar_series):
+    """Runs a late-entering strategy and returns the spread actually charged
+    at entry, via the closed trade's own record."""
+    # Close the position quickly after entry so a Trade (which records
+    # spread_paid_pts) is produced.
+    entry_idx = 595
+    series = list(bar_series)
+    last_close = series[entry_idx].close
+    series = series[: entry_idx + 1] + [
+        _bar(_ts_seq(entry_idx + 1 + j), last_close, last_close + 500, last_close, last_close + 500)
+        for j in range(3)
+    ]
+    strategy = _EntersAfterNBarsStrategy(
+        after=entry_idx + 1, stop_price=last_close - 1000, target_price=last_close + 100
+    )
+    engine = BacktestEngine(
+        cost_model=CostModel(),
+        sizing=SizingConfig(fixed_lots=1.0),
+        risk=RiskLimits(min_sl_pts=None, min_target_pts=None),
+    )
+    result = engine.run(series, strategy, initial_equity=5000.0)
+    return [t.spread_paid_pts for t in result.trades]

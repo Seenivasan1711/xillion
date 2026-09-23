@@ -189,9 +189,91 @@ re-measurement.
   until Phase 1 completes. They are all measurements taken through the
   same distorted lens.
 
+## 6b. PHASE 1 RESULT (2026-09-24) — the fix worked, and it exposed the real problem
+
+Phase 1 is implemented: the floor is now enforced engine-side against the
+actual fill, `VolBucket` is wired up, and the O(n²) history copy is gone
+(685 tests pass, including two new regression locks). The first real-data
+run through correct geometry:
+
+| S11 | Trades | Win% | PF | Total PnL |
+|---|---|---|---|---|
+| Before fix (0.90:1) | 90 | 35.6 | 0.19 | -$342.11 |
+| **After fix (true 2:1)** | **112** | **17.0** | **0.108** | **-$528.98** |
+| Zero-cost (unchanged, bit-identical) | 90 | 35.6 | 1.036 | +$7.13 |
+
+Two things to take from this.
+
+**1. The §4.1 caveat was right, and dramatically so.** Win rate more than
+halved (35.6% → 17.0%) when the target widened to a true 80 points and the
+stop tightened to 40. Any projection that had held win rate constant while
+"improving" the R:R would have predicted profitability and been badly
+wrong. The old 35.6% was an artifact of a 57-point target that was easy to
+reach — but whose wins were too small to clear cost.
+
+**2. The zero-cost run being bit-identical before and after the fix is the
+clean confirmation of the diagnosis.** With `CostModel.zero()` there is no
+fill markup, so the floor lands identically whether measured from the
+reference or the fill. C1's "gross edge" numbers were always being
+measured on correct 2:1 geometry — which is precisely why they looked so
+much better than the real-cost runs. Two effects, now separated.
+
+## 6c. The actual, structural problem — cost exceeds the risk budget
+
+Chasing why the win rate collapsed leads to the finding that subsumes
+everything else in this project. The floor guarantees a 40-point stop.
+Here is the modelled round-trip cost against that 40-point risk budget:
+
+| Session | Spread | Entry cost | Exit cost | Round trip | **As % of the 40pt stop** |
+|---|---|---|---|---|---|
+| london_ny_overlap | 25.0 | 15.5 | 17.5 | 33.0 | **82%** |
+| london | 28.0 | 17.0 | 19.0 | 36.0 | **90%** |
+| ny | 30.0 | 18.0 | 20.0 | 38.0 | **95%** |
+| asia | 40.0 | 23.0 | 25.0 | 48.0 | **120%** |
+| dead_zone | 60.0 | 33.0 | 35.0 | 68.0 | **170%** |
+
+**In Asia and the dead zone you pay more in costs than you risk on the
+trade.** Even in the best session, costs consume 82% of the risk budget.
+
+This also explains the win-rate collapse mechanically. For a long, the
+fill sits `entry_cost` above the decision price, and the floor then places
+the stop 40 below the fill and the target 80 above it. Measured from the
+price the strategy actually saw, that is roughly **+103 points needed to
+win versus −17 points to lose** — a ~6:1 adverse ratio in required market
+movement. No entry signal survives those odds.
+
+**For round-trip cost to be a sane ~10% of risk, stops would need to be
+330–680 points** ($3.30–$6.80/oz of movement). That is not a scalp. That
+is an intraday swing trade, and it is a fundamentally different strategy
+class from anything tested here.
+
+### The one caveat that could overturn this — and it is cheap to check
+
+`cost_model.py`'s own docstring states the spread table is a
+**"PESSIMISTIC ASSUMPTION, not measured from a real broker feed"** —
+Dukascopy's free tick data does not carry retail spread history. Every
+conclusion in this section is conditional on those numbers.
+
+**This is now the single highest-value cheap action available**: Rakesh has
+a real MT5 account with a real trade history (the log in
+`05_consolidated_findings_and_strategy_request.md` §6). Extracting actual
+spread at fill time from a real broker feed, and replacing the assumed
+table, would either confirm this conclusion or overturn it outright. If
+real spreads are half the assumed values, the entire picture changes. **No
+further strategy work should be prioritised above validating this input**,
+because every result in this project is downstream of it.
+
 ## 7. One-line summary
 
 The research program has not yet answered "do these strategies have an
 edge" — it has been answering "do these strategies have an edge while
 carrying a systematic 2:1-to-0.9:1 risk/reward handicap," and the answer
 to *that* question was always going to be no.
+
+**Updated after Phase 1**: with that handicap removed, the answer is
+still no, but for a clearer and more fundamental reason — **at the
+modelled spreads, round-trip cost is 82–170% of the entire risk budget of
+a 40-point-stop trade.** The question was never really "which entry signal
+is best." It was "is M1 gold scalping viable at this cost per trade," and
+at these assumed spreads it is not, for any entry signal. The assumption
+itself is now the thing worth testing.

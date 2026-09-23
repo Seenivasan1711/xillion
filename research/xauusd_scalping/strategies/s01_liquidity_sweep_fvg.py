@@ -15,7 +15,6 @@ from engine.backtest_engine import Bar, Side, Signal
 from signals.confidence import ConfidenceComponent, ConfidenceScorer
 from signals.indicators import IndicatorSignals
 from signals.price_action import Direction, FVGResult, PriceActionSignals
-from signals.risk_floor import apply_floor
 
 from ._common import session_levels
 
@@ -130,5 +129,10 @@ class LiquiditySweepFvgStrategy:
             reason += f" | confidence {conf.score}/100 ({'; '.join(conf.reasons)})"
 
         self._pending = None
-        stop, target = apply_floor(entry, stop, target, side)
+        # NOTE: the cost-clearing stop/target floor is enforced ENGINE-SIDE
+        # as of 2026-09-24 (BacktestEngine._open_position), against the
+        # actual fill price. Applying it here against the pre-cost
+        # reference silently inverted the intended risk/reward -- see
+        # 06_rr_geometry_finding_and_plan.md. Strategies now express
+        # structural intent only; the engine enforces viability.
         return Signal(side=side, stop_price=stop, target_price=target, reason=reason)

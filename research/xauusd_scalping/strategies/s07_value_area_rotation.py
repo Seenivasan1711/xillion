@@ -21,7 +21,6 @@ from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
-from signals.risk_floor import apply_floor
 
 ind = IndicatorSignals()
 
@@ -105,7 +104,12 @@ class ValueAreaRotationStrategy:
         if bar.high >= vah:
             stop = max(bar.high + self.p.sl_buffer_pts, entry + self.p.min_sl_pts)
             target = poc
-            stop, target = apply_floor(entry, stop, target, Side.SHORT)
+        # NOTE: the cost-clearing stop/target floor is enforced ENGINE-SIDE
+        # as of 2026-09-24 (BacktestEngine._open_position), against the
+        # actual fill price. Applying it here against the pre-cost
+        # reference silently inverted the intended risk/reward -- see
+        # 06_rr_geometry_finding_and_plan.md. Strategies now express
+        # structural intent only; the engine enforces viability.
             return Signal(
                 side=Side.SHORT,
                 stop_price=stop,
@@ -115,7 +119,6 @@ class ValueAreaRotationStrategy:
         if bar.low <= val:
             stop = min(bar.low - self.p.sl_buffer_pts, entry - self.p.min_sl_pts)
             target = poc
-            stop, target = apply_floor(entry, stop, target, Side.LONG)
             return Signal(
                 side=Side.LONG,
                 stop_price=stop,

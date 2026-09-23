@@ -22,7 +22,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-from .cost_model import CostModel, Session, VolBucket, session_for
+import bisect
+from collections import deque
+
+from .cost_model import CostModel, Session, VolBucket, session_for, vol_bucket_for
 
 
 class Side(str, Enum):
@@ -123,6 +126,14 @@ class RiskLimits:
     daily_loss_cap_usd: float | None = None
     consecutive_loss_halt: int | None = None
     max_spread_pts: float | None = None  # skip new entries above this spread
+    # Cost-clearing stop/target floor, enforced ENGINE-SIDE against the
+    # actual fill price (see _open_position). Moved here 2026-09-24 after
+    # finding that applying it strategy-side against the pre-cost reference
+    # price silently inverted the intended risk/reward -- a designed 2:1
+    # became an actual 0.90:1 once the fill markup was subtracted from the
+    # target and added to the stop. See 06_rr_geometry_finding_and_plan.md.
+    min_sl_pts: float | None = 40.0
+    min_target_pts: float | None = 80.0
 
 
 @dataclass
@@ -141,12 +152,20 @@ class BacktestEngine:
         risk: RiskLimits | None = None,
         pessimistic_same_bar_resolution: bool = True,
         news_windows: list[tuple[datetime, datetime]] | None = None,
+        atr_period: int = 14,
+        vol_percentile_window: int = 500,
     ) -> None:
         self.cost_model = cost_model
         self.sizing = sizing or SizingConfig()
         self.risk = risk or RiskLimits()
         self.pessimistic = pessimistic_same_bar_resolution
         self.news_windows = news_windows or []
+        # Volatility-bucket inputs: ATR period, and the trailing window the
+        # current ATR is percentile-ranked within (the cost model's own
+        # docstring specifies "percentile rank within its own recent
+        # history (e.g. trailing 500 bars)").
+        self.atr_period = atr_period
+        self.vol_percentile_window = vol_percentile_window
 
     def _is_news_window(self, ts: datetime) -> bool:
         return any(start <= ts <= end for start, end in self.news_windows)
@@ -172,8 +191,47 @@ class BacktestEngine:
         consecutive_losses = 0
         halted_today = False
 
+        # Rolling ATR-percentile state, for the volatility bucket the cost
+        # model has always taken but never actually received (it was
+        # hardcoded to MEDIUM at both call sites until 2026-09-24, making
+        # `vol_bucket_for` dead code and the documented
+        # "session x volatility" cost model effectively session-only).
+        # O(1) amortised: a running true-range sum for the ATR, plus a
+        # sorted window for its percentile rank (bisect/insort are C-level,
+        # so this stays cheap enough to run on every bar).
+        tr_window: deque[float] = deque(maxlen=self.atr_period)
+        tr_sum = 0.0
+        atr_window: deque[float] = deque(maxlen=self.vol_percentile_window)
+        atr_sorted: list[float] = []
+        prev_close: float | None = None
+        vol_bucket = VolBucket.MEDIUM
+
         for i, bar in enumerate(bars):
             history.append(bar)
+
+            # ── Update the volatility bucket from THIS bar's true range ──
+            true_range = (
+                bar.high - bar.low
+                if prev_close is None
+                else max(bar.high - bar.low, abs(bar.high - prev_close), abs(bar.low - prev_close))
+            )
+            prev_close = bar.close
+            if len(tr_window) == tr_window.maxlen:
+                tr_sum -= tr_window[0]
+            tr_window.append(true_range)
+            tr_sum += true_range
+            if len(tr_window) == tr_window.maxlen:
+                atr = tr_sum / len(tr_window)
+                if len(atr_window) == atr_window.maxlen:
+                    oldest = atr_window[0]
+                    idx = bisect.bisect_left(atr_sorted, oldest)
+                    if idx < len(atr_sorted) and atr_sorted[idx] == oldest:
+                        atr_sorted.pop(idx)
+                atr_window.append(atr)
+                bisect.insort(atr_sorted, atr)
+                if len(atr_sorted) >= 30:  # enough history for a meaningful rank
+                    rank = bisect.bisect_left(atr_sorted, atr) / len(atr_sorted)
+                    vol_bucket = vol_bucket_for(rank)
             day_key = bar.ts.date().isoformat()
             if day_key != current_day:
                 current_day = day_key
@@ -204,7 +262,7 @@ class BacktestEngine:
 
                 if exit_price is not None:
                     trade = self._close_position(
-                        position, bar.ts, exit_price, exit_reason, ambiguous, bar
+                        position, bar.ts, exit_price, exit_reason, ambiguous, bar, vol_bucket
                     )
                     result.trades.append(trade)
                     equity += trade.pnl_usd
@@ -231,13 +289,21 @@ class BacktestEngine:
             if position is None and not halted_today:
                 if self.risk.max_trades_per_session is None or trades_today < self.risk.max_trades_per_session:
                     sess = session_for(bar.ts)
-                    spread = self.cost_model.spread_pts(sess, VolBucket.MEDIUM)
+                    spread = self.cost_model.spread_pts(sess, vol_bucket)
                     spread_ok = self.risk.max_spread_pts is None or spread <= self.risk.max_spread_pts
                     if spread_ok:
-                        ctx = StrategyContext(history=list(history), has_open_position=False)
+                        # `history` is passed by reference, not copied: copying
+                        # it every flat bar was O(n) per call and O(n^2) over a
+                        # run (a real, measured cause of multi-minute backtests
+                        # even for trivial strategies). StrategyContext never
+                        # exposes the list itself -- `bars()` returns a fresh
+                        # slice -- so there is nothing for a strategy to mutate.
+                        ctx = StrategyContext(history=history, has_open_position=False)
                         signal = strategy.on_bar(bar, ctx)
                         if signal is not None:
-                            position = self._open_position(bar, signal, equity, sess, spread)
+                            position = self._open_position(
+                                bar, signal, equity, sess, spread, vol_bucket
+                            )
                             trades_today += 1
 
             result.equity_curve.append(equity)
@@ -245,19 +311,39 @@ class BacktestEngine:
         return result
 
     def _open_position(
-        self, bar: Bar, signal: Signal, equity: float, session: Session, spread_pts: float
+        self, bar: Bar, signal: Signal, equity: float, session: Session, spread_pts: float,
+        vol_bucket: VolBucket = VolBucket.MEDIUM,
     ) -> Position:
+        # Deferred import: signals.risk_floor imports Side from this module,
+        # so a module-level import here would be circular. apply_floor is a
+        # pure geometry helper with its own tests -- reused rather than
+        # duplicated, just called from the right place now (see below).
+        from signals.risk_floor import apply_floor
+
         is_news = self._is_news_window(bar.ts)
-        entry_cost = self.cost_model.entry_cost_pts(session, VolBucket.MEDIUM, is_news)
+        entry_cost = self.cost_model.entry_cost_pts(session, vol_bucket, is_news)
         entry_price = (
             bar.close + entry_cost if signal.side == Side.LONG else bar.close - entry_cost
         )
-        lots = self._lots_for(equity, entry_price, signal.stop_price)
+        # Enforce the cost-clearing floor against the ACTUAL FILL, not the
+        # strategy's pre-cost reference price. Doing this strategy-side (as
+        # it was until 2026-09-24) meant the fill markup was subtracted from
+        # the target and added to the stop simultaneously, turning a
+        # designed 2:1 into a realised 0.90:1 -- proven by the exact
+        # identity stop_dist + target_dist == 40+80 on 90/90 S11 trades.
+        # Widen-only semantics are preserved; only the reference changed.
+        stop_price, target_price = signal.stop_price, signal.target_price
+        if self.risk.min_sl_pts is not None and self.risk.min_target_pts is not None:
+            stop_price, target_price = apply_floor(
+                entry_price, stop_price, target_price, signal.side,
+                min_sl_pts=self.risk.min_sl_pts, min_target_pts=self.risk.min_target_pts,
+            )
+        lots = self._lots_for(equity, entry_price, stop_price)
         return Position(
             side=signal.side,
             entry_price=entry_price,
-            stop_price=signal.stop_price,
-            target_price=signal.target_price,
+            stop_price=stop_price,
+            target_price=target_price,
             lots=lots,
             original_lots=lots,
             entry_ts=bar.ts,
@@ -311,10 +397,14 @@ class BacktestEngine:
         reason: str,
         ambiguous: bool,
         bar: Bar,
+        vol_bucket: VolBucket = VolBucket.MEDIUM,
     ) -> Trade:
         session = session_for(exit_ts)
         is_news = self._is_news_window(exit_ts)
-        exit_cost = self.cost_model.exit_cost_pts(session, VolBucket.MEDIUM, is_news)
+        # Volatility bucket AT EXIT TIME (not entry): the spread you actually
+        # pay getting out is the one prevailing then, which can differ from
+        # entry on a trade held across a volatility change.
+        exit_cost = self.cost_model.exit_cost_pts(session, vol_bucket, is_news)
         # exit_cost widens the exit further against the position -- this is
         # the pessimistic "you pay the spread/slippage getting out too" rule.
         adj_exit = exit_price - exit_cost if position.side == Side.LONG else exit_price + exit_cost
