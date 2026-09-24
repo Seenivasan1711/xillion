@@ -80,3 +80,17 @@ def test_reconcile_unmarks_completed_hours_with_no_bars_on_disk(tmp_path, monkey
     }
     assert dl._reconcile_manifest("EURUSD", manifest) == 1
     assert manifest["completed_hours"] == ["EURUSD_2026-03-10T10"]
+
+
+def test_pacing_backs_off_on_throttle_and_eases_back():
+    assert dl._next_delay(2.5, 2.5, throttled=True, streak=0) == 5.0
+    assert dl._next_delay(40.0, 2.5, throttled=True, streak=0) == dl._MAX_DELAY_SECONDS
+    assert dl._next_delay(5.0, 2.5, throttled=False, streak=5) == 5.0  # not yet
+    assert dl._next_delay(5.0, 2.5, throttled=False, streak=20) == 4.0
+    assert dl._next_delay(2.5, 2.5, throttled=False, streak=20) == 2.5  # floor at base
+
+
+def test_throttle_event_is_counted_for_pacing():
+    dl._throttle_events = 0
+    dl._fetch_hour(_Client([503, 200]), "EURUSD", datetime(2026, 3, 10, 9, tzinfo=UTC))
+    assert dl._throttle_events == 1

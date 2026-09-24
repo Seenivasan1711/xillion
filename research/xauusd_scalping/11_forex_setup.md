@@ -73,6 +73,15 @@ equivalent lot size — sanity-check them (EURUSD should land around
   2024-01→2026-02 backfill → GBPUSD. Log: `/tmp/dukascopy_chain.log`.
   Running them concurrently got whole trading days throttled away — see
   `08_correction_history.md` #19.
+- ⚠️ **Dukascopy throttled this IP hard on 2026-09-24** (~1 hour of data per
+  2 min; a direct probe got one 200 in 33s, then 503s). Downloader now
+  paces adaptively (`_next_delay`: doubles on throttle, cap 60s); chain
+  restarted after a 1h cooldown at a 5s base. Throughput from here is
+  genuinely uncertain — faster alternative below.
+- 💡 **Faster alternative: export M1 bars straight from the FundingPips MT5**
+  (View → Symbols → Bars tab → M1, date range → Request → Export). That's
+  the actual broker's feed — better than Dukascopy as a source — if its
+  history reaches back far enough.
 - ⬜ Run `run_backtests` + random benchmark per pair once data lands; same
   decision rule as gold — net-positive, n ≥ 100, above random p95.
 - ⬜ Re-run XAUUSD S07 + benchmark once the gap-fill completes (doc `10`'s

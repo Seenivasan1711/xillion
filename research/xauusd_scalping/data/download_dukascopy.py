@@ -83,6 +83,23 @@ _TRANSIENT_RETRY_BASE_DELAY = 3.0  # seconds, doubles each attempt
 # on the first 503, never retried. Back off hard instead.
 _THROTTLE_STATUSES = {429, 503}
 _THROTTLE_RETRY_DELAYS = (15.0, 45.0, 120.0)  # seconds; ~3 min worst case per hour
+# Throttle events seen by _fetch_hour since the last check -- download_range
+# reads and resets this to adapt its own pacing (see _next_delay).
+_throttle_events = 0
+_MAX_DELAY_SECONDS = 60.0
+_SUCCESSES_TO_SPEED_UP = 20
+
+
+def _next_delay(delay: float, base: float, throttled: bool, streak: int) -> float:
+    """AIMD pacing. Found 2026-09-24: after ~a day of requests Dukascopy
+    throttled this IP to ~1 hour fetched per 2 minutes on a fixed 2.5s
+    delay -- nearly every request burned the full 503 backoff. Double the
+    delay on any throttle (cap 60s); ease back 1s after a clean streak."""
+    if throttled:
+        return min(delay * 2, _MAX_DELAY_SECONDS)
+    if streak >= _SUCCESSES_TO_SPEED_UP:
+        return max(base, delay - 1.0)
+    return delay
 
 
 def _fetch_hour(client: httpx.Client, symbol: str, dt: datetime) -> bytes | None:
@@ -107,6 +124,8 @@ def _fetch_hour(client: httpx.Client, symbol: str, dt: datetime) -> bytes | None
             if resp.status_code == 404:
                 return b""  # a genuinely empty hour (e.g. weekend) -- Dukascopy 404s these
             if resp.status_code in _THROTTLE_STATUSES and throttle_attempts < len(_THROTTLE_RETRY_DELAYS):
+                global _throttle_events
+                _throttle_events += 1
                 time.sleep(_THROTTLE_RETRY_DELAYS[throttle_attempts])
                 throttle_attempts += 1
                 continue
@@ -203,6 +222,8 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
     end = datetime.combine(to_date, datetime.min.time(), tzinfo=UTC)
 
     all_bars: list[pd.DataFrame] = []
+    base_delay = delay
+    clean_streak = 0
     month_key = None
     day_key = None
 
@@ -258,6 +279,17 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
                 _save_manifest(symbol, manifest)
             month_key = this_month
             day_key = this_day
+
+            global _throttle_events
+            throttled = _throttle_events > 0
+            _throttle_events = 0
+            clean_streak = 0 if throttled else clean_streak + 1
+            new_delay = _next_delay(delay, base_delay, throttled, clean_streak)
+            if new_delay != delay:
+                print(f"pacing: delay {delay:.1f}s -> {new_delay:.1f}s ({'throttled' if throttled else 'clean streak'})")
+                if not throttled:
+                    clean_streak = 0
+            delay = new_delay
 
             current += timedelta(hours=1)
             time.sleep(delay)
