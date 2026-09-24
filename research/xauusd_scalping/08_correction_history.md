@@ -158,6 +158,13 @@ three months.
 - **Fix:** `POINT_SIZE = 0.01` in `cost_model.py`; every points<->price boundary in `backtest_engine.py` (entry/exit cost, floor, P&L, sizing, MAE/MFE) converts through it. Tests re-derived by hand in correct units; new `test_units_match_the_real_broker_not_100x_off` pins real broker economics (0.08 lot x $5 = $40).
 - **Changed:** Finding 2 and every cost-driven conclusion (08 #12's geometry magnitude, 09's leverage arithmetic, the S11 scale sweep, 03b's benchmark) are **void** and re-run. The floor itself (`risk_floor.py`) was a response to this bug — its own docstring compares a "$3 stop" to "27-108pt costs" that were really $0.27-$1.08. Finding 1 (S11 signals ~coin-flip, cost-free) is untouched. **Lesson: when two modules both say "points", check they mean the same unit — and sanity-check any headline number against the instrument's real daily range.**
 
+### 19. Whole trading days silently missing from the data
+- **Believed:** `failed_hours` in the manifest were mostly weekends/holidays and transient blips; the 174,554-bar XAUUSD series was "one continuous series."
+- **Actually:** Dukascopy answers throttling with **503**, and the downloader retried only network errors — a 503 was recorded as failed on the first try and never retried. Running two downloaders at once (2026-09-24) produced whole missing trading days (EURUSD all 24h of 2026-03-10; XAUUSD all of 2024-01-18). The original 2026-03→09 XAUUSD data already carried ~495 failed hours from the same cause. Separately, the manifest marked hours `completed` on fetch while bars only reached disk on the daily flush, so a kill mid-day silently lost hours forever (the code's own comment claimed the opposite).
+- **Found by:** a status check showing 16h of wall time had produced ~9 days of data (the Mac had also been asleep), then bucketing failures by weekday.
+- **Fix:** 503/429 retried with 15/45/120s backoff; manifest `completed` updated only after a successful flush; `_reconcile_manifest` at startup un-marks any completed hour with no bars on disk (caught 1 real lost hour on the very first restart); Saturdays skipped without a request; downloads run one at a time under `caffeinate` (`data/_download_chain.sh`), including a gap-fill pass over the 2026-03→09 XAUUSD range.
+- **Changed:** every result so far (`10`) ran on a series with gaps. Once the gap-fill lands, S07 and the benchmark must be re-run on the repaired data. **Lesson: "failed" in a manifest is a claim to audit, not noise — bucket failures by trading day before trusting a dataset as continuous.**
+
 ## Predictions made in advance, and how they scored
 
 Recording these because calibration matters more than any single result.

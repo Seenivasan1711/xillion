@@ -68,12 +68,18 @@ equivalent lot size — sanity-check them (EURUSD should land around
 
 ## 5. Status and next
 
-- 🟡 EURUSD then GBPUSD downloads running (2026-03-01 → 2026-09-17, the
-  same window as the XAUUSD data, so `price_scale` has full overlap).
-- 🟡 XAUUSD 2024-01 → 2026-02 backfill running in parallel (doc `10` §5).
+- 🟡 **Downloads run as one sequential chain** (`data/_download_chain.sh`,
+  under `caffeinate`): EURUSD → XAUUSD 2026-03→09 gap-fill → XAUUSD
+  2024-01→2026-02 backfill → GBPUSD. Log: `/tmp/dukascopy_chain.log`.
+  Running them concurrently got whole trading days throttled away — see
+  `08_correction_history.md` #19.
 - ⬜ Run `run_backtests` + random benchmark per pair once data lands; same
   decision rule as gold — net-positive, n ≥ 100, above random p95.
+- ⬜ Re-run XAUUSD S07 + benchmark once the gap-fill completes (doc `10`'s
+  numbers ran on a series with ~495 missing hours).
 - ⬜ Rakesh: real MT5 spreads for both pairs (manual-tasks.md).
+- ⚠️ The Mac must stay on/awake (plugged in, lid open) — `caffeinate -i`
+  blocks idle sleep, not lid-close sleep on battery.
 
 **Caveat on the XAUUSD data dir:** the 2024-2026 backfill writes into the
 same `data/xauusd/` folder, so `load_all_bars()` now returns a longer

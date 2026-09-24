@@ -77,6 +77,12 @@ def _hour_key(symbol: str, dt: datetime) -> str:
 
 _TRANSIENT_RETRY_ATTEMPTS = 3
 _TRANSIENT_RETRY_BASE_DELAY = 3.0  # seconds, doubles each attempt
+# Server-side throttling. Found 2026-09-24: with two downloaders running at
+# once, Dukascopy answered whole TRADING days with 503 (e.g. EURUSD all 24h
+# of 2026-03-10, XAUUSD all of 2024-01-18) -- previously recorded as failed
+# on the first 503, never retried. Back off hard instead.
+_THROTTLE_STATUSES = {429, 503}
+_THROTTLE_RETRY_DELAYS = (15.0, 45.0, 120.0)  # seconds; ~3 min worst case per hour
 
 
 def _fetch_hour(client: httpx.Client, symbol: str, dt: datetime) -> bytes | None:
@@ -93,18 +99,52 @@ def _fetch_hour(client: httpx.Client, symbol: str, dt: datetime) -> bytes | None
         symbol=symbol, year=dt.year, month=dt.month - 1, day=dt.day, hour=dt.hour
     )
     last_exc: Exception | None = None
-    for attempt in range(_TRANSIENT_RETRY_ATTEMPTS):
+    network_attempts = 0
+    throttle_attempts = 0
+    while True:
         try:
             resp = client.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
             if resp.status_code == 404:
                 return b""  # a genuinely empty hour (e.g. weekend) -- Dukascopy 404s these
+            if resp.status_code in _THROTTLE_STATUSES and throttle_attempts < len(_THROTTLE_RETRY_DELAYS):
+                time.sleep(_THROTTLE_RETRY_DELAYS[throttle_attempts])
+                throttle_attempts += 1
+                continue
             resp.raise_for_status()
             return resp.content
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
             last_exc = exc
-            if attempt < _TRANSIENT_RETRY_ATTEMPTS - 1:
-                time.sleep(_TRANSIENT_RETRY_BASE_DELAY * (2**attempt))
-    raise last_exc  # exhausted retries -- a real failure, not transient flakiness
+            network_attempts += 1
+            if network_attempts >= _TRANSIENT_RETRY_ATTEMPTS:
+                raise last_exc  # exhausted retries -- a real failure, not transient flakiness
+            time.sleep(_TRANSIENT_RETRY_BASE_DELAY * (2 ** (network_attempts - 1)))
+
+
+def _market_closed(dt: datetime) -> bool:
+    """Saturday (UTC) only: FX and spot gold are shut all of Saturday in
+    every DST regime, so these hours are skipped without a request. Friday
+    evening / Sunday are NOT skipped -- the open/close hour moves with DST,
+    and guessing it wrong would silently drop real bars."""
+    return dt.weekday() == 5
+
+
+def _reconcile_manifest(symbol: str, manifest: dict) -> int:
+    """Drops 'completed' hours whose bars are not actually on disk.
+
+    Found 2026-09-24: hours were marked completed in the manifest as soon as
+    they were fetched, but bars only reach disk on the daily flush -- so a
+    kill or crash mid-day left hours the manifest claimed existed and a
+    re-run would never re-fetch. Returns how many hours were un-marked."""
+    completed = set(manifest["completed_hours"])
+    if not completed:
+        return 0
+    on_disk: set[str] = set()
+    for f in _data_dir(symbol).glob(f"{symbol}_*.parquet"):
+        ts = pd.read_parquet(f, columns=["ts"])["ts"]
+        on_disk.update(_hour_key(symbol, t.to_pydatetime()) for t in ts.dt.floor("h").unique())
+    missing = completed - on_disk
+    manifest["completed_hours"] = sorted(completed & on_disk)
+    return len(missing)
 
 
 def _parse_ticks(raw_bi5: bytes, hour_start: datetime, divisor: int = PRICE_DIVISORS["XAUUSD"]) -> list[dict]:
@@ -148,7 +188,14 @@ def _ticks_to_m1_bars(ticks: list[dict]) -> pd.DataFrame:
 def download_range(symbol: str, from_date: date, to_date: date, delay: float = DEFAULT_DELAY_SECONDS) -> None:
     divisor = PRICE_DIVISORS[symbol]
     manifest = _load_manifest(symbol)
+    dropped = _reconcile_manifest(symbol, manifest)
+    if dropped:
+        print(f"reconcile: {dropped} hours were marked completed but had no bars on disk -- will re-fetch")
+        _save_manifest(symbol, manifest)
     completed = set(manifest["completed_hours"])
+    # Fetched but not yet flushed to disk -- only promoted to `completed` in
+    # the manifest after _flush_month succeeds (see _reconcile_manifest).
+    pending: set[str] = set()
     empty = set(manifest["empty_hours"])
     failed = set(manifest["failed_hours"])
 
@@ -162,7 +209,7 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
     with httpx.Client() as client:
         while current < end:
             key = _hour_key(symbol, current)
-            if key in completed or key in empty:
+            if key in completed or key in empty or _market_closed(current):
                 current += timedelta(hours=1)
                 continue
 
@@ -174,7 +221,7 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
                     empty.add(key)
                 else:
                     all_bars.append(bars)
-                    completed.add(key)
+                    pending.add(key)
                     failed.discard(key)
                 print(f"{key}: {len(ticks)} ticks -> {len(bars)} M1 bars")
             except Exception as exc:
@@ -205,6 +252,10 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
             if should_flush:
                 _flush_month(symbol, month_key, all_bars)
                 all_bars = []
+                completed |= pending
+                pending = set()
+                manifest["completed_hours"] = sorted(completed)
+                _save_manifest(symbol, manifest)
             month_key = this_month
             day_key = this_day
 
@@ -213,6 +264,9 @@ def download_range(symbol: str, from_date: date, to_date: date, delay: float = D
 
     if all_bars:
         _flush_month(symbol, month_key, all_bars)
+        completed |= pending
+        manifest["completed_hours"] = sorted(completed)
+        _save_manifest(symbol, manifest)
 
 
 def _flush_month(symbol: str, month_key: str, bars_list: list[pd.DataFrame]) -> None:

@@ -65,7 +65,13 @@ none of it auto-appears as a live selectable strategy (see D21 in
 > *measured* price_scale, per-symbol downloader/manifest, `RESEARCH_SYMBOL=`
 > for runner + benchmark. XAUUSD verified unchanged (S06 = 72 / -$640.01).
 > Running now: XAUUSD 2024-01→2026-02 backfill, EURUSD→GBPUSD 2026-03→09
-> downloads. FX spreads are ASSUMED until Rakesh reads MT5 (manual-tasks.md). **Rakesh's direction (2026-09-24):
+> downloads. FX spreads are ASSUMED until Rakesh reads MT5 (manual-tasks.md).
+> **Data gap bug found same day (08 #19):** 503 throttling was never
+> retried, so whole trading days were missing — including ~495 hours inside
+> the 2026-03→09 XAUUSD series behind doc `10`'s results. Fixed (backoff,
+> flush-then-mark manifest, startup reconcile); downloads now one sequential
+> chain (`data/_download_chain.sh`, log `/tmp/dukascopy_chain.log`).
+> **Re-run S07 + benchmark after the gap-fill.** **Rakesh's direction (2026-09-24):
 > stay on Track B, XAUUSD first then forex** — if no M1 strategy qualifies,
 > next is slower XAUUSD timeframes + forex majors, now genuinely testable at
 > real (~$0.40-0.70/oz) costs. App's own Sweep-Reversal backtest is NOT
