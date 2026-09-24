@@ -46,8 +46,8 @@ comparable across symbols.
 |---|---|
 | Dukascopy divisor 100,000 for EURUSD/GBPUSD | **Verified** — 2026-09-15 10h UTC parsed to EURUSD 1.15373 / GBPUSD 1.34778 |
 | Point size 0.00001, $1/point/lot (USD-quoted pairs) | Contract standard; test pins $10/pip/lot |
-| Spread table | **ASSUMED** — EURUSD 0.6-1.0 pip liquid hours, up to 5 pips in the dead zone; GBPUSD 1.4x. Dukascopy's own interbank median that hour: **0.2 pip EURUSD, 0.6 pip GBPUSD**; a prop broker will be above that. Real reading = manual-tasks.md (top item) |
-| Commission $2.50/lot/side | **ASSUMED** same as XAUUSD until the MT5 symbol spec is read |
+| Spread table | **MEASURED (proxy)** 2026-09-24 via `measure_fx_spread_profile.py`: Dukascopy per-hour median bid/ask over 3 mid-week days — EURUSD **3pt** (0.3 pip) in every session, GBPUSD **6-7pt**; dead-zone HIGH widened to 2.5x median for unsampled rollover spikes. **Broker check:** Rakesh's FundingPips MT5 at 16:56 server time showed EURUSD **1pt**, GBPUSD **0pt** — at/below Dukascopy, so the table is slightly conservative. Raw-spread account → commission is the main cost |
+| Commission $2.50/lot/side | **ASSUMED** same as XAUUSD — now the dominant FX cost on a raw-spread account; real figure from the MT5 symbol Specification is the open manual task |
 | Swap | Not modelled (same as XAUUSD) — irrelevant for intraday M1, required before any H4/D1 test |
 
 ## 4. How to run

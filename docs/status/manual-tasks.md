@@ -39,17 +39,19 @@ of JEV/LLM work which he's deliberately sequencing last.)
 
 ## Open
 
-- [ ] **Read EURUSD + GBPUSD spreads (and commission) off your FundingPips
-      MT5 — added 2026-09-24.** Same drill as the XAUUSD reading (31pts,
-      bid/ask off the Market Watch): 2-3 readings per pair, ideally one in
-      London hours and one in Asia. Also open each symbol's Specification
-      and note the commission line. **Why:** the forex backtests use an
-      *assumed* spread table (`research/xauusd_scalping/engine/instruments.py`,
-      ~0.8-1.0 pip EURUSD in liquid hours, GBPUSD 1.4x that). Dukascopy's own
-      interbank feed showed 0.2 pip EURUSD / 0.6 pip GBPUSD — your prop
-      broker will be somewhere above that; the real number decides whether
-      FX scalping is viable, exactly as it did for gold.
-      **Blocks:** trusting any forex backtest result. **Cost:** none, 5 min.
+- [ ] **Read EURUSD + GBPUSD commission off your FundingPips MT5 symbol
+      Specification — spreads DONE, commission still open (2026-09-24).**
+      Spread reading received 2026-09-24, Market Watch 16:56:18 server time
+      (~London/NY overlap): **EURUSD bid 1.13717 / ask 1.13718 = 1pt (0.1
+      pip); GBPUSD 1.32212 / 1.32212 = 0pt.** That's a raw-spread account,
+      so the real cost is mostly **commission** — right-click each pair in
+      Market Watch → Specification, and note the "Commission" line (e.g.
+      "$X per lot"), same as the XAUUSD spec's "5 USD per lot". A second
+      spread reading in Asia hours (after ~05:30 IST) would also help, but
+      the session profile is now measured from Dukascopy
+      (`research/xauusd_scalping/measure_fx_spread_profile.py`).
+      **Blocks:** trusting forex backtest costs (commission is currently
+      ASSUMED $2.50/lot/side). **Cost:** none, 2 min.
 
 - [ ] **(Optional, low priority) confirm how your broker bills commission.**
       The symbol spec says "5 USD per lot"; your MT5 statement shows -$0.50

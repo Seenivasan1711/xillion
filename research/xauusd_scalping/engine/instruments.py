@@ -45,32 +45,41 @@ class Instrument:
         return Path(__file__).resolve().parent.parent / "data" / self.symbol.lower()
 
 
-def _scaled_table(factor: float) -> dict[tuple[Session, VolBucket], float]:
-    return {k: v * factor for k, v in _EURUSD_SPREAD_TABLE.items()}
+def _profile(rows: dict[Session, tuple[float, float, float]]) -> dict[tuple[Session, VolBucket], float]:
+    """(p25, median, p75) per session -> LOW=p25, MEDIUM=median,
+    HIGH=max(p75, 1.5x median); dead zone HIGH=2.5x median, because rollover
+    spikes last minutes and per-hour medians hide them."""
+    out = {}
+    for sess, (p25, med, p75) in rows.items():
+        high = med * 2.5 if sess == Session.DEAD_ZONE else max(p75, med * 1.5)
+        out[(sess, VolBucket.LOW)] = p25
+        out[(sess, VolBucket.MEDIUM)] = med
+        out[(sess, VolBucket.HIGH)] = high
+    return out
 
 
-# EURUSD spread in points (1 point = 0.00001, 10 points = 1 pip). STATED
-# ASSUMPTION, not measured: typical retail/prop MT5 EURUSD runs ~0.8-1.2 pips
-# in liquid hours and several pips in the rollover dead zone. Replace with a
-# real MT5 reading from Rakesh's FundingPips terminal (manual-tasks.md), the
-# same way XAUUSD's 31pt NY reading was taken.
-_EURUSD_SPREAD_TABLE: dict[tuple[Session, VolBucket], float] = {
-    (Session.LONDON_NY_OVERLAP, VolBucket.LOW): 6.0,
-    (Session.LONDON_NY_OVERLAP, VolBucket.MEDIUM): 8.0,
-    (Session.LONDON_NY_OVERLAP, VolBucket.HIGH): 14.0,
-    (Session.LONDON, VolBucket.LOW): 7.0,
-    (Session.LONDON, VolBucket.MEDIUM): 9.0,
-    (Session.LONDON, VolBucket.HIGH): 16.0,
-    (Session.NY, VolBucket.LOW): 8.0,
-    (Session.NY, VolBucket.MEDIUM): 10.0,
-    (Session.NY, VolBucket.HIGH): 18.0,
-    (Session.ASIA, VolBucket.LOW): 10.0,
-    (Session.ASIA, VolBucket.MEDIUM): 13.0,
-    (Session.ASIA, VolBucket.HIGH): 22.0,
-    (Session.DEAD_ZONE, VolBucket.LOW): 20.0,
-    (Session.DEAD_ZONE, VolBucket.MEDIUM): 30.0,
-    (Session.DEAD_ZONE, VolBucket.HIGH): 50.0,
-}
+# FX spread tables, in points (1pt = 0.00001, 10pt = 1 pip). MEASURED
+# 2026-09-24 by measure_fx_spread_profile.py: per-hour median bid/ask spread
+# from Dukascopy ticks, 3 mid-week days (2026-06-09, 06-17, 07-08), rows are
+# (p25, median, p75) of those per-hour medians. Dukascopy is used as a
+# conservative PROXY for the broker: Rakesh's FundingPips MT5 reading the
+# same day (16:56 server time, London/NY overlap) was EURUSD 1pt / GBPUSD 0pt
+# -- below Dukascopy's 3 / 6. The broker is a raw-spread account, so its real
+# cost is mostly commission (see Instrument.commission_per_lot_per_side).
+_EURUSD_SPREAD_TABLE = _profile({
+    Session.LONDON_NY_OVERLAP: (3.0, 3.0, 3.0),
+    Session.LONDON: (3.0, 3.0, 3.0),
+    Session.NY: (3.0, 3.0, 5.2),
+    Session.ASIA: (3.0, 3.0, 3.0),
+    Session.DEAD_ZONE: (4.0, 4.0, 4.0),  # only 3 sampled hours
+})
+_GBPUSD_SPREAD_TABLE = _profile({
+    Session.LONDON_NY_OVERLAP: (6.0, 6.0, 6.0),
+    Session.LONDON: (6.0, 6.0, 6.0),
+    Session.NY: (6.0, 7.0, 12.0),
+    Session.ASIA: (6.0, 7.0, 8.0),
+    Session.DEAD_ZONE: (8.0, 8.0, 8.0),  # only 3 sampled hours
+})
 
 
 INSTRUMENTS: dict[str, Instrument] = {
@@ -90,7 +99,7 @@ INSTRUMENTS: dict[str, Instrument] = {
         point_size=0.00001,
         point_value_usd=1.0,  # 1 lot = 100,000 EUR x 0.00001 = $1 (USD-quoted)
         spread_table=_EURUSD_SPREAD_TABLE,
-        spread_is_measured=False,
+        spread_is_measured=True,  # Dukascopy-measured profile; broker reading is at/below it
         commission_per_lot_per_side=2.50,  # ASSUMED same as XAUUSD until the MT5 spec is read
         price_scale=None,
     ),
@@ -99,8 +108,8 @@ INSTRUMENTS: dict[str, Instrument] = {
         dukascopy_divisor=100_000,
         point_size=0.00001,
         point_value_usd=1.0,
-        spread_table=_scaled_table(1.4),  # ASSUMED ~1.4x EURUSD, typical for cable
-        spread_is_measured=False,
+        spread_table=_GBPUSD_SPREAD_TABLE,
+        spread_is_measured=True,  # Dukascopy-measured profile; broker reading is at/below it
         commission_per_lot_per_side=2.50,
         price_scale=None,
     ),

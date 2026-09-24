@@ -16,7 +16,7 @@ from research.xauusd_scalping.engine.backtest_engine import (
     Signal,
     SizingConfig,
 )
-from research.xauusd_scalping.engine.cost_model import CostModel
+from research.xauusd_scalping.engine.cost_model import CostModel, Session, VolBucket
 from research.xauusd_scalping.engine.instruments import (
     INSTRUMENTS,
     equivalent_lots,
@@ -37,10 +37,10 @@ def test_contract_economics_per_symbol():
 
 
 def test_engine_charges_eurusd_costs_in_eurusd_points():
-    """A EURUSD long, London/MEDIUM: assumed spread 9pts -> half = 4.5pts =
-    0.000045 of price per side (NOT 4.5, NOT 0.045). Zero slippage and
+    """A EURUSD long, London/MEDIUM: measured spread 3pts -> half = 1.5pts =
+    0.000015 of price per side (NOT 1.5, NOT 0.015). Zero slippage and
     commission to isolate the spread. 1.0 lot, +0.00100 (10 pip) move:
-    net = (0.00100 - 0.00009) x 100,000 = $91.00."""
+    net = (0.00100 - 0.00003) x 100,000 = $97.00."""
     eur = get_instrument("EURUSD", price_scale=0.0002)
     cost = CostModel(
         commission_per_lot_per_side=0.0, entry_slippage_pts=0.0, exit_slippage_pts=0.0,
@@ -64,9 +64,10 @@ def test_engine_charges_eurusd_costs_in_eurusd_points():
         risk=RiskLimits(min_sl_pts=None, min_target_pts=None),
     )
     t = engine.run(bars, Once()).trades[0]
-    assert t.entry_price == pytest.approx(1.100045)
-    assert t.exit_price == pytest.approx(1.101 - 0.000045)
-    assert t.pnl_usd == pytest.approx(91.0)
+    assert eur.spread_table[(Session.LONDON, VolBucket.MEDIUM)] == 3.0
+    assert t.entry_price == pytest.approx(1.100015)
+    assert t.exit_price == pytest.approx(1.101 - 0.000015)
+    assert t.pnl_usd == pytest.approx(97.0)
 
 
 @dataclass
