@@ -39,16 +39,29 @@ of JEV/LLM work which he's deliberately sequencing last.)
 
 ## Open
 
+- [ ] **Export your FundingPips MT5 trade history and import it (2026-09-26).**
+      1. In MT5, File → Login to Trade Account, using the FundingPips login
+         from your dashboard. The report you sent was an empty
+         MetaQuotes-Demo account (112555079).
+      2. History tab → right-click → Period: **All history** → right-click →
+         **Report → HTML**.
+      3. xillion → **My Trades** → choose the file → **Preview**. Check it
+         shows your FundingPips account (not "demo") and the trade count,
+         then click **Import**.
+      4. Tag each trade with a setup and followed plan / broke it. Stats per
+         setup need ~30 trades before they mean anything.
+      **Blocks:** real-trade stats (app step 2–3). **Cost:** 5 min.
+
+- [ ] **(Optional) restart Gold Sweep-Reversal alerts** from the Dashboard, if
+      you still want them. The backend restart on 2026-09-26 stopped it
+      (auto-start is off). Advice: leave it off; it failed every backtest.
+
+
 - [ ] **(Parked with forex) EURUSD + GBPUSD commission.** The 2026-09-25
       Specification screenshots show no Commission line in the visible part;
       scroll to the bottom of the Spec window when forex resumes. Spreads were
       measured 2026-09-24 (EURUSD 1pt / GBPUSD 0pt). **Blocks:** nothing while
       forex is parked.
-
-- [ ] **(Optional) FundingPips account size.** The rules are recorded below
-      (2-Step Flex). The backtests assume $5,000 with your own $50/day stop.
-      Tell me if the account is bigger so the 4% / 12% limits can be modelled
-      in dollars.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
@@ -88,6 +101,9 @@ of JEV/LLM work which he's deliberately sequencing last.)
 ---
 
 ## Done
+
+- [x] **FundingPips account size confirmed: $5K, 2-Step Flex (2026-09-25).**
+      Rakesh keeps his own $50/day stop.
 
 - [x] **XAUUSD commission billing confirmed (2026-09-25).** MT5 history
       shows −$0.50 per closed 0.10-lot trade = $5/lot round turn =

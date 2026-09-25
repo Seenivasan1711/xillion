@@ -1,5 +1,58 @@
 # 15 — Task Tracker (LIVING DOCUMENT)
 
+> ## ▶️▶️ COLD START — READ THIS FIRST (updated 2026-09-26 00:40 IST)
+>
+> **Active branch:** `feat/track-b-pipelines`, worktree `.claude/worktrees/track-b-pipelines`.
+> Last commit `662ec3c`, **nothing pushed**. 729 tests pass.
+>
+> **Where we are:** the XAUUSD strategy research is **finished, with a
+> negative verdict**. Nothing survives realistic FundingPips trading. The
+> one-page summary is `research/xauusd_scalping/14_results_summary_all_strategies.md`.
+> Rakesh then chose **app work (option 2)**, in this agreed order:
+>
+> | # | Step | State |
+> |---|---|---|
+> | 1 | **My Trades**: import MT5 History reports, manual trades, setup tags, per-setup stats | ✅ built and committed (`662ec3c`); ⏳ waiting on a real FundingPips report |
+> | — | **ML filter experiment** (approved "after the My Trades page") | ⏳ **NOT STARTED — do this next** |
+> | 2–3 | Setup stats vs random baseline (once enough real trades are tagged) | ⏳ needs real trades first |
+> | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ⬜ |
+> | 5 | Level alerts on Telegram (PDH/PDL/Asian range), replacing Gold Sweep-Reversal | ⬜ optional |
+>
+> **ML filter experiment spec (agreed 2026-09-26, not yet built):**
+> - Meta-labeling: learn which S01–S11 and I01–I08 signals to TAKE, from
+>   entry-context features (session, hour, ADX, EMA alignment, volatility,
+>   weekday, strategy id).
+> - Walk-forward: train on everything before month m, predict month m, and
+>   only use predictions on unseen months.
+> - Realistic mode throughout (`RESEARCH_REALISTIC=1`).
+> - Compare against taking every signal and against a random filter with the
+>   same take-rate.
+> - The **pre-registered holdout 2025-07→ is still unused**: run it ONCE at
+>   the end (`--holdout-final`), whatever the IS/VAL result.
+> - Honest prior: low odds, because the inputs have no timing skill
+>   (doc 13 §5).
+> - Inputs already exist: tagged trades in `research/xauusd_scalping/_custom/*_trades.parquet`
+>   (gitignored; regenerate with `custom_research.py --period is|val`).
+>
+> **App/runtime state:**
+> - Supabase is at **alembic 022** (021 `proposed_strategy_change` and 022
+>   `my_trade` were applied 2026-09-26; 021 had never been applied before).
+> - The backend runs **without `--reload`** on port 8001 (restart it after
+>   backend code changes). The frontend Vite dev server is on 5174.
+> - **The Gold Sweep-Reversal alert instance was stopped** by the restart
+>   (`auto_start` = false). Rakesh may restart it from the Dashboard; the
+>   advice is to leave it off, since it failed every backtest.
+> - S11 on M1 (6.7 years) may still be running. Its log is in the old session
+>   scratchpad; it cannot change the verdict. Add it to doc 14's S11 row if
+>   it's needed.
+>
+> **Waiting on Rakesh** (also in `manual-tasks.md`):
+> 1. The FundingPips MT5 History report (the one he sent was an empty
+>    MetaQuotes-Demo account).
+> 2. Tagging his imported trades with a setup and followed-plan / broke-plan.
+
+
+
 > **🔴 THIS IS THE SINGLE SOURCE OF TRUTH FOR "WHERE ARE WE".**
 > Any session — human or AI — starts here. If you complete work, you update
 > this file **in the same session**. See [Update protocol](#update-protocol).
@@ -45,7 +98,7 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 ### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
 
-> ## ▶️ NEXT SESSION — START HERE (updated 2026-09-25, late night)
+> ## (superseded by the COLD START block at the top) Research-track handoff, 2026-09-25 late night
 >
 > **Where we are:** XAUUSD only. Steps (a) slower timeframes, (b) 6.7 years
 > of Rakesh's MT5 data (2020→2026) and (c) indicator + custom build are done.
@@ -986,8 +1039,8 @@ and killed before any of today's restarts.
 
 ---
 
-**Last updated:** 2026-09-25
-**Current position:** **2026-09-22: Track B is now the main roadmap** (see
+**Last updated:** 2026-09-26
+**Current position:** **2026-09-26: see the ▶️▶️ COLD START block at the very top of this file** (research done with a negative verdict; app step 1 My Trades built; ML filter experiment next). Older context: **2026-09-22: Track B is now the main roadmap** (see
 the 🔴 Priority decision section immediately below) — the near-term goal is
 Gold Lane B1 fully usable end-to-end from UI/Telegram. Options work stays
 paused per Rakesh's 2026-09-21 call, resumable later, untouched.
