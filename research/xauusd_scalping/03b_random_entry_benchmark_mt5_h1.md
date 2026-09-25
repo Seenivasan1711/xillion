@@ -5,6 +5,6 @@ Each strategy's real trade count, session mix, and (stop_pts, target_pts) pairs 
 
 | Strategy | n | Real PnL | Random p5 | Random p50 | Random p95 | Verdict |
 |---|---|---|---|---|---|---|
-| S08 BOS Pullback Continuation | 6172 | $-33653.60 | $-33965.76 | $-30079.12 | $-26367.84 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
+| S07 Market Profile Value-Area Rotation | 1381 | $-13590.11 | $-16457.68 | $-9218.42 | $-2420.76 | INSIDE random p5-p95 band -- statistically indistinguishable from random noise |
 
 **Summary**: 1 of 10 statistically indistinguishable from random noise, 0 below the random band (worse than noise), 0 above the random band (distinguishable positive signal), 0 with no comparison possible (zero real trades).

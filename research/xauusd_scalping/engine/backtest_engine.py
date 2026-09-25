@@ -25,7 +25,11 @@ from enum import Enum
 import bisect
 from collections import deque
 
+from zoneinfo import ZoneInfo
+
 from .cost_model import CostModel, Session, VolBucket, session_for, trading_date, vol_bucket_for
+
+_NEW_YORK = ZoneInfo("America/New_York")
 
 
 class Side(str, Enum):
@@ -75,6 +79,7 @@ class Trade:
     session: str = ""
     bars_held: int = 0
     ambiguous_bar: bool = False  # True if a single bar's range contained both stop and target
+    swap_usd: float = 0.0  # signed; included in pnl_usd (CostModel.charge_swap)
     pnl_usd: float = 0.0
 
 
@@ -115,7 +120,9 @@ class StrategyContext:
 
 @dataclass
 class SizingConfig:
-    mode: str = "fixed_lot"  # "fixed_lot" | "fixed_fractional"
+    mode: str = "fixed_lot"  # "fixed_lot" | "fixed_fractional" | "fixed_risk_usd"
+    risk_usd: float = 25.0  # fixed_risk_usd: USD lost at the stop (before costs)
+    lot_step: float | None = None  # round lots DOWN to this step (MT5: 0.01), min one step
     fixed_lots: float = 0.08
     risk_pct: float = 0.005  # 0.5% of equity per trade, if fixed_fractional
     point_value_usd: float = 1.0  # USD P&L per point per 1.0 lot (XAUUSD: 1 lot = 100oz, 1 pt = $0.01 -> $1/lot/pt)
@@ -135,6 +142,10 @@ class RiskLimits:
     # target and added to the stop. See 06_rr_geometry_finding_and_plan.md.
     min_sl_pts: float | None = 40.0
     min_target_pts: float | None = 80.0
+    # FundingPips master accounts auto-close at Friday close: exit any open
+    # position at the first bar at/after Friday 16:45 New York and take no new
+    # entries until the week reopens.
+    flat_before_weekend: bool = False
 
 
 @dataclass
@@ -174,11 +185,24 @@ class BacktestEngine:
     def _lots_for(self, equity: float, entry: float, stop: float) -> float:
         if self.sizing.mode == "fixed_lot":
             return self.sizing.fixed_lots
-        risk_usd = equity * self.sizing.risk_pct
+        risk_usd = self.sizing.risk_usd if self.sizing.mode == "fixed_risk_usd" else equity * self.sizing.risk_pct
         stop_pts = abs(entry - stop) / self.cost_model.point_size
         if stop_pts <= 0:
             return 0.0
-        return risk_usd / (stop_pts * self.sizing.point_value_usd)
+        lots = risk_usd / (stop_pts * self.sizing.point_value_usd)
+        step = self.sizing.lot_step
+        if step:
+            # Round DOWN (never risk more than asked), but a broker won't
+            # take less than one step -- so a very wide stop still trades the
+            # minimum lot and risks somewhat more than risk_usd.
+            lots = max(step, int(lots / step + 1e-9) * step)
+        return lots
+
+    def _past_friday_cutoff(self, ts: datetime) -> bool:
+        if not self.risk.flat_before_weekend:
+            return False
+        ny = ts.astimezone(_NEW_YORK)
+        return ny.weekday() == 4 and (ny.hour, ny.minute) >= (16, 45)
 
     def vol_buckets(self, bars: list[Bar]) -> list[VolBucket]:
         """Volatility bucket in force at each bar, using that bar and earlier
@@ -253,6 +277,8 @@ class BacktestEngine:
             if position is not None:
                 position.bars_held += 1
                 exit_price, exit_reason, ambiguous = self._resolve_intrabar(bar, position)
+                if exit_price is None and self._past_friday_cutoff(bar.ts):
+                    exit_price, exit_reason = bar.close, "friday_close"
                 if ambiguous:
                     result.ambiguous_bar_count += 1
 
@@ -295,7 +321,7 @@ class BacktestEngine:
 
             # ── Ask the strategy for a signal, only on a closed bar, only
             #    if flat and not halted ──
-            if position is None and not halted_today:
+            if position is None and not halted_today and not self._past_friday_cutoff(bar.ts):
                 if self.risk.max_trades_per_session is None or trades_today < self.risk.max_trades_per_session:
                     sess = session_for(bar.ts)
                     spread = self.cost_model.spread_pts(sess, vol_bucket, bar.spread_pts)
@@ -426,7 +452,9 @@ class BacktestEngine:
         ) / self.cost_model.point_size
         gross_usd = gross_pts * position.lots * self.sizing.point_value_usd
         commission = self.cost_model.commission_usd(position.lots)
-        net_usd = gross_usd - commission
+        swap = self.cost_model.swap_usd(position.side == Side.LONG, position.entry_ts, exit_ts,
+                                        position.lots, self.sizing.point_value_usd)
+        net_usd = gross_usd - commission + swap
 
         stop_pts = abs(position.entry_price - position.stop_price) / self.cost_model.point_size
         r_multiple = gross_pts / stop_pts if stop_pts else 0.0
@@ -449,5 +477,6 @@ class BacktestEngine:
             session=position.entry_session,
             bars_held=position.bars_held,
             ambiguous_bar=ambiguous,
+            swap_usd=swap,
             pnl_usd=net_usd,
         )

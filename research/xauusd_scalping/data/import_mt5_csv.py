@@ -13,13 +13,16 @@ Two export shapes, auto-detected from the header:
          relative VWAP weight -- see signals/indicators.py).
   bars:  <DATE> <TIME> <OPEN> <HIGH> <LOW> <CLOSE> <TICKVOL> <VOL> <SPREAD>
          BID-based OHLC ("Chart mode: By bid price" in the symbol spec);
-         shifted to mid by + SPREAD/2 points. Coarser than ticks -- the
-         bar's SPREAD column is one reading per minute -- so prefer ticks
+         shifted to mid by + SPREAD/2 points. SPREAD is the MINIMUM spread
+         in the minute, not a typical one: measured 2026-09-25 over 309k
+         overlapping minutes it had a median of 4pt against 17pt from ticks.
+         So it is stored as `min_spread_pts`, never as the cost
+         `spread_pts`, and mid is ~$0.065 below the tick mid. Prefer ticks
          wherever both exist.
 
-Both write an extra `spread_pts` column (median broker spread in the
-minute, in MT5 points) -- the loader ignores it, but it's the broker's own
-measured cost, which Dukascopy can only proxy.
+Tick imports write `spread_pts` (median broker spread in the minute, MT5
+points) -- the broker's own measured cost, which RESEARCH_SPREAD=broker
+charges. Bar imports can't know it (see below) and leave it NaN.
 
 TIMEZONE. Export timestamps are broker SERVER time, not UTC. Measured
 2026-09-25 against Dukascopy's UTC bars (2026-06..09 overlap, 82k bars):
@@ -128,7 +131,9 @@ def import_bars(path: Path, point: float, server_tz: str) -> pd.DataFrame:
         "ts": server_to_utc(naive, server_tz),
         "open": df["open"] + half, "high": df["high"] + half,
         "low": df["low"] + half, "close": df["close"] + half,
-        "volume": df["tickvol"].astype(float), "spread_pts": df["spread"].astype(float),
+        "volume": df["tickvol"].astype(float),
+        "spread_pts": float("nan"),  # unknown: RESEARCH_SPREAD=broker falls back to the table here
+        "min_spread_pts": df["spread"].astype(float),
     })
     return bars.dropna(subset=["ts"])
 
@@ -184,11 +189,13 @@ def main() -> None:
     ap.add_argument("--symbol", default="XAUUSD")
     ap.add_argument("--server-tz", choices=sorted(SERVER_TZ), default="eet")
     ap.add_argument("--verify", action="store_true", help="compare each month against data/<symbol>/")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="write here instead of data/<symbol>_mt5/ (stage an import while backtests read the live dir)")
     args = ap.parse_args()
 
     symbol = args.symbol.upper()
     point = get_instrument(symbol).point_size
-    out_dir = DATA_ROOT / f"{symbol.lower()}_mt5"
+    out_dir = args.out_dir or DATA_ROOT / f"{symbol.lower()}_mt5"
     # Bars first, ticks second, so tick-built minutes overwrite bar-export ones.
     files = sorted(args.files, key=lambda p: detect_kind(p) == "ticks")
     for path in files:

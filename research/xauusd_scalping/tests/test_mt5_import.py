@@ -77,6 +77,8 @@ def test_bar_export_is_shifted_from_bid_to_mid(tmp_path):
     b = im.import_bars(p, 0.01, "ny+7").iloc[0]
     assert str(b.ts) == "2026-07-01 00:00:00+00:00"
     assert b.close == pytest.approx(100.60) and b.low == pytest.approx(99.10)
+    # SPREAD is the minute's minimum, not a cost -- never used as spread_pts
+    assert b.spread_pts != b.spread_pts and b.min_spread_pts == 20
 
 
 def test_tick_bars_win_over_bar_export_for_the_same_minute(tmp_path):

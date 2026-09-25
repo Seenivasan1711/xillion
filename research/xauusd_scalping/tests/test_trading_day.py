@@ -3,6 +3,8 @@ broker spread -- all found/added 2026-09-25 (12_mt5_broker_data_rerun.md)."""
 
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
+
 from research.xauusd_scalping.engine.backtest_engine import Bar, BacktestEngine, StrategyContext
 from research.xauusd_scalping.engine.cost_model import CostModel, Session, VolBucket, trading_date
 from research.xauusd_scalping.strategies._common import DailyBarCache, daily_bars_from_m1, todays_start
@@ -90,3 +92,56 @@ def test_s08_drops_a_setup_that_pulled_back_too_far_to_ever_fire():
     ctx = StrategyContext(history=bars + [deep], has_open_position=False)
     s.on_bar(deep, ctx)
     assert s._pending is None or s._pending.bos_close != 110.0
+
+
+def test_swap_counts_rollovers_and_triples_wednesday():
+    c = CostModel(charge_swap=True)
+    mon = datetime(2026, 1, 12, 15, 0, tzinfo=UTC)  # Monday, trading day Mon
+    # Mon -> Tue: 1 night; Mon -> Thu: Mon+Tue+Wed(x3) = 5; Fri -> Mon: 1 (weekend is in Wed's x3)
+    assert c.swap_usd(True, mon, mon + timedelta(days=1), 1.0, 1.0) == -93.17
+    assert c.swap_usd(True, mon, mon + timedelta(days=3), 1.0, 1.0) == pytest.approx(-93.17 * 5)
+    fri = datetime(2026, 1, 16, 15, 0, tzinfo=UTC)
+    assert c.swap_usd(False, fri, fri + timedelta(days=3), 0.1, 1.0) == pytest.approx(2.168)
+    assert c.swap_usd(True, mon, mon + timedelta(hours=2), 1.0, 1.0) == 0.0  # intraday
+    assert CostModel().swap_usd(True, mon, mon + timedelta(days=3), 1.0, 1.0) == 0.0  # off by default
+
+
+def test_fixed_risk_sizing_rounds_down_to_lot_step_with_a_minimum():
+    from research.xauusd_scalping.engine.backtest_engine import SizingConfig
+
+    e = BacktestEngine(CostModel(), sizing=SizingConfig(mode="fixed_risk_usd", risk_usd=25.0, lot_step=0.01))
+    assert e._lots_for(5000, 4000.0, 3997.0) == pytest.approx(0.08)  # $3 stop: 25/300 = 0.083 -> 0.08
+    assert e._lots_for(5000, 4000.0, 3970.0) == pytest.approx(0.01)  # $30 stop: 0.0083 -> min 0.01
+
+
+def test_flat_before_weekend_cutoff_is_friday_1645_new_york():
+    from research.xauusd_scalping.engine.backtest_engine import RiskLimits
+
+    e = BacktestEngine(CostModel(), risk=RiskLimits(flat_before_weekend=True))
+    assert not e._past_friday_cutoff(datetime(2026, 1, 16, 21, 40, tzinfo=UTC))  # 16:40 EST
+    assert e._past_friday_cutoff(datetime(2026, 1, 16, 21, 45, tzinfo=UTC))
+    assert e._past_friday_cutoff(datetime(2026, 7, 17, 20, 45, tzinfo=UTC))  # 16:45 EDT
+    assert not BacktestEngine(CostModel())._past_friday_cutoff(datetime(2026, 1, 16, 21, 45, tzinfo=UTC))
+
+
+def test_make_engine_builds_in_default_and_realistic_modes():
+    # Regression: a frozen-dataclass assignment in make_engine crashed every
+    # run started after it (2026-09-25) and no unit test called make_engine.
+    # Subprocess: run_backtests puts research/ on sys.path, whose
+    # `strategies` package would shadow the app's own in this test session.
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent.parent
+    code = (
+        "import run_backtests as rb\n"
+        "e = rb.make_engine(); assert e.sizing.mode == 'fixed_lot' and not e.cost_model.charge_swap\n"
+        "rb.REALISTIC = True\n"
+        "e = rb.make_engine(); assert e.sizing.mode == 'fixed_risk_usd' and e.cost_model.charge_swap\n"
+        "assert e.risk.flat_before_weekend\n"
+    )
+    env = {**os.environ, "RESEARCH_DATA_SOURCE": "dukascopy", "RESEARCH_TIMEFRAME": "M1"}
+    r = subprocess.run([sys.executable, "-c", code], cwd=here, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-2000:]

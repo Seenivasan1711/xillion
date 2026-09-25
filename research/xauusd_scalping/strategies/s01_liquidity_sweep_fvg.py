@@ -30,6 +30,14 @@ class Params:
     displacement_body_mult: float = 1.5
     displacement_close_pct: float = 25.0
     enable_confidence_score: bool = False
+    # How long a formed FVG waits for its retest before the setup expires.
+    # The spec has no expiry, and its "fully filled without triggering"
+    # invalidation can't happen with a touch entry, so without one a setup
+    # would wait forever. 30 minutes (= 6 M5 candles, the spec's framing) was
+    # chosen 2026-09-25 by Claude at Rakesh's request, fixed before testing;
+    # 10/60 are run as a sensitivity check, not a tuning search. Time-based
+    # so it means the same thing on every timeframe.
+    retest_expiry_minutes: float = 30.0
 
 
 @dataclass
@@ -41,6 +49,7 @@ class _Pending:
     stage: str = "awaiting_displacement"  # -> "awaiting_retest" once displacement confirms
     fvg_low: float = 0.0
     fvg_high: float = 0.0
+    fvg_ts: object = None  # when the FVG formed (retest expiry clock)
 
 
 class LiquiditySweepFvgStrategy:
@@ -74,6 +83,7 @@ class LiquiditySweepFvgStrategy:
                     if fvg.fired:
                         pend.stage = "awaiting_retest"
                         pend.fvg_low, pend.fvg_high = fvg.gap_low, fvg.gap_high
+                        pend.fvg_ts = bar.ts
                     else:
                         self._pending = None  # no gap formed -- setup void
                 else:
@@ -82,10 +92,16 @@ class LiquiditySweepFvgStrategy:
                 fvg_result = FVGResult(fired=True, gap_low=pend.fvg_low, gap_high=pend.fvg_high)
                 if pa.fvg_retest(bars, fvg_result):
                     return self._fire_entry(bar, ctx, pend, levels)
-                # invalidation: fully filled through without triggering
-                if (pend.level_is_high and bar.close < pend.fvg_low) or (
-                    not pend.level_is_high and bar.close > pend.fvg_high
+                # Invalidation: filled through the far side (a short setup's
+                # gap is ABOVE price, so that's a close above fvg_high). Until
+                # 2026-09-25 this was reversed -- it voided a short setup when
+                # price stayed BELOW the gap, the normal post-displacement
+                # state, so S01 was effectively "next-bar retest only".
+                elif (pend.level_is_high and bar.close > pend.fvg_high) or (
+                    not pend.level_is_high and bar.close < pend.fvg_low
                 ):
+                    self._pending = None
+                elif (bar.ts - pend.fvg_ts).total_seconds() / 60 >= self.p.retest_expiry_minutes:
                     self._pending = None
 
         if self._pending is not None:

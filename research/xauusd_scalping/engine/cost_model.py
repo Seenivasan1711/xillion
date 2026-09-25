@@ -129,6 +129,30 @@ class CostModel:
     # Charge the broker's per-minute spread (Bar.spread_pts, MT5 feed only)
     # instead of the session table -- RESEARCH_SPREAD=broker in run_backtests.
     use_bar_spread: bool = False
+    # Overnight swap, in MT5 points per 1.0 lot per rollover (FundingPips
+    # XAUUSD spec, read 2026-09-24: long -93.17, short +21.68), tripled on the
+    # Wednesday rollover. Off unless charge_swap -- M1 intraday results were
+    # all produced without it, and held positions overnight only rarely.
+    charge_swap: bool = False
+    swap_long_pts: float = -93.17
+    swap_short_pts: float = 21.68
+
+    def swap_usd(self, side_is_long: bool, entry_ts: datetime, exit_ts: datetime, lots: float,
+                 point_value_usd: float) -> float:
+        """Signed swap (negative = cost) for a position held entry->exit:
+        one rollover per trading-day boundary crossed (17:00 New York, see
+        trading_date), 3x for the Wednesday one (covers the weekend)."""
+        if not self.charge_swap:
+            return 0.0
+        start, end = trading_date(entry_ts), trading_date(exit_ts)
+        nights = 0
+        d = start
+        while d < end:
+            if d.weekday() < 5:  # a Mon-Fri trading day rolling into the next
+                nights += 3 if d.weekday() == 2 else 1
+            d += timedelta(days=1)
+        rate = self.swap_long_pts if side_is_long else self.swap_short_pts
+        return nights * rate * lots * point_value_usd
 
     @classmethod
     def for_instrument(cls, instrument) -> CostModel:

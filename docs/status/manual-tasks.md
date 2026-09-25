@@ -39,29 +39,16 @@ of JEV/LLM work which he's deliberately sequencing last.)
 
 ## Open
 
-- [ ] **Read EURUSD + GBPUSD commission off your FundingPips MT5 symbol
-      Specification — spreads DONE, commission still open (2026-09-24).**
-      Spread reading received 2026-09-24, Market Watch 16:56:18 server time
-      (~London/NY overlap): **EURUSD bid 1.13717 / ask 1.13718 = 1pt (0.1
-      pip); GBPUSD 1.32212 / 1.32212 = 0pt.** That's a raw-spread account,
-      so the real cost is mostly **commission** — right-click each pair in
-      Market Watch → Specification, and note the "Commission" line (e.g.
-      "$X per lot"), same as the XAUUSD spec's "5 USD per lot". A second
-      spread reading in Asia hours (after ~05:30 IST) would also help, but
-      the session profile is now measured from Dukascopy
-      (`research/xauusd_scalping/measure_fx_spread_profile.py`).
-      **Blocks:** trusting forex backtest costs (commission is currently
-      ASSUMED $2.50/lot/side). **Cost:** none, 2 min.
+- [ ] **(Parked with forex) EURUSD + GBPUSD commission.** The 2026-09-25
+      Specification screenshots show no Commission line in the visible part;
+      scroll to the bottom of the Spec window when forex resumes. Spreads were
+      measured 2026-09-24 (EURUSD 1pt / GBPUSD 0pt). **Blocks:** nothing while
+      forex is parked.
 
-- [ ] **(Optional, low priority) confirm how your broker bills commission.**
-      The symbol spec says "5 USD per lot"; your MT5 statement shows -$0.50
-      per closed 0.10-lot position. That reads as **$5/lot round turn**
-      (now modelled as $2.50/side). If that statement column actually shows
-      only the *entry* deal, the true figure is $5/lot **per side** and the
-      model should be 5.00. Easiest check: total commission ÷ number of
-      trades ÷ lot size. Commission is ~10% of total cost either way
-      (spread dominates), so this changes no conclusion — worth correcting
-      for accuracy, not urgency.
+- [ ] **(Optional) FundingPips account size.** The rules are recorded below
+      (2-Step Flex). The backtests assume $5,000 with your own $50/day stop.
+      Tell me if the account is bigger so the 4% / 12% limits can be modelled
+      in dollars.
 
 - [ ] **(Optional) free Alpha Vantage API key, for the Gold backtest
       backup data source.** Only needed if you want backtests to work when
@@ -101,6 +88,24 @@ of JEV/LLM work which he's deliberately sequencing last.)
 ---
 
 ## Done
+
+- [x] **XAUUSD commission billing confirmed (2026-09-25).** MT5 history
+      shows −$0.50 per closed 0.10-lot trade = $5/lot round turn =
+      $2.50/lot/side, exactly as modelled.
+- [x] **MT5 exports received (2026-09-25):** XAUUSD ticks 2025-11→2026-09
+      (5.5 GB) and M1 bars 2020-01→2026-09 (2.37M bars), imported to
+      `research/xauusd_scalping/data/xauusd_mt5/`.
+- [x] **FundingPips 2-Step Flex rules (looked up 2026-09-25):**
+      - Loss limits: 4% daily (from the higher of opening balance/equity,
+        reset 00:00 platform time, UTC+3); 12% static max loss.
+      - Targets: 10% / 6%. No minimum days on the 85% split; 3 profitable
+        days (≥0.5%) per phase on the 95% split.
+      - Prohibited: HFT, tick scalping, latency arbitrage, hedging, gap
+        trading. Personal EAs need proof of ownership.
+      - Master account only: no opening/closing within ±5 min of restricted
+        news; positions auto-closed at Friday close.
+      Sources: fundingpips.com/blog (2 Step Flex intro), proptradingvibes.com/blog/fundingpips-rules.
+      Rakesh keeps his own $50/day stop on top.
 
 - [x] **Read a real XAUUSD spread off MT5 — DONE 2026-09-24.**
       Reported **31 points** (bid 4284.50 / ask 4284.81) at 22:27 server

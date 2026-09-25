@@ -45,38 +45,34 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 ### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
 
-> ## ▶️ NEXT SESSION — START HERE (updated 2026-09-25, night)
+> ## ▶️ NEXT SESSION — START HERE (updated 2026-09-25, late night)
 >
-> **Where we are, one line:** XAUUSD only (Rakesh, 2026-09-25; forex
-> parked). The harness was **independently audited** (64 trades rebuilt from
-> raw bars, all matched exactly) and 4 strategy bugs were fixed. **All 10
-> strategies were re-run on 11 months of Rakesh's own MT5 broker data: none
-> clears the bar** (net-positive, n≥100, above random p95) at today's costs or
-> at the broker's real per-minute spread. The least bad is S06 (+$210/+$256,
-> 164 trades, ~$2.5k short of p95). **Read
-> `research/xauusd_scalping/12_mt5_broker_data_rerun.md` §6** (final table) and
-> `08_correction_history.md` #20-23. Branch `feat/track-b-pipelines`,
-> nothing pushed.
+> **Where we are:** XAUUSD only. Steps (a) slower timeframes, (b) 6.7 years
+> of Rakesh's MT5 data (2020→2026) and (c) indicator + custom build are done.
+> **Verdict: nothing survives realistic FundingPips trading ($25
+> risk/trade, swap, flat by Friday) on both in-sample and validation.**
+> Read `research/xauusd_scalping/13_timeframes_indicators_custom_build.md` §5.
+> The pre-registered **holdout (2025-07→) is still unused**; no candidate
+> earned it.
 >
-> **Leads this session that were bugs:**
-> - S07 +$412: Dukascopy's missing minutes. On the same minutes both feeds lose.
-> - S09 +$1,356: UTC-midnight "previous day" levels.
-> - S08 +$590: a stuck setup state machine.
+> **What was tested:** S01–S11 on M1/M5/M15/H1 and I01–I08 indicator rules.
+> The leads, and how each failed:
+> - S08 H1 (+$10.7k, fixed lot): all of it from 2025–26; realistic mode
+>   IS −$261.
+> - S06 M1 (+$532): realistic mode IS −$1,476.
+> - I06 Supertrend H1: IS +$449 / VAL +$303, but knife-edge (6 of 9 grid
+>   cells lose IS).
+> - Long-only + 200-day filter: killed by gold long swap.
 >
-> **How to run:** from `research/xauusd_scalping/`,
-> `RESEARCH_DATA_SOURCE=mt5 RESEARCH_SPREAD=table|broker [RESEARCH_STRATEGIES=S06,S07] python random_entry_benchmark.py`.
-> Runs per strategy can go in parallel (the cache is merged under a lock, and
-> seeds are identical to a full run). ~4 min per strategy.
+> **Open for Rakesh:** direction. Options: D1 swing with swap-aware design
+> (shorts earn swap on this broker), new strategy sources, or pause the
+> research track. Still running at handoff: M1 S07/S09/S10/S11 benchmark
+> logs in the session scratchpad (they don't change the verdict).
 >
-> **Waiting on Rakesh:**
-> 1. What next. Options: slower timeframes (M15/H1) on gold, where costs are a
->    smaller share of each move; longer MT5 history (Max bars = Unlimited,
->    re-export M1 from 2024); new strategy sources.
-> 2. The S01 expiry rule (doc 12 §7): its cancel check is reversed, and the
->    literal spec rule can never trigger.
->
-> **Also:** the Dukascopy chain (`/tmp/dukascopy_chain.log`) was still
-> downloading EURUSD, which isn't needed while forex is parked.
+> **Tools:** from `research/xauusd_scalping/`, run
+> `RESEARCH_DATA_SOURCE=mt5 RESEARCH_TIMEFRAME=H1 python custom_research.py --period is|val [--only I06,S08]`.
+> It is realistic by default. Full-period benchmark:
+> `RESEARCH_REALISTIC=1 RESEARCH_TIMEFRAME=H1 RESEARCH_STRATEGIES=S08 python random_entry_benchmark.py`.
 
 > **🔴🔴 LATEST (2026-09-24, later same day) — a 100x points-vs-price unit bug
 > voids the cost conclusions below. Read

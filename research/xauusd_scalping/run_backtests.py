@@ -53,6 +53,7 @@ from strategies.s09_session_liquidity_run_reversal import (  # noqa: E402
 from strategies.s10_equal_levels_rsi_divergence import (  # noqa: E402
     EqualLevelsRsiDivergenceStrategy,
 )
+from strategies.s11_video_liquidity_mtf_scalp import VideoLiquidityMtfScalpStrategy  # noqa: E402
 
 STRATEGIES = [
     ("S01 Liquidity Sweep + Displacement + FVG Retest", LiquiditySweepFvgStrategy),
@@ -65,6 +66,10 @@ STRATEGIES = [
     ("S08 BOS Pullback Continuation", BosPullbackContinuationStrategy),
     ("S09 Session Liquidity Run + Reversal", SessionLiquidityRunReversalStrategy),
     ("S10 Equal Highs/Lows + RSI Divergence", EqualLevelsRsiDivergenceStrategy),
+    # Appended (not inserted) 2026-09-25 so S01-S10 keep their benchmark
+    # seed index. M1-native: it builds its own H1/M15 view and its lifetimes
+    # are counted in M1 bars, so only meaningful at RESEARCH_TIMEFRAME=M1.
+    ("S11 Video MTF Liquidity + Structure Scalp", VideoLiquidityMtfScalpStrategy),
 ]
 
 def selected_strategies() -> list[tuple[int, str, type]]:
@@ -96,7 +101,25 @@ if SPREAD_MODE not in ("table", "broker"):
     raise ValueError(f"RESEARCH_SPREAD={SPREAD_MODE!r}, expected 'table' or 'broker'")
 
 
-def load_all_bars(symbol: str | None = None) -> list[Bar]:
+# RESEARCH_REALISTIC=1: trade it the way Rakesh's FundingPips 2-Step Flex
+# $5K account would -- swap charged, a fixed $RESEARCH_RISK_USD (default 25,
+# so two stop-outs = his $50 daily stop) at the stop in 0.01-lot steps, and
+# flat by Friday close (master-account rule). Off by default so every earlier
+# fixed-0.08-lot result stays reproducible.
+REALISTIC = os.environ.get("RESEARCH_REALISTIC", "0") == "1"
+RISK_USD = float(os.environ.get("RESEARCH_RISK_USD", "25"))
+
+# Bar timeframe the strategies run on (step (a), 2026-09-25): M1 bars are
+# resampled to M5/M15/H1 before the strategies see them. Strategy gold-dollar
+# distances are scaled by the MEASURED ratio of median bar range (TF / M1),
+# never guessed -- see timeframe_scale().
+TIMEFRAMES = {"M1": 1, "M5": 5, "M15": 15, "H1": 60}
+TIMEFRAME = os.environ.get("RESEARCH_TIMEFRAME", "M1").upper()
+if TIMEFRAME not in TIMEFRAMES:
+    raise ValueError(f"RESEARCH_TIMEFRAME={TIMEFRAME!r}, expected one of {list(TIMEFRAMES)}")
+
+
+def _load_m1(symbol: str | None = None) -> list[Bar]:
     data_dir = get_instrument(symbol or SYMBOL).data_dir
     frames = [pd.read_parquet(f) for f in sorted(glob.glob(str(data_dir / "*.parquet")))]
     if not frames:
@@ -106,6 +129,10 @@ def load_all_bars(symbol: str | None = None) -> list[Bar]:
         raise ValueError(f"RESEARCH_SPREAD=broker needs per-bar spread_pts -- {data_dir} has none "
                          "(only the MT5 feed does: RESEARCH_DATA_SOURCE=mt5)")
     spreads = df["spread_pts"].tolist() if "spread_pts" in df else [None] * len(df)
+    if SPREAD_MODE == "broker":
+        real = int(df["spread_pts"].notna().sum())
+        print(f"RESEARCH_SPREAD=broker: real per-minute spread on {real:,}/{len(df):,} bars "
+              f"(tick-imported); the rest use the table", flush=True)
     return [
         Bar(ts=row.ts, open=row.open, high=row.high, low=row.low, close=row.close, volume=row.volume,
             spread_pts=None if sp is None or sp != sp else float(sp))
@@ -114,11 +141,50 @@ def load_all_bars(symbol: str | None = None) -> list[Bar]:
 
 
 @functools.cache
+def _load_cached(symbol: str) -> tuple:
+    return tuple(_load_m1(symbol))
+
+
+def load_all_bars(symbol: str | None = None) -> list[Bar]:
+    """All bars for the active symbol/feed, at RESEARCH_TIMEFRAME."""
+    m1 = list(_load_cached((symbol or SYMBOL).upper()))
+    minutes = TIMEFRAMES[TIMEFRAME]
+    if minutes == 1:
+        return m1
+    if SPREAD_MODE == "broker":
+        raise ValueError("RESEARCH_SPREAD=broker is per-minute; use the table above M1")
+    from timeframe_experiment import resample_bars
+
+    return resample_bars(m1, minutes)
+
+
+@functools.cache
+def timeframe_scale() -> float:
+    """Median bar high-low at RESEARCH_TIMEFRAME / median at M1, same data.
+    Multiplies the strategies' gold-dollar distances (min_sl_pts etc.), the
+    same way price_scale does across symbols. 1.0 at M1."""
+    if TIMEFRAMES[TIMEFRAME] == 1:
+        return 1.0
+    from statistics import median
+
+    m1 = list(_load_cached(SYMBOL))
+    tf = load_all_bars()
+    return median(b.high - b.low for b in tf) / median(b.high - b.low for b in m1)
+
+
+@functools.cache
 def instrument():
     """The active symbol's spec. For anything but XAUUSD, price_scale is
     MEASURED here from real overlapping data (never guessed) and printed."""
     if SYMBOL == "XAUUSD":
-        return get_instrument("XAUUSD")
+        if TIMEFRAMES[TIMEFRAME] == 1:
+            return get_instrument("XAUUSD")
+        scale = timeframe_scale()
+        print(f"XAUUSD {TIMEFRAME}: measured timeframe scale={scale:.3f} (median bar range vs M1); "
+              "strategy distance params scaled by it", flush=True)
+        return get_instrument("XAUUSD", price_scale=scale)
+    if TIMEFRAMES[TIMEFRAME] != 1:
+        raise ValueError("RESEARCH_TIMEFRAME above M1 is XAUUSD-only for now (forex parked)")
     scale = measure_price_scale(load_all_bars(SYMBOL), load_all_bars("XAUUSD"))
     inst = get_instrument(SYMBOL, price_scale=scale)
     print(f"{SYMBOL}: measured price_scale={scale:.6f} (median daily range vs XAUUSD), "
@@ -129,13 +195,19 @@ def instrument():
 def make_engine() -> BacktestEngine:
     inst = instrument()
     if inst.symbol == "XAUUSD":
-        cost, lots = CostModel(use_bar_spread=SPREAD_MODE == "broker"), 0.08
+        cost, lots = CostModel(use_bar_spread=SPREAD_MODE == "broker", charge_swap=REALISTIC), 0.08
     else:
         cost, lots = CostModel.for_instrument(inst), equivalent_lots(inst)
+    sizing = (
+        SizingConfig(mode="fixed_risk_usd", risk_usd=RISK_USD, lot_step=0.01, point_value_usd=inst.point_value_usd)
+        if REALISTIC
+        else SizingConfig(mode="fixed_lot", fixed_lots=lots, point_value_usd=inst.point_value_usd)
+    )
     return BacktestEngine(
         cost_model=cost,
-        sizing=SizingConfig(mode="fixed_lot", fixed_lots=lots, point_value_usd=inst.point_value_usd),
-        risk=RiskLimits(max_trades_per_session=4, daily_loss_cap_usd=50.0, consecutive_loss_halt=2),
+        sizing=sizing,
+        risk=RiskLimits(max_trades_per_session=4, daily_loss_cap_usd=50.0, consecutive_loss_halt=2,
+                        flat_before_weekend=REALISTIC),
     )
 
 
@@ -143,7 +215,7 @@ def make_strategy(cls):
     """Strategy instance with its gold-dollar distance params scaled to the
     active symbol (identity for XAUUSD)."""
     inst = instrument()
-    if inst.symbol == "XAUUSD":
+    if inst.price_scale == 1.0:
         return cls()
     params_cls = sys.modules[cls.__module__].Params
     return cls(scale_strategy_params(params_cls(), inst))
@@ -158,6 +230,10 @@ def results_suffix() -> str:
     suffix = "" if SYMBOL == "XAUUSD" else f"_{SYMBOL.lower()}"
     if data_source() != "dukascopy":
         suffix = f"{suffix}_{data_source()}"
+    if TIMEFRAME != "M1":
+        suffix = f"{suffix}_{TIMEFRAME.lower()}"
+    if REALISTIC:
+        suffix = f"{suffix}_real{RISK_USD:g}"
     return suffix if SPREAD_MODE == "table" else f"{suffix}_brokerspread"
 
 

@@ -111,6 +111,8 @@ def resolve_one_trade(engine: BacktestEngine, bars: list, entry_idx: int, side: 
     for i in range(entry_idx + 1, end):
         bar = bars[i]
         exit_price, reason, ambiguous = engine._resolve_intrabar(bar, position)
+        if exit_price is None and engine._past_friday_cutoff(bar.ts):
+            exit_price, reason = bar.close, "friday_close"
         if exit_price is not None:
             exit_bucket = buckets[i] if buckets is not None else VolBucket.MEDIUM
             return engine._close_position(position, bar.ts, exit_price, reason, ambiguous, bar, exit_bucket)
