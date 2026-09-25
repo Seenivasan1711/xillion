@@ -279,6 +279,14 @@ class BacktestEngine:
                 exit_price, exit_reason, ambiguous = self._resolve_intrabar(bar, position)
                 if exit_price is None and self._past_friday_cutoff(bar.ts):
                     exit_price, exit_reason = bar.close, "friday_close"
+                # Optional strategy-driven exit (e.g. a Turtle "10-day low"
+                # trailing exit), evaluated on the CLOSED bar after the
+                # resting stop/target, filled at that bar's close.
+                exit_hook = getattr(strategy, "exit_signal", None)
+                if exit_price is None and exit_hook is not None and exit_hook(
+                    bar, StrategyContext(history=history, has_open_position=True), position
+                ):
+                    exit_price, exit_reason = bar.close, "signal_exit"
                 if ambiguous:
                     result.ambiguous_bar_count += 1
 

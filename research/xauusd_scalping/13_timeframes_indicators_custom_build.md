@@ -118,3 +118,49 @@ What this rules out, and what it doesn't:
   - multi-day swing trading on D1, which needs a swap-aware design:
     shorts *earn* swap on this broker, longs pay heavily;
   - order-flow ideas this data can't test.
+
+## 6. Option 1: D1 swing (2026-09-25, same day)
+
+**Setup:**
+- Bars: D1 on gold's trading day (`run_backtests.daily_trading_bars`, 17:00 NY
+  roll = the MT5 D1 candle), stamped at the close.
+- Exits: rule exits via the engine's new `exit_signal` hook.
+- Sizing: $50 risk per trade (1%). **D1 stops are too wide for $25 at the
+  0.01-lot minimum, and even $50 is exceeded.** Max realised risk was $209 =
+  4.2% of the account in VAL, above FundingPips' 4% daily limit.
+- Modes: master (flat by Friday) and evaluation (weekend holds).
+- Baselines: two random baselines matched on stop and holding time. The
+  same-side baseline controls for gold's 2020–26 uptrend.
+
+| Rule | IS master | VAL master | IS eval | VAL eval | Beats same-side p95? |
+|---|---|---|---|---|---|
+| D01 Turtle 20/10 | −$125 (75) | −$145 (21) | −$773 (37) | −$425 (10) | no |
+| D02 Turtle 55/20 | +$16 (42) | −$135 (16) | −$489 (17) | +$278 (3) | no |
+| D03 SMA50/200 trend | −$30 (29) | −$13 (5) | −$258 (33) | +$488 (5) | no |
+| D04 RSI(2) daily | −$265 (38) | +$123 (10) | −$314 (33) | +$224 (9) | no |
+| D05 Weekly momentum | −$331 (221) | +$400 (51) | same | same | no |
+
+**No rule is positive in both IS and VAL, and none beats its same-side
+random p95 anywhere.** The trade counts are small (3–51 in VAL), so even a
+real edge couldn't be confirmed with 6.7 years of D1 data.
+
+**Swap:**
+- Today's XAUUSD swap (long −93.17 points per night) is applied to every
+  year. That is conservative for the low-rate years 2020–22.
+- Ex-swap, only D05 is positive in both periods: IS +$193 over 221 trades
+  = 0.017R/trade; VAL +$554 over 51.
+- But today's swap is what trading forward would actually pay, so the
+  with-swap numbers are the relevant ones.
+- Holding over weekends (eval mode) makes every rule worse, because long
+  swap accrues ×3 on Wednesdays and weekends add no edge.
+
+**Verdict:** D1 swing is not a way out. On a $5K account the 0.01-lot
+minimum forces 1–4% risk per trade, the long-side swap eats the trend, and
+the sample is too small to tell an edge from luck.
+
+## 7. Final M1 results (S01–S11, 6.7 years, fixed 0.08 lot)
+
+S01 −$16,254 (4,017) · S02 −$127 (12) · S03 −$32,893 · S04 −$118 (62) ·
+S05 −$33,541 · **S06 +$532 (1,149), above p95, but fails realistic mode
+(§3)** · S08 −$33,654 · S09 −$12,742 · S10 −$29,695. S07 and S11 were still
+running at the time of writing.

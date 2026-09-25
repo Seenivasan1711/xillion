@@ -108,12 +108,15 @@ if SPREAD_MODE not in ("table", "broker"):
 # fixed-0.08-lot result stays reproducible.
 REALISTIC = os.environ.get("RESEARCH_REALISTIC", "0") == "1"
 RISK_USD = float(os.environ.get("RESEARCH_RISK_USD", "25"))
+# RESEARCH_WEEKEND=hold keeps positions over the weekend (allowed in the
+# FundingPips EVALUATION phases); default "flat" = the master-account rule.
+WEEKEND_HOLD = os.environ.get("RESEARCH_WEEKEND", "flat").lower() == "hold"
 
 # Bar timeframe the strategies run on (step (a), 2026-09-25): M1 bars are
 # resampled to M5/M15/H1 before the strategies see them. Strategy gold-dollar
 # distances are scaled by the MEASURED ratio of median bar range (TF / M1),
 # never guessed -- see timeframe_scale().
-TIMEFRAMES = {"M1": 1, "M5": 5, "M15": 15, "H1": 60}
+TIMEFRAMES = {"M1": 1, "M5": 5, "M15": 15, "H1": 60, "D1": 1440}
 TIMEFRAME = os.environ.get("RESEARCH_TIMEFRAME", "M1").upper()
 if TIMEFRAME not in TIMEFRAMES:
     raise ValueError(f"RESEARCH_TIMEFRAME={TIMEFRAME!r}, expected one of {list(TIMEFRAMES)}")
@@ -153,9 +156,37 @@ def load_all_bars(symbol: str | None = None) -> list[Bar]:
         return m1
     if SPREAD_MODE == "broker":
         raise ValueError("RESEARCH_SPREAD=broker is per-minute; use the table above M1")
+    if TIMEFRAME == "D1":
+        return daily_trading_bars(m1)
     from timeframe_experiment import resample_bars
 
     return resample_bars(m1, minutes)
+
+
+def daily_trading_bars(m1: list[Bar]) -> list[Bar]:
+    """One bar per gold TRADING day (rolls 17:00 New York = the MT5 D1 candle
+    on FundingPips' EET server; Sunday's reopen belongs to Monday), stamped
+    with the timestamp of its LAST M1 bar -- i.e. at the close. The engine
+    fills a signal at the signal bar's close, so a close-time stamp keeps
+    session/cost tags and the Friday-flat cutoff on the right side of the
+    close instead of at 00:00 of a day that hasn't happened yet."""
+    from engine.cost_model import trading_date
+
+    out: list[Bar] = []
+    cur = None
+    for b in m1:
+        d = trading_date(b.ts)
+        if cur is None or d != cur[0]:
+            if cur is not None:
+                out.append(cur[1])
+            cur = (d, b)
+        else:
+            c = cur[1]
+            cur = (d, Bar(ts=b.ts, open=c.open, high=max(c.high, b.high), low=min(c.low, b.low),
+                          close=b.close, volume=c.volume + b.volume))
+    if cur is not None:
+        out.append(cur[1])
+    return out
 
 
 @functools.cache
@@ -207,7 +238,7 @@ def make_engine() -> BacktestEngine:
         cost_model=cost,
         sizing=sizing,
         risk=RiskLimits(max_trades_per_session=4, daily_loss_cap_usd=50.0, consecutive_loss_halt=2,
-                        flat_before_weekend=REALISTIC),
+                        flat_before_weekend=REALISTIC and not WEEKEND_HOLD),
     )
 
 
@@ -233,7 +264,7 @@ def results_suffix() -> str:
     if TIMEFRAME != "M1":
         suffix = f"{suffix}_{TIMEFRAME.lower()}"
     if REALISTIC:
-        suffix = f"{suffix}_real{RISK_USD:g}"
+        suffix = f"{suffix}_real{RISK_USD:g}" + ("_wkhold" if WEEKEND_HOLD else "")
     return suffix if SPREAD_MODE == "table" else f"{suffix}_brokerspread"
 
 

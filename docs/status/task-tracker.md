@@ -64,9 +64,12 @@ none of it auto-appears as a live selectable strategy (see D21 in
 >   cells lose IS).
 > - Long-only + 200-day filter: killed by gold long swap.
 >
-> **Open for Rakesh:** direction. Options: D1 swing with swap-aware design
-> (shorts earn swap on this broker), new strategy sources, or pause the
-> research track. Still running at handoff: M1 S07/S09/S10/S11 benchmark
+> **D1 swing (option 1) was also tested the same night and fails:** no rule
+> is positive in both IS and VAL, and none beats its same-side random p95
+> (doc 13 §6). On a $5K account the 0.01-lot minimum forces 1–4% risk per
+> trade, and long swap (−93 points per night) eats the trend.
+> **Open for Rakesh:** direction. New strategy sources, or pause research
+> and work on the app (alerts/journal). Still running at handoff: M1 S07/S09/S10/S11 benchmark
 > logs in the session scratchpad (they don't change the verdict).
 >
 > **Tools:** from `research/xauusd_scalping/`, run
