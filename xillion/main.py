@@ -38,6 +38,7 @@ from xillion.api import reconciliation as reconciliation_router
 from xillion.api import risk as risk_router
 from xillion.api import settings as settings_router
 from xillion.api import trades as trades_router
+from xillion.api import my_trades as my_trades_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
 from xillion.core.risk import RiskManager
@@ -688,6 +689,7 @@ app.include_router(reconciliation_router.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(trades_router.router, prefix="/api")
+app.include_router(my_trades_router.router, prefix="/api")
 app.include_router(ws.router)
 
 # Serve React frontend (production build)

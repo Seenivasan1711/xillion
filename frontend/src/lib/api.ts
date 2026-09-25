@@ -301,6 +301,34 @@ export const api = {
       }),
   },
 
+  myTrades: {
+    list: (opts?: { setup?: string; account?: string }) => {
+      const params = new URLSearchParams()
+      if (opts?.setup) params.set('setup', opts.setup)
+      if (opts?.account) params.set('account', opts.account)
+      const qs = params.toString()
+      return request<MyTrade[]>(`/my-trades${qs ? `?${qs}` : ''}`)
+    },
+    create: (body: MyTradeInput) =>
+      request<MyTrade>('/my-trades', { method: 'POST', body: JSON.stringify(body) }),
+    tag: (id: number, body: Partial<Pick<MyTrade, 'setup_tag' | 'reason' | 'followed_plan' | 'notes'>>) =>
+      request<MyTrade>(`/my-trades/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (id: number) => request<{ deleted: number }>(`/my-trades/${id}`, { method: 'DELETE' }),
+    stats: () => request<MyTradeStats>('/my-trades/stats'),
+    importReport: async (file: File, dryRun: boolean): Promise<MyTradeImportResult> => {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`${BASE}/my-trades/import?dry_run=${dryRun}`, {
+        method: 'POST', body: fd, credentials: 'include',
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      return res.json()
+    },
+  },
+
   proposedChanges: {
     list: (status?: string) =>
       request<{ proposals: ProposedStrategyChange[] }>(`/proposed-changes${status ? `?status=${status}` : ''}`),
@@ -814,4 +842,77 @@ export interface DhanCredentials {
   pin: string
   totp_secret: string
   product_type: 'INTRADAY' | 'MARGIN'
+}
+
+// ── My Trades (Rakesh's own trades: MT5 import + manual) ──────────────────
+export interface MyTrade {
+  id: number
+  account: string
+  source: 'mt5_import' | 'manual'
+  external_id: string | null
+  symbol: string
+  side: 'BUY' | 'SELL'
+  volume_lots: number
+  open_time: string
+  open_price: number
+  close_time: string | null
+  close_price: number | null
+  stop_loss: number | null
+  take_profit: number | null
+  commission: number
+  swap: number
+  profit: number | null
+  net_pnl: number | null
+  r_multiple: number | null
+  setup_tag: string | null
+  reason: string | null
+  followed_plan: boolean | null
+  notes: string | null
+}
+
+export interface MyTradeInput {
+  symbol: string
+  side: 'BUY' | 'SELL'
+  volume_lots: number
+  open_time: string
+  open_price: number
+  close_time?: string | null
+  close_price?: number | null
+  stop_loss?: number | null
+  take_profit?: number | null
+  commission?: number
+  swap?: number
+  profit?: number | null
+  setup_tag?: string | null
+  reason?: string | null
+  followed_plan?: boolean | null
+  notes?: string | null
+}
+
+export interface MyTradeGroupStats {
+  n: number
+  net_pnl: number
+  win_rate: number | null
+  avg_win: number | null
+  avg_loss: number | null
+  profit_factor: number | null
+  avg_r: number | null
+  n_with_r: number
+}
+
+export interface MyTradeStats {
+  overall: MyTradeGroupStats
+  by_setup: Record<string, MyTradeGroupStats>
+  followed_plan: { yes: MyTradeGroupStats; no: MyTradeGroupStats }
+}
+
+export interface MyTradeImportResult {
+  account: string
+  server: string | null
+  is_demo: boolean
+  parsed: number
+  added: number
+  updated: number
+  dry_run: boolean
+  warnings: string[]
 }

@@ -10,6 +10,7 @@ import Backtest from './pages/Backtest'
 import Trades from './pages/Trades'
 import Alerts from './pages/Alerts'
 import Journal from './pages/Journal'
+import MyTrades from './pages/MyTrades'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import Configuration from './pages/Configuration'
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Route path="trades" element={<Trades />} />
         <Route path="alerts" element={<Alerts />} />
         <Route path="journal" element={<Journal />} />
+        <Route path="my-trades" element={<MyTrades />} />
         <Route path="backtest" element={<Backtest />} />
         <Route path="logs" element={<Logs />} />
         <Route path="configuration" element={<Configuration />} />

@@ -11,6 +11,7 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -818,4 +819,49 @@ class SystemLog(Base):
     __table_args__ = (
         Index("idx_system_log_ts", "ts"),
         Index("idx_system_log_level", "level"),
+    )
+
+
+class MyTrade(Base):
+    """A trade Rakesh placed himself (2026-09-26, "My Trades"): imported from
+    an MT5 History report or entered by hand -- deliberately separate from
+    signal_log/backtest_trade, which are strategy-generated. The point is to
+    find out, from real fills, whether HIS discretionary setups have an edge
+    (same question the research track asked of the rule-based strategies).
+
+    Times are UTC ISO strings. MT5 report times are broker SERVER time
+    (FundingPips: EET/EEST, measured 2026-09-25 -- see
+    research/xauusd_scalping/data/import_mt5_csv.py) and are converted on
+    import. `external_id` is the MT5 position ticket, unique per account, so
+    re-importing an overlapping report never duplicates a trade."""
+
+    __tablename__ = "my_trade"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account: Mapped[str] = mapped_column(Text, nullable=False, default="fundingpips")
+    source: Mapped[str] = mapped_column(Text, nullable=False)  # mt5_import | manual
+    external_id: Mapped[str | None] = mapped_column(Text)  # MT5 position ticket
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    side: Mapped[str] = mapped_column(Text, nullable=False)  # BUY | SELL
+    volume_lots: Mapped[float] = mapped_column(Numeric, nullable=False)
+    open_time: Mapped[str] = mapped_column(Text, nullable=False)
+    open_price: Mapped[float] = mapped_column(Numeric, nullable=False)
+    close_time: Mapped[str | None] = mapped_column(Text)
+    close_price: Mapped[float | None] = mapped_column(Numeric)
+    stop_loss: Mapped[float | None] = mapped_column(Numeric)
+    take_profit: Mapped[float | None] = mapped_column(Numeric)
+    commission: Mapped[float] = mapped_column(Numeric, nullable=False, default=0)
+    swap: Mapped[float] = mapped_column(Numeric, nullable=False, default=0)
+    profit: Mapped[float | None] = mapped_column(Numeric)  # gross, as MT5 reports it
+    setup_tag: Mapped[str | None] = mapped_column(Text)  # e.g. "PDH sweep"
+    reason: Mapped[str | None] = mapped_column(Text)
+    followed_plan: Mapped[bool | None] = mapped_column(Boolean)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("account", "external_id", name="uq_my_trade_account_ticket"),
+        Index("idx_my_trade_open_time", "open_time"),
+        Index("idx_my_trade_setup", "setup_tag"),
     )

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart2, Bell, BookOpen, ChevronDown, CircleUserRound, Cpu, LogOut, Moon, Search,
+  BarChart2, Bell, BookOpen, ChevronDown, CircleUserRound, Cpu, LogOut, Moon, NotebookPen, Search,
   SlidersHorizontal, Skull, Sun, Terminal, TrendingUp,
   LayoutDashboard, Pause, X, RefreshCw, ArrowDownRight,
 } from 'lucide-react'
@@ -43,6 +43,7 @@ const CRUMB_LABELS: Record<string, string> = {
   '/trades': 'Trades',
   '/alerts': 'Alerts',
   '/journal': 'Journal',
+  '/my-trades': 'My Trades',
   '/backtest': 'Backtest',
   '/logs': 'Dev',
   '/configuration': 'Configuration',
@@ -311,6 +312,7 @@ export default function Layout() {
     { key: '/trades',     label: 'Trades',     Icon: TrendingUp,      pill: tradeCount > 0 ? String(tradeCount) : null },
     { key: '/alerts',     label: 'Alerts',     Icon: Bell,            pill: null },
     { key: '/journal',    label: 'Journal',    Icon: BookOpen,        pill: null },
+    { key: '/my-trades',  label: 'My Trades',  Icon: NotebookPen,     pill: null },
     { key: '/backtest',   label: 'Backtest',   Icon: BarChart2,       pill: null },
     { key: '/logs',       label: 'Dev',        Icon: Terminal,        pill: null },
     { key: '/configuration', label: 'Configuration', Icon: SlidersHorizontal, pill: brokerStatus ? (brokerStatus.ok ? '1/1' : '0/1') : null },
