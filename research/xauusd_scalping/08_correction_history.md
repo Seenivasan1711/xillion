@@ -36,6 +36,8 @@ three months.
 | `09_leverage_cannot_fix_negative_expectancy.md` | Why leverage cannot rescue a losing system (asked 2026-09-24) |
 | `10_unit_bug_and_corrected_rerun.md` | The 100x unit bug and the corrected re-run |
 | `12_mt5_broker_data_rerun.md` | **Broker MT5 data, audit + fixes, final 10-strategy table (2026-09-25)** |
+| `13_timeframes_indicators_custom_build.md` | M5/M15/H1/D1, indicator rules, custom build, D1 swing (2026-09-25) |
+| `14_results_summary_all_strategies.md` | **One-page results of every strategy and test — start here** |
 | `S04_range_detection_design_question.md` | Self-contained design brief handed to an external LLM |
 
 ---
