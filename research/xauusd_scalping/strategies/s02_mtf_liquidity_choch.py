@@ -14,7 +14,7 @@ from engine.backtest_engine import Bar, Side, Signal
 from signals.indicators import IndicatorSignals
 from signals.price_action import Direction, PriceActionSignals
 
-from ._common import daily_bars_from_m1
+from ._common import DailyBarCache
 
 pa = PriceActionSignals()
 ind = IndicatorSignals()
@@ -43,6 +43,7 @@ class MtfLiquidityChochStrategy:
     def __init__(self, params: Params | None = None) -> None:
         self.p = params or Params()
         self._pending: _Pending | None = None
+        self._daily_cache = DailyBarCache()
 
     def on_bar(self, bar: Bar, ctx) -> Signal | None:
         if ctx.has_open_position:
@@ -65,7 +66,9 @@ class MtfLiquidityChochStrategy:
             # void the setup if too many bars have passed without CHoCH
             self._pending = None
 
-        daily = daily_bars_from_m1(bars)
+        # Cached per trading day: re-aggregating 25000 bars on every M1 bar
+        # made S02 alone take 6h+ on 11 months of data (2026-09-25).
+        daily = self._daily_cache.daily(bars)
         if len(daily) < 2 * self.p.daily_swing_lookback + 1:
             return None
         pools = pa.equal_highs_lows(

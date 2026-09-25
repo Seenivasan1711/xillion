@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
+from engine.cost_model import trading_date
 from signals.indicators import IndicatorSignals
 
 ind = IndicatorSignals()
@@ -74,13 +75,13 @@ class ValueAreaRotationStrategy:
         if ctx.has_open_position:
             return None
         bars = ctx.bars(3000)
-        today = bar.ts.date()
+        today = trading_date(bar.ts)
         prev_day_bars: list[Bar] = []
         for back in range(1, 6):
             from datetime import timedelta
 
             candidate_date = today - timedelta(days=back)
-            day_bars = [b for b in bars if b.ts.date() == candidate_date]
+            day_bars = [b for b in bars if trading_date(b.ts) == candidate_date]
             if day_bars:
                 prev_day_bars = day_bars
                 break
@@ -92,7 +93,7 @@ class ValueAreaRotationStrategy:
             return None
         poc, vah, val = va
 
-        todays_bars = [b for b in bars if b.ts.date() == today]
+        todays_bars = [b for b in bars if trading_date(b.ts) == today]
         if not todays_bars:
             return None
         opened_inside = val <= todays_bars[0].open <= vah

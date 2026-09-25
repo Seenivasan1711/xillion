@@ -25,7 +25,7 @@ from enum import Enum
 import bisect
 from collections import deque
 
-from .cost_model import CostModel, Session, VolBucket, session_for, vol_bucket_for
+from .cost_model import CostModel, Session, VolBucket, session_for, trading_date, vol_bucket_for
 
 
 class Side(str, Enum):
@@ -41,6 +41,7 @@ class Bar:
     low: float
     close: float
     volume: float = 0.0
+    spread_pts: float | None = None  # broker's median spread that minute (MT5 feed only)
 
 
 @dataclass
@@ -179,37 +180,22 @@ class BacktestEngine:
             return 0.0
         return risk_usd / (stop_pts * self.sizing.point_value_usd)
 
-    def run(self, bars: list[Bar], strategy, initial_equity: float = 5000.0) -> BacktestResult:
-        result = BacktestResult()
-        equity = initial_equity
-        position: Position | None = None
-        history: list[Bar] = []
-
-        trades_today = 0
-        current_day: str | None = None
-        daily_pnl = 0.0
-        consecutive_losses = 0
-        halted_today = False
-
-        # Rolling ATR-percentile state, for the volatility bucket the cost
-        # model has always taken but never actually received (it was
-        # hardcoded to MEDIUM at both call sites until 2026-09-24, making
-        # `vol_bucket_for` dead code and the documented
-        # "session x volatility" cost model effectively session-only).
-        # O(1) amortised: a running true-range sum for the ATR, plus a
-        # sorted window for its percentile rank (bisect/insort are C-level,
-        # so this stays cheap enough to run on every bar).
+    def vol_buckets(self, bars: list[Bar]) -> list[VolBucket]:
+        """Volatility bucket in force at each bar, using that bar and earlier
+        ones only. ATR(atr_period) percentile-ranked within its trailing
+        vol_percentile_window values (the cost model's documented
+        "session x volatility" regime; it was hardcoded to MEDIUM at both
+        call sites until 2026-09-24). O(1) amortised: a running true-range
+        sum for the ATR plus a sorted window for its rank (bisect/insort are
+        C-level)."""
+        out: list[VolBucket] = []
         tr_window: deque[float] = deque(maxlen=self.atr_period)
         tr_sum = 0.0
         atr_window: deque[float] = deque(maxlen=self.vol_percentile_window)
         atr_sorted: list[float] = []
         prev_close: float | None = None
         vol_bucket = VolBucket.MEDIUM
-
-        for i, bar in enumerate(bars):
-            history.append(bar)
-
-            # ── Update the volatility bucket from THIS bar's true range ──
+        for bar in bars:
             true_range = (
                 bar.high - bar.low
                 if prev_close is None
@@ -232,7 +218,30 @@ class BacktestEngine:
                 if len(atr_sorted) >= 30:  # enough history for a meaningful rank
                     rank = bisect.bisect_left(atr_sorted, atr) / len(atr_sorted)
                     vol_bucket = vol_bucket_for(rank)
-            day_key = bar.ts.date().isoformat()
+            out.append(vol_bucket)
+        return out
+
+    def run(self, bars: list[Bar], strategy, initial_equity: float = 5000.0) -> BacktestResult:
+        result = BacktestResult()
+        equity = initial_equity
+        position: Position | None = None
+        history: list[Bar] = []
+
+        trades_today = 0
+        current_day: str | None = None
+        daily_pnl = 0.0
+        consecutive_losses = 0
+        halted_today = False
+
+        # Volatility bucket per bar, computed from bars[..i] only (see
+        # vol_buckets) -- shared with random_entry_benchmark.py so the random
+        # baseline pays exactly the same costs as the real trades.
+        buckets = self.vol_buckets(bars)
+
+        for i, bar in enumerate(bars):
+            history.append(bar)
+            vol_bucket = buckets[i]
+            day_key = trading_date(bar.ts).isoformat()
             if day_key != current_day:
                 current_day = day_key
                 trades_today = 0
@@ -289,7 +298,7 @@ class BacktestEngine:
             if position is None and not halted_today:
                 if self.risk.max_trades_per_session is None or trades_today < self.risk.max_trades_per_session:
                     sess = session_for(bar.ts)
-                    spread = self.cost_model.spread_pts(sess, vol_bucket)
+                    spread = self.cost_model.spread_pts(sess, vol_bucket, bar.spread_pts)
                     spread_ok = self.risk.max_spread_pts is None or spread <= self.risk.max_spread_pts
                     if spread_ok:
                         # `history` is passed by reference, not copied: copying
@@ -321,7 +330,7 @@ class BacktestEngine:
         from signals.risk_floor import apply_floor
 
         is_news = self._is_news_window(bar.ts)
-        entry_cost = self.cost_model.entry_cost_pts(session, vol_bucket, is_news) * self.cost_model.point_size
+        entry_cost = self.cost_model.entry_cost_pts(session, vol_bucket, is_news, bar.spread_pts) * self.cost_model.point_size
         entry_price = (
             bar.close + entry_cost if signal.side == Side.LONG else bar.close - entry_cost
         )
@@ -405,7 +414,7 @@ class BacktestEngine:
         # Volatility bucket AT EXIT TIME (not entry): the spread you actually
         # pay getting out is the one prevailing then, which can differ from
         # entry on a trade held across a volatility change.
-        exit_cost = self.cost_model.exit_cost_pts(session, vol_bucket, is_news) * self.cost_model.point_size
+        exit_cost = self.cost_model.exit_cost_pts(session, vol_bucket, is_news, bar.spread_pts) * self.cost_model.point_size
         # exit_cost widens the exit further against the position -- this is
         # the pessimistic "you pay the spread/slippage getting out too" rule.
         adj_exit = exit_price - exit_cost if position.side == Side.LONG else exit_price + exit_cost

@@ -81,31 +81,39 @@ REAL_TRADES_CACHE = Path(__file__).parent / f"_real_trades_cache{rb.results_suff
 
 
 def resolve_one_trade(engine: BacktestEngine, bars: list, entry_idx: int, side: Side,
-                       stop_pts: float, target_pts: float):
+                       stop_pts: float, target_pts: float, buckets: list | None = None):
     """Opens and resolves exactly one synthetic trade starting at
     bars[entry_idx], using the engine's own tested fill/cost methods
     directly (not engine.run()'s full per-bar loop). Returns the Trade, or
     None if the window runs out before either level is hit (should be rare
-    at MAX_WINDOW_BARS; flagged, not silently dropped, if it happens)."""
+    at MAX_WINDOW_BARS; flagged, not silently dropped, if it happens).
+
+    Apples-to-apples with real trades (fixed 2026-09-25 after an audit):
+    `buckets` (engine.vol_buckets(bars)) gives the real volatility bucket at
+    entry and exit instead of always MEDIUM, and stop/target distances are
+    applied from the FILL price -- which is what the real trades' rr_pairs
+    were measured from -- not from the pre-cost bar close."""
     entry_bar = bars[entry_idx]
     sess = session_for(entry_bar.ts)
-    spread = engine.cost_model.spread_pts(sess, VolBucket.MEDIUM)
-    ref = entry_bar.close
+    bucket = buckets[entry_idx] if buckets is not None else VolBucket.MEDIUM
+    spread = engine.cost_model.spread_pts(sess, bucket, entry_bar.spread_pts)
+    entry_cost = engine.cost_model.entry_cost_pts(sess, bucket, False, entry_bar.spread_pts) * engine.cost_model.point_size
     if side == Side.LONG:
-        stop_price = ref - stop_pts
-        target_price = ref + target_pts
+        fill = entry_bar.close + entry_cost
+        stop_price, target_price = fill - stop_pts, fill + target_pts
     else:
-        stop_price = ref + stop_pts
-        target_price = ref - target_pts
+        fill = entry_bar.close - entry_cost
+        stop_price, target_price = fill + stop_pts, fill - target_pts
     signal = Signal(side=side, stop_price=stop_price, target_price=target_price)
-    position = engine._open_position(entry_bar, signal, 5000.0, sess, spread)
+    position = engine._open_position(entry_bar, signal, 5000.0, sess, spread, bucket)
 
     end = min(len(bars), entry_idx + 1 + MAX_WINDOW_BARS)
     for i in range(entry_idx + 1, end):
         bar = bars[i]
         exit_price, reason, ambiguous = engine._resolve_intrabar(bar, position)
         if exit_price is not None:
-            return engine._close_position(position, bar.ts, exit_price, reason, ambiguous, bar)
+            exit_bucket = buckets[i] if buckets is not None else VolBucket.MEDIUM
+            return engine._close_position(position, bar.ts, exit_price, reason, ambiguous, bar, exit_bucket)
     return None  # ran out of window without resolving -- timeout, excluded and counted
 
 
@@ -121,15 +129,20 @@ def get_real_trade_data(bars: list) -> dict:
     pairs, n, total pnl) -- cached to disk after the first (expensive,
     ~unavoidable) real rerun, since this cost is fixed regardless of
     N_RUNS and shouldn't be paid again on every script iteration."""
+    data = {}
     if REAL_TRADES_CACHE.exists():
         print(f"Loading real trade data from cache: {REAL_TRADES_CACHE}", flush=True)
         with open(REAL_TRADES_CACHE) as f:
-            return json.load(f)
+            data = json.load(f)
+    # Incremental: only strategies missing from the cache are run, so a
+    # RESEARCH_STRATEGIES=S07 run's trades are reused by a later full run.
+    missing = [(name, cls) for _i, name, cls in rb.selected_strategies() if name not in data]
+    if not missing:
+        return data
 
-    print("No cache found -- running all 10 strategies once against real "
-          "data (this is the expensive, one-time part; unrelated to N_RUNS)", flush=True)
-    data = {}
-    for name, cls in rb.STRATEGIES:
+    print(f"Running {len(missing)} strategies once against real data (the expensive, "
+          "one-time part; unrelated to N_RUNS)", flush=True)
+    for name, cls in missing:
         t0 = time.time()
         strat = rb.make_strategy(cls)
         engine = rb.make_engine()
@@ -147,8 +160,17 @@ def get_real_trade_data(bars: list) -> dict:
         print(f"  [{time.time()-t0:.1f}s] {name}: n={len(trades)} pnl=${data[name]['real_pnl']:.2f}",
               flush=True)
 
-    with open(REAL_TRADES_CACHE, "w") as f:
-        json.dump(data, f, indent=2)
+    # Merge under a lock: several RESEARCH_STRATEGIES=Sxx runs may finish in
+    # parallel, and a plain overwrite would drop each other's strategies.
+    import fcntl
+
+    with open(REAL_TRADES_CACHE.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if REAL_TRADES_CACHE.exists():
+            with open(REAL_TRADES_CACHE) as f:
+                data = {**json.load(f), **data}
+        with open(REAL_TRADES_CACHE, "w") as f:
+            json.dump(data, f, indent=2)
     print(f"Cached real trade data to {REAL_TRADES_CACHE}", flush=True)
     return data
 
@@ -160,9 +182,10 @@ def main():
     print("Session bar counts:", {k: len(v) for k, v in session_index.items()}, flush=True)
 
     real_data = get_real_trade_data(bars)
+    buckets = rb.make_engine().vol_buckets(bars)
 
     rows = []
-    for strat_num, (name, cls) in enumerate(rb.STRATEGIES):
+    for strat_num, name, cls in rb.selected_strategies():
         d = real_data[name]
         n = d["n"]
         real_pnl = d["real_pnl"]
@@ -192,7 +215,7 @@ def main():
                 side = Side.LONG if rng.random() < 0.5 else Side.SHORT
                 stop_pts, target_pts = rng.choice(rr_pairs)
                 fresh_engine = rb.make_engine()  # fresh cost model instance, cheap, avoids any shared state
-                trade = resolve_one_trade(fresh_engine, bars, entry_idx, side, stop_pts, target_pts)
+                trade = resolve_one_trade(fresh_engine, bars, entry_idx, side, stop_pts, target_pts, buckets)
                 if trade is None:
                     timeouts += 1
                     continue
@@ -261,7 +284,7 @@ def main():
             f"(zero real trades).\n"
         )
 
-    print("\nWritten to 03b_random_entry_benchmark.md")
+    print(f"\nWritten to 03b_random_entry_benchmark{rb.results_suffix()}.md")
 
 
 if __name__ == "__main__":

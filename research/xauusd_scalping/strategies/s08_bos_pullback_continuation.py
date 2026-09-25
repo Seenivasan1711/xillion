@@ -26,7 +26,7 @@ class Params:
     swing_lookback: int = 3
     decisive_atr_mult: float = 0.3
     max_pullback_pct: float = 38.2
-    invalidate_pct: float = 61.8
+    invalidate_pct: float = 50.0  # spec card #8 (was 61.8); subsumed by the max_pullback_pct drop below
     target_leg_mult: float = 1.0
 
 
@@ -55,12 +55,18 @@ class BosPullbackContinuationStrategy:
 
         if self._pending is not None:
             pend = self._pending
+            # `retracement` can only grow (extreme_price only extends), so
+            # once it passes max_pullback_pct the setup can never fire again.
+            # Dropping it only then (at invalidate_pct, 61.8 until
+            # 2026-09-25) left dead setups holding the state machine for
+            # weeks -- whole months with zero trades -- blocking every new
+            # BOS. Dropping it at max_pullback_pct changes no entry.
             if pend.direction == Direction.UP:
                 if bar.low < pend.extreme_price:
                     pend.extreme_price = bar.low
                     pend.extreme_bar_bound = bar.high
                 retracement = (pend.bos_close - pend.extreme_price) / pend.impulse_leg * 100.0
-                if retracement > self.p.invalidate_pct:
+                if retracement > min(self.p.max_pullback_pct, self.p.invalidate_pct):
                     self._pending = None
                 elif retracement <= self.p.max_pullback_pct and bar.close > pend.extreme_bar_bound:
                     return self._fire_entry(bar, pend)
@@ -69,7 +75,7 @@ class BosPullbackContinuationStrategy:
                     pend.extreme_price = bar.high
                     pend.extreme_bar_bound = bar.low
                 retracement = (pend.extreme_price - pend.bos_close) / pend.impulse_leg * 100.0
-                if retracement > self.p.invalidate_pct:
+                if retracement > min(self.p.max_pullback_pct, self.p.invalidate_pct):
                     self._pending = None
                 elif retracement <= self.p.max_pullback_pct and bar.close < pend.extreme_bar_bound:
                     return self._fire_entry(bar, pend)

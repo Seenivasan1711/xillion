@@ -82,10 +82,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from engine.backtest_engine import Bar, Side, Signal
+from engine.cost_model import trading_date
 from signals.indicators import IndicatorSignals
 from signals.price_action import Direction, PriceActionSignals
 
 from timeframe_experiment import resample_bars
+
+from ._common import todays_start
 
 pa = PriceActionSignals()
 ind = IndicatorSignals()
@@ -126,10 +129,8 @@ class VideoLiquidityMtfScalpStrategy:
         self.p = params or Params()
         self._h1_cached_date = None
         self._h1_cached_historical: list[Bar] = []
-        self._h1_today_split = 0
         self._m15_cached_date = None
         self._m15_cached_historical: list[Bar] = []
-        self._m15_today_split = 0
         # Persistent structural bias per timeframe -- the v2 correctness fix.
         # Updated when a BOS fires, then REMEMBERED; never re-required to be
         # firing on a later bar.
@@ -142,22 +143,19 @@ class VideoLiquidityMtfScalpStrategy:
         upthrust.py -- resampling a large M1 window on every single bar was
         a real, found performance bug there (~40min/run); reused here
         rather than rediscovering it."""
-        today = bars[-1].ts.date()
+        today = trading_date(bars[-1].ts)
         cached_date_attr = f"_{state_prefix}_cached_date"
         cached_hist_attr = f"_{state_prefix}_cached_historical"
-        split_attr = f"_{state_prefix}_today_split"
 
+        # The split is recomputed from THIS call's bars: ctx.bars(N) is a
+        # fresh sliding slice, so an index cached from an earlier call
+        # pointed at the wrong bar once history exceeded N (bug found
+        # 2026-09-25 -- "today" shrank to the current minute).
+        split = todays_start(bars)
         if getattr(self, cached_date_attr) != today:
-            split = 0
-            for i in range(len(bars) - 1, -1, -1):
-                if bars[i].ts.date() != today:
-                    split = i + 1
-                    break
             setattr(self, cached_hist_attr, resample_bars(bars[:split], interval_minutes))
-            setattr(self, split_attr, split)
             setattr(self, cached_date_attr, today)
 
-        split = getattr(self, split_attr)
         todays_bars = bars[split:]
         today_resampled = resample_bars(todays_bars, interval_minutes) if todays_bars else []
         return getattr(self, cached_hist_attr) + today_resampled

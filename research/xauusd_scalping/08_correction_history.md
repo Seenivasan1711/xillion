@@ -34,6 +34,8 @@ three months.
 | `07_conclusion_m1_scalping_verdict.md` | **The verdict — read this for "does this work"** |
 | `08_correction_history.md` | **This file — read this for "what did we learn"** |
 | `09_leverage_cannot_fix_negative_expectancy.md` | Why leverage cannot rescue a losing system (asked 2026-09-24) |
+| `10_unit_bug_and_corrected_rerun.md` | The 100x unit bug and the corrected re-run |
+| `12_mt5_broker_data_rerun.md` | **Broker MT5 data, audit + fixes, final 10-strategy table (2026-09-25)** |
 | `S04_range_detection_design_question.md` | Self-contained design brief handed to an external LLM |
 
 ---
@@ -165,6 +167,18 @@ three months.
 - **Fix:** 503/429 retried with 15/45/120s backoff; manifest `completed` updated only after a successful flush; `_reconcile_manifest` at startup un-marks any completed hour with no bars on disk (caught 1 real lost hour on the very first restart); Saturdays skipped without a request; downloads run one at a time under `caffeinate` (`data/_download_chain.sh`), including a gap-fill pass over the 2026-03→09 XAUUSD range.
 - **Changed:** every result so far (`10`) ran on a series with gaps. Once the gap-fill lands, S07 and the benchmark must be re-run on the repaired data. **Lesson: "failed" in a manifest is a claim to audit, not noise — bucket failures by trading day before trusting a dataset as continuous.**
 
+### 20. S04/S11 "today" cache pointed at the wrong bar (2026-09-25)
+Found by an independent audit. `_today_split` was an index into `ctx.bars(N)`, which is a fresh sliding slice on every call, so once history exceeded N, "today's" bars shrank to the current minute. It was wrong on 13,983 of 14,000 checked bars. Fixed with `_common.todays_start` / `DailyBarCache`, recomputed per call. See `12` §5.
+
+### 21. Every "day" was the UTC calendar day, not gold's trading day (2026-09-25)
+00:00 UTC cuts the Asian session in half, and Mondays used a ~2h Sunday stub as "the previous day". Now everything uses `cost_model.trading_date`, which rolls at 17:00 New York, the same as the MT5 D1 candle on FundingPips' EET server. **S09's +$1,356 was produced by the wrong previous-day levels** (proved by boundary attribution), and is −$3,108 with the correct ones. See `12` §6.
+
+### 22. S08 setups got stuck for weeks (2026-09-25)
+A setup could fire only at ≤38.2% retracement but was dropped only at >61.8% (the spec says 50%). Since retracement only grows, setups in between blocked every new BOS, and whole months had zero trades. The apparent +$590 became −$2,138 over 741 trades once fixed. **Prior #1 generalises: months with zero trades are a stuck state machine, not a quiet market.**
+
+### 23. Dukascopy vs MT5 disagreement was coverage + path dependence, not price (2026-09-25)
+Given the same minutes, both feeds give S07 about −$1,150. Dukascopy's +$412 came from its ~21k missing and ~6k extra minutes. See `12` §4.
+
 ## Predictions made in advance, and how they scored
 
 Recording these because calibration matters more than any single result.
@@ -194,3 +208,4 @@ Recording these because calibration matters more than any single result.
 6. **Validate an input before optimising anything downstream of it.** Almost every result here was downstream of an unvalidated spread table.
 7. **Prefer an exact identity over a statistical hint** when proving a mechanical bug (#12: 90/90 trades summing to exactly 120).
 8. **Leverage is a multiplier, never a fix.** Cost and risk both scale with position size, so the cost/risk ratio that kills a strategy is scale-invariant. Establish positive expectancy first; size second. See `09_leverage_cannot_fix_negative_expectancy.md`.
+9. **A result must survive a change of feed and of day boundary.** S07 (feed) and S09 (day boundary) both flipped sign on a change that should have been neutral. Check both before calling anything a lead.

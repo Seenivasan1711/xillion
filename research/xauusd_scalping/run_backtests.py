@@ -67,11 +67,33 @@ STRATEGIES = [
     ("S10 Equal Highs/Lows + RSI Divergence", EqualLevelsRsiDivergenceStrategy),
 ]
 
+def selected_strategies() -> list[tuple[int, str, type]]:
+    """(index in STRATEGIES, name, class), optionally filtered by
+    RESEARCH_STRATEGIES=S07 or S03,S07 (name prefixes). The index is the
+    position in the FULL list, so random_entry_benchmark's per-strategy seed
+    (SEED + index) -- and thus its random draws -- are identical whether a
+    strategy runs alone or with all ten."""
+    wanted = [w.strip().upper() for w in os.environ.get("RESEARCH_STRATEGIES", "").split(",") if w.strip()]
+    rows = [(i, name, cls) for i, (name, cls) in enumerate(STRATEGIES)]
+    if not wanted:
+        return rows
+    picked = [r for r in rows if any(r[1].upper().startswith(w + " ") for w in wanted)]
+    if len(picked) != len(wanted):
+        raise ValueError(f"RESEARCH_STRATEGIES={wanted} matched {[r[1] for r in picked]}")
+    return picked
+
+
 # Which symbol this run is for. Env var rather than argv so that
 # random_entry_benchmark.py (which imports this module) follows it too:
 #   RESEARCH_SYMBOL=EURUSD python run_backtests.py
 SYMBOL = os.environ.get("RESEARCH_SYMBOL", "XAUUSD").upper()
 UNDERPOWERED_THRESHOLD = 200
+# Spread charged per trade: "table" = the session x volatility table (today's
+# broker level, the default), "broker" = the broker's own measured spread for
+# that exact minute (MT5 feed only; what those trades would really have paid).
+SPREAD_MODE = os.environ.get("RESEARCH_SPREAD", "table").lower()
+if SPREAD_MODE not in ("table", "broker"):
+    raise ValueError(f"RESEARCH_SPREAD={SPREAD_MODE!r}, expected 'table' or 'broker'")
 
 
 def load_all_bars(symbol: str | None = None) -> list[Bar]:
@@ -80,9 +102,14 @@ def load_all_bars(symbol: str | None = None) -> list[Bar]:
     if not frames:
         raise FileNotFoundError(f"no parquet data in {data_dir} -- run data/download_dukascopy.py first")
     df = pd.concat(frames, ignore_index=True).drop_duplicates(subset="ts").sort_values("ts")
+    if SPREAD_MODE == "broker" and "spread_pts" not in df:
+        raise ValueError(f"RESEARCH_SPREAD=broker needs per-bar spread_pts -- {data_dir} has none "
+                         "(only the MT5 feed does: RESEARCH_DATA_SOURCE=mt5)")
+    spreads = df["spread_pts"].tolist() if "spread_pts" in df else [None] * len(df)
     return [
-        Bar(ts=row.ts, open=row.open, high=row.high, low=row.low, close=row.close, volume=row.volume)
-        for row in df.itertuples()
+        Bar(ts=row.ts, open=row.open, high=row.high, low=row.low, close=row.close, volume=row.volume,
+            spread_pts=None if sp is None or sp != sp else float(sp))
+        for row, sp in zip(df.itertuples(), spreads, strict=True)
     ]
 
 
@@ -102,7 +129,7 @@ def instrument():
 def make_engine() -> BacktestEngine:
     inst = instrument()
     if inst.symbol == "XAUUSD":
-        cost, lots = CostModel(), 0.08
+        cost, lots = CostModel(use_bar_spread=SPREAD_MODE == "broker"), 0.08
     else:
         cost, lots = CostModel.for_instrument(inst), equivalent_lots(inst)
     return BacktestEngine(
@@ -123,8 +150,15 @@ def make_strategy(cls):
 
 
 def results_suffix() -> str:
-    """'' for XAUUSD (keeps existing output filenames), '_eurusd' etc otherwise."""
-    return "" if SYMBOL == "XAUUSD" else f"_{SYMBOL.lower()}"
+    """'' for XAUUSD on Dukascopy (keeps existing output filenames), else
+    '_eurusd', '_mt5', '_eurusd_mt5' -- so caches from different symbols or
+    feeds can never be read back as each other's."""
+    from engine.instruments import data_source
+
+    suffix = "" if SYMBOL == "XAUUSD" else f"_{SYMBOL.lower()}"
+    if data_source() != "dukascopy":
+        suffix = f"{suffix}_{data_source()}"
+    return suffix if SPREAD_MODE == "table" else f"{suffix}_brokerspread"
 
 
 def compute_metrics(trades, initial_equity=5000.0) -> dict:
@@ -211,7 +245,7 @@ def main():
     print()
 
     results = {}
-    for name, cls in STRATEGIES:
+    for _idx, name, cls in selected_strategies():
         strat_all = make_strategy(cls)
         eng_all = make_engine()
         res_all = eng_all.run(all_bars, strat_all)

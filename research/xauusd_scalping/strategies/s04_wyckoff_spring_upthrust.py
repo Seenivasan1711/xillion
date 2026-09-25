@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from engine.backtest_engine import Bar, Side, Signal
 from signals.price_action import Direction, PriceActionSignals
 
-from ._common import daily_bars_from_m1
+from ._common import DailyBarCache
 
 pa = PriceActionSignals()
 
@@ -34,8 +34,7 @@ class WyckoffSpringUpthrustStrategy:
 
     def __init__(self, params: Params | None = None) -> None:
         self.p = params or Params()
-        self._cached_date = None
-        self._cached_historical_daily: list[Bar] = []
+        self._daily_cache = DailyBarCache()
 
     def on_bar(self, bar: Bar, ctx) -> Signal | None:
         if ctx.has_open_position:
@@ -71,20 +70,7 @@ class WyckoffSpringUpthrustStrategy:
         # shared range_spring_upthrust function itself stays pure -- all
         # the caching lives here in the caller, per the design doc's
         # explicit instruction not to break that function's purity for it.
-        today = bars[-1].ts.date()
-        if today != self._cached_date:
-            split = 0
-            for i in range(len(bars) - 1, -1, -1):
-                if bars[i].ts.date() != today:
-                    split = i + 1
-                    break
-            self._cached_historical_daily = daily_bars_from_m1(bars[:split])
-            self._today_split = split
-            self._cached_date = today
-
-        todays_bars = bars[self._today_split :]
-        today_daily = daily_bars_from_m1(todays_bars) if todays_bars else []
-        daily = self._cached_historical_daily + today_daily
+        daily = self._daily_cache.daily(bars)  # see DailyBarCache (fixed 2026-09-25)
 
         # The 3-gate detector scans back over `reclaim_within_bars` intraday
         # bars for a penetration+reclaim pair as a pure function -- needs

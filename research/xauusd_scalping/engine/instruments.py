@@ -17,6 +17,7 @@ scale would silently decide every stop distance.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
@@ -42,7 +43,23 @@ class Instrument:
 
     @property
     def data_dir(self) -> Path:
-        return Path(__file__).resolve().parent.parent / "data" / self.symbol.lower()
+        base = Path(__file__).resolve().parent.parent / "data" / self.symbol.lower()
+        source = data_source()
+        return base if source == "dukascopy" else base.with_name(f"{base.name}_{source}")
+
+
+DATA_SOURCES = ("dukascopy", "mt5")
+
+
+def data_source() -> str:
+    """Which bar feed the harness reads: RESEARCH_DATA_SOURCE=dukascopy
+    (default, data/<symbol>/) or mt5 (Rakesh's broker export imported by
+    data/import_mt5_csv.py, data/<symbol>_mt5/). Env var for the same reason
+    as RESEARCH_SYMBOL: random_entry_benchmark.py must follow it too."""
+    source = os.environ.get("RESEARCH_DATA_SOURCE", "dukascopy").lower()
+    if source not in DATA_SOURCES:
+        raise ValueError(f"RESEARCH_DATA_SOURCE={source!r}, expected one of {DATA_SOURCES}")
+    return source
 
 
 def _profile(rows: dict[Session, tuple[float, float, float]]) -> dict[tuple[Session, VolBucket], float]:

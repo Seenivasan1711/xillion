@@ -14,9 +14,11 @@ by cross-referencing a real FundingPips/broker spread log once one exists.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
+from zoneinfo import ZoneInfo
 
 
 class Session(str, Enum):
@@ -44,6 +46,21 @@ def session_for(ts: datetime) -> Session:
     if hour >= 22.5 or hour < 5.5:
         return Session.DEAD_ZONE if hour >= 22.5 else Session.ASIA
     return Session.ASIA  # 5.5-7.0 UTC: late Asia, pre-London
+
+
+_NEW_YORK = ZoneInfo("America/New_York")
+
+
+@functools.lru_cache(maxsize=None)
+def trading_date(ts: datetime) -> date:
+    """Gold's TRADING day, not the UTC calendar day: it rolls at 17:00 New
+    York (the daily break; 22:00 UTC winter / 21:00 summer), so Sunday
+    evening's reopen belongs to Monday. Same boundary as FundingPips'
+    EET server midnight, which is where its daily loss limit resets.
+    Splitting at 00:00 UTC instead (as everything did until 2026-09-25)
+    cut the Asian session in half and gave Mondays a ~2h Sunday stub as
+    "the previous day" -- see 12_mt5_broker_data_rerun.md."""
+    return (ts.astimezone(_NEW_YORK) + timedelta(hours=7)).date()
 
 
 class VolBucket(str, Enum):
@@ -109,6 +126,9 @@ class CostModel:
     news_slippage_multiplier: float = 3.0  # applied during a news blackout window if a strategy still fires
     spread_table: dict[tuple[Session, VolBucket], float] | None = None  # None -> module default
     point_size: float = POINT_SIZE  # price units per point; XAUUSD default, see instruments.py
+    # Charge the broker's per-minute spread (Bar.spread_pts, MT5 feed only)
+    # instead of the session table -- RESEARCH_SPREAD=broker in run_backtests.
+    use_bar_spread: bool = False
 
     @classmethod
     def for_instrument(cls, instrument) -> CostModel:
@@ -135,17 +155,23 @@ class CostModel:
             spread_table=zero_table,
         )
 
-    def spread_pts(self, session: Session, vol_bucket: VolBucket) -> float:
+    def spread_pts(self, session: Session, vol_bucket: VolBucket, bar_spread_pts: float | None = None) -> float:
+        """The table value, or -- when use_bar_spread is on and the bar
+        carries one -- the broker's own measured spread for that minute."""
+        if self.use_bar_spread and bar_spread_pts is not None:
+            return bar_spread_pts
         table = self.spread_table if self.spread_table is not None else _SPREAD_TABLE
         return table[(session, vol_bucket)]
 
-    def entry_cost_pts(self, session: Session, vol_bucket: VolBucket, is_news_window: bool = False) -> float:
+    def entry_cost_pts(self, session: Session, vol_bucket: VolBucket, is_news_window: bool = False,
+                       bar_spread_pts: float | None = None) -> float:
         slip = self.entry_slippage_pts * (self.news_slippage_multiplier if is_news_window else 1.0)
-        return self.spread_pts(session, vol_bucket) / 2 + slip
+        return self.spread_pts(session, vol_bucket, bar_spread_pts) / 2 + slip
 
-    def exit_cost_pts(self, session: Session, vol_bucket: VolBucket, is_news_window: bool = False) -> float:
+    def exit_cost_pts(self, session: Session, vol_bucket: VolBucket, is_news_window: bool = False,
+                      bar_spread_pts: float | None = None) -> float:
         slip = self.exit_slippage_pts * (self.news_slippage_multiplier if is_news_window else 1.0)
-        return self.spread_pts(session, vol_bucket) / 2 + slip
+        return self.spread_pts(session, vol_bucket, bar_spread_pts) / 2 + slip
 
     def commission_usd(self, lots: float) -> float:
         """Round-trip commission (both sides) for a given lot size."""
