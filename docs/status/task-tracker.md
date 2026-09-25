@@ -45,6 +45,56 @@ none of it auto-appears as a live selectable strategy (see D21 in
 
 ### 🔴 COLD-SESSION READ THIS FIRST — where this track actually stands (2026-09-24)
 
+> ## ▶️ NEXT SESSION — START HERE (handoff written 2026-09-25)
+>
+> **Where we are, one line:** stay on Track B, XAUUSD first then forex
+> (Rakesh's call). No strategy has a proven edge yet; **S07 Value-Area
+> Rotation is the lead** (+$412 / 204 trades at real costs, $1,148 above
+> the random median, but below the p95 luck bar). Forex (EURUSD/GBPUSD) is
+> built and waiting on data. Branch `feat/track-b-pipelines`, worktree
+> `.claude/worktrees/track-b-pipelines`, **nothing pushed** (last commit
+> `7bea18f`).
+>
+> **Step 0 — check what's running / finished:**
+> ```bash
+> pgrep -fl download_dukascopy; tail -5 /tmp/dukascopy_chain.log
+> ```
+> The Dukascopy download chain (`research/xauusd_scalping/data/_download_chain.sh`)
+> runs EURUSD → XAUUSD 2026-03..09 gap-fill → XAUUSD 2024-01..2026-02
+> backfill → GBPUSD, under `caffeinate`. **Dukascopy was throttling this IP
+> hard** on 2026-09-24 (~1h of data per 2 min); pacing is now adaptive.
+> If it's dead or crawling, re-run `./_download_chain.sh` (resumable) —
+> or use Rakesh's MT5 CSV export instead (Step 1).
+>
+> **Step 1 — things only Rakesh can give (ask if not yet received):**
+> 1. **EURUSD + GBPUSD commission** from the MT5 symbol Specification
+>    (forex spreads are measured: 1pt/0pt on his broker; commission is the
+>    main FX cost and still ASSUMED $2.50/lot/side).
+> 2. **Optional but much faster: MT5 M1 CSV exports** (View → Symbols → Bars
+>    → M1 → Request → Export) for EURUSD, GBPUSD, XAUUSD. If he provides
+>    them, write a CSV→parquet importer into `data/<symbol>/` and skip
+>    waiting on Dukascopy. The broker's own feed is the better source anyway.
+>
+> **Step 2 — once EURUSD data is complete:**
+> `RESEARCH_SYMBOL=EURUSD python run_backtests.py` then
+> `RESEARCH_SYMBOL=EURUSD python random_entry_benchmark.py` (from
+> `research/xauusd_scalping/`). Check the printed `price_scale` (~0.0002)
+> first. Decision rule: net-positive, n≥100, **above random p95**. Write
+> results into `11_forex_setup.md`.
+>
+> **Step 3 — once the XAUUSD 2026 gap-fill is done:** delete
+> `_real_trades_cache.json`, re-run XAUUSD backtests + benchmark filtered to
+> `ts >= 2026-03-01` (doc `10`'s numbers ran on data with ~495 missing
+> hours), update `10` §4.
+>
+> **Step 4 — once the 2024-26 backfill lands:** S07 on the full ~2.7 years +
+> benchmark; if it clears p95 → walk-forward/holdout (never run yet), then
+> S07 on M5/M15. That's the path to a real candidate for Stage 3 paper.
+>
+> **Docs to read for detail:** `research/xauusd_scalping/10_unit_bug_and_corrected_rerun.md`
+> (the key finding), `11_forex_setup.md` (forex), `08_correction_history.md`
+> #18-19 (the two bugs found 2026-09-24).
+
 > **🔴🔴 LATEST (2026-09-24, later same day) — a 100x points-vs-price unit bug
 > voids the cost conclusions below. Read
 > `research/xauusd_scalping/10_unit_bug_and_corrected_rerun.md` first.**
@@ -954,7 +1004,7 @@ and killed before any of today's restarts.
 
 ---
 
-**Last updated:** 2026-09-24
+**Last updated:** 2026-09-25
 **Current position:** **2026-09-22: Track B is now the main roadmap** (see
 the 🔴 Priority decision section immediately below) — the near-term goal is
 Gold Lane B1 fully usable end-to-end from UI/Telegram. Options work stays
