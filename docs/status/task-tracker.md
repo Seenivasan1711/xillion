@@ -42,9 +42,8 @@
 > - **The Gold Sweep-Reversal alert instance was stopped** by the restart
 >   (`auto_start` = false). Rakesh may restart it from the Dashboard; the
 >   advice is to leave it off, since it failed every backtest.
-> - S11 on M1 (6.7 years) may still be running. Its log is in the old session
->   scratchpad; it cannot change the verdict. Add it to doc 14's S11 row if
->   it's needed.
+> - S11 on M1 (6.7 years) finished: −$22,006 over 4,413 trades, inside the
+>   random band (recorded in doc 14).
 >
 > **Waiting on Rakesh** (also in `manual-tasks.md`):
 > 1. The FundingPips MT5 History report (the one he sent was an empty

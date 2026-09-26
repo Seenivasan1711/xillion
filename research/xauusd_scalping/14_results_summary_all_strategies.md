@@ -36,7 +36,7 @@ HOLDOUT 2025-07→ (locked, **never run**).
 | S08 BOS Pullback Continuation | −$3,509 (733) | −$33,654 (6,172) | −$17,157 (4,784) | −$4,907 (2,563) | **+$10,682 (746) >p95** | −$261 / +$14 | **failed: all profit in 2025–26, and realistic mode loses** |
 | S09 Session Liquidity Run | −$3,108 (428) | −$12,742 (2,330) | −$27,046 (3,877) | −$25,191 (2,610) | −$20,206 (1,077) | −$719 / −$513 | no edge (the old "lead" was a day-boundary bug) |
 | S10 Equal H/L + RSI Divergence | −$3,844 (726) | −$29,695 (6,169) | −$16,409 (4,174) | −$14,834 (1,986) | −$6,453 (407) | −$50 / +$17 | no edge |
-| S11 Video MTF Liquidity Scalp | — | *running (M1-only design)* | n/a | n/a | n/a | n/a | earlier M1 runs (`03d`) indistinguishable from random |
+| S11 Video MTF Liquidity Scalp | — | −$22,006 (4,413) | n/a | n/a | n/a | n/a | no edge (M1-only design; inside the random band) |
 
 "M1 fixed, 11 mo" is the Nov 2025→Sep 2026 tick set (`12` §6). The other
 fixed columns cover 2020–2026 (`13` §3). The M5/M15/H1 fixed runs used the

@@ -162,5 +162,5 @@ the sample is too small to tell an edge from luck.
 
 S01 −$16,254 (4,017) · S02 −$127 (12) · S03 −$32,893 · S04 −$118 (62) ·
 S05 −$33,541 · **S06 +$532 (1,149), above p95, but fails realistic mode
-(§3)** · S08 −$33,654 · S09 −$12,742 · S10 −$29,695. S07 and S11 were still
-running at the time of writing.
+(§3)** · S08 −$33,654 · S09 −$12,742 · S10 −$29,695. S07 −$10,005 (2,166) · S11 −$22,006
+(4,413); both inside the random band.
