@@ -1,3 +1,4 @@
 # Research-pipeline-only deps, on top of what xillion's main pyproject.toml
 # already provides (httpx, pandas, numpy, pytest are all already installed).
 pyarrow>=18.0.0
+scikit-learn>=1.5  # ML filter experiment (doc 15), 2026-09-28
