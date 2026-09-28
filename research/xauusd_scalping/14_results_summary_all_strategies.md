@@ -81,6 +81,15 @@ every rule worse, because of long swap (`13` §6).
 | S06 M1 | +$532 >p95 | fixed sizing; realistic mode IS −$1,476 | `13` §3 |
 | I06 H1 | +$449 >p95 | one lucky exit setting out of 9 | `13` §4 |
 
+## ML signal filter (doc 15, pre-registered)
+
+The walk-forward meta-labeling model over all H1+M15 signals **fails**:
+- WF-IS: −$2,774 on 784 taken trades, worse than a random pick of the same
+  size (median −$1,541).
+- WF-VAL: −$90 on 57 trades, below random p95.
+
+The holdout was deliberately not spent on a failed model.
+
 ## Bottom line
 
 **No strategy, indicator rule or swing rule makes money under realistic

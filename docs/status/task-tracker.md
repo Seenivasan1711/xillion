@@ -13,9 +13,9 @@
 > | # | Step | State |
 > |---|---|---|
 > | 1 | **My Trades**: import MT5 History reports, manual trades, setup tags, per-setup stats | ✅ built and committed (`662ec3c`); ⏳ waiting on a real FundingPips report |
-> | — | **ML filter experiment** (approved "after the My Trades page") | ⏳ **NOT STARTED — do this next** |
+> | — | **ML filter experiment** (doc 15, pre-registered) | ✅ run 2026-09-28: **FAILS** (worse than a random filter); holdout kept unused |
 > | 2–3 | Setup stats vs random baseline (once enough real trades are tagged) | ⏳ needs real trades first |
-> | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ⬜ |
+> | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ⬜ **next** |
 > | 5 | Level alerts on Telegram (PDH/PDL/Asian range), replacing Gold Sweep-Reversal | ⬜ optional |
 >
 > **ML filter experiment spec (agreed 2026-09-26, not yet built):**

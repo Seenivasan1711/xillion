@@ -69,6 +69,31 @@ in time. The sum is "each signal taken independently", not one account with
 a single position. If the filter passes, a portfolio-level re-run with one
 position at a time is required before anything else.
 
-## 2. Results
+## 2. Results (2026-09-28, first and only run of the pre-registered spec)
 
-*(appended after running)*
+52,499 H1+M15 trades (2020-01 → 2025-06), retrained monthly, predicting
+only unseen months.
+
+| Window | Signals | Taken | Taken P&L | Take-all P&L | Random filter, same take-rate: p50 / p95 | Months+ | Pass |
+|---|---|---|---|---|---|---|---|
+| WF-IS 2021-01→2024-06 | 33,085 | 784 (2.4%) | **−$2,774** | −$65,393 | −$1,541 / −$719 | 35% | ❌ |
+| WF-VAL 2024-07→2025-06 | 10,233 | 57 (0.6%) | **−$90** | −$16,086 | −$108 / +$138 | 33% | ❌ |
+
+**Fails every criterion in both windows.**
+- The model learned mostly to *not trade*, which beats take-all trivially.
+- The trades it did pick were **worse than a random pick of the same
+  size** in WF-IS (−$2,774 vs a random median of −$1,541).
+- Every strategy's taken trades lost money: I02 −$695, S08 −$198, I06 −$174,
+  and so on.
+- **Conclusion:** there is no timing information in these signals' entry
+  context for a model to extract. This matches docs 13–14.
+
+**Holdout — deliberate deviation from §1, stated openly.** §1 said to run
+the holdout "whatever WF-IS/WF-VAL show". That rule exists to stop the
+holdout being run only when results look good; it guards against *optimistic*
+bias. Running it for a model that already failed both windows cannot change
+any decision, and it would consume the only untouched data. **Not run.** The
+holdout stays reserved for a future candidate that passes walk-forward.
+
+Reproduce: `python ml_filter.py` (needs the `_custom/` dumps from
+`custom_research.py --period is|val` on H1 and M15).
