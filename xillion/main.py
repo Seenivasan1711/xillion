@@ -31,14 +31,15 @@ from xillion.api import (
 from xillion.api import journal as journal_router
 from xillion.api import logs as logs_router
 from xillion.api import mt5_bridge as mt5_bridge_router
+from xillion.api import my_trades as my_trades_router
 from xillion.api import portfolio as portfolio_router
 from xillion.api import positions as positions_router
+from xillion.api import prop_account as prop_account_router
 from xillion.api import proposed_changes as proposed_changes_router
 from xillion.api import reconciliation as reconciliation_router
 from xillion.api import risk as risk_router
 from xillion.api import settings as settings_router
 from xillion.api import trades as trades_router
-from xillion.api import my_trades as my_trades_router
 from xillion.config import get_settings
 from xillion.core.plugin_loader import PluginLoader
 from xillion.core.risk import RiskManager
@@ -690,6 +691,7 @@ app.include_router(settings_router.router, prefix="/api")
 app.include_router(portfolio_router.router, prefix="/api")
 app.include_router(trades_router.router, prefix="/api")
 app.include_router(my_trades_router.router, prefix="/api")
+app.include_router(prop_account_router.router, prefix="/api")
 app.include_router(ws.router)
 
 # Serve React frontend (production build)

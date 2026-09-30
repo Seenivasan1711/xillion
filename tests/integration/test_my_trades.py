@@ -215,3 +215,64 @@ def test_account_header_and_an_empty_real_style_report():
     assert (acct.login, acct.server, acct.is_demo) == ("112555079", "MetaQuotes-Demo", True)
     pos, warnings = parse_positions(raw)
     assert pos == [] and warnings == []
+
+
+class _Notifier:
+    def __init__(self):
+        self.alerts = []
+
+    async def alert(self, title, body, severity="info"):
+        self.alerts.append((title, body, severity))
+        return 1
+
+
+class _App:
+    def __init__(self, notifier):
+        self.state = type("S", (), {"telegram": notifier})()
+
+
+class _Req:
+    def __init__(self, notifier):
+        self.app = _App(notifier)
+
+
+@pytest.mark.asyncio
+async def test_manual_trade_crossing_the_daily_stop_warns_once():
+    from datetime import UTC, datetime, timedelta
+
+    from xillion.api.prop_account import get_status
+
+    await init_db()
+    async with get_session_factory()() as db:
+        await db.execute(MyTrade.__table__.delete())
+        await db.commit()
+        n = _Notifier()
+        now = datetime.now(UTC).replace(microsecond=0)
+        opened = (now - timedelta(hours=1)).isoformat()
+        closed = now.isoformat()
+
+        def trade(pnl):
+            return ManualTrade(
+                side="buy",
+                volume_lots=0.01,
+                open_time=opened,
+                open_price=4000.0,
+                close_time=closed,
+                close_price=4000.0,
+                profit=pnl,
+            )
+
+        await create_trade(trade(-20.0), db, _User(), request=_Req(n))
+        assert n.alerts == []  # 40% of the $50 stop
+        await create_trade(trade(-22.0), db, _User(), request=_Req(n))
+        assert (
+            len(n.alerts) == 1 and "Your daily stop" in n.alerts[0][1] and n.alerts[0][2] == "warn"
+        )
+        await create_trade(trade(-1.0), db, _User(), request=_Req(n))
+        assert len(n.alerts) == 1  # still "warn": no repeat
+        await create_trade(trade(-10.0), db, _User(), request=_Req(n))
+        assert len(n.alerts) == 2 and n.alerts[1][2] == "critical" and "BREACHED" in n.alerts[1][1]
+
+        st = await get_status(db, _User())
+        assert st["today_pnl"] == -53.0 and st["level"] == "breach"
+        assert st["basis"].startswith("closed trades only")

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from statistics import mean
 
 import structlog
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +57,22 @@ def r_multiple(t: MyTrade) -> float | None:
         return None
     risk = abs(float(t.open_price) - float(t.stop_loss)) * float(t.volume_lots) * size
     return pnl / risk if risk > 0 else None
+
+
+async def _prop_status(db: AsyncSession):
+    """Prop-account status BEFORE a change is committed (the pending ORM
+    objects aren't flushed yet), so the after-commit status can be compared."""
+    from xillion.api.prop_account import status_for
+
+    with db.no_autoflush:
+        return await status_for(db)
+
+
+async def _warn_limits(db: AsyncSession, request: Request | None, cfg, before) -> None:
+    from xillion.api.prop_account import status_for, warn_if_crossed
+
+    _cfg, after = await status_for(db, cfg)
+    await warn_if_crossed(request, cfg, before, after)
 
 
 def _row(t: MyTrade) -> dict:
@@ -139,9 +155,22 @@ async def list_trades(
     return [_row(t) for t in rows]
 
 
+@router.get("/accounts")
+async def list_accounts(
+    db: AsyncSession = Depends(db_dep), user: AppUser = Depends(get_current_user)
+):
+    from sqlalchemy import func
+
+    rows = (await db.execute(select(MyTrade.account, func.count()).group_by(MyTrade.account))).all()
+    return [{"account": a, "trades": n} for a, n in sorted(rows, key=lambda r: -r[1])]
+
+
 @router.post("")
 async def create_trade(
-    body: ManualTrade, db: AsyncSession = Depends(db_dep), user: AppUser = Depends(get_current_user)
+    body: ManualTrade,
+    db: AsyncSession = Depends(db_dep),
+    user: AppUser = Depends(get_current_user),
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None in direct calls
 ):
     side = body.side.upper()
     if side not in ("BUY", "SELL"):
@@ -156,9 +185,11 @@ async def create_trade(
         source="manual",
         created_at=_now(),
     )
+    cfg, before = await _prop_status(db)
     db.add(t)
     await db.commit()
     await db.refresh(t)
+    await _warn_limits(db, request, cfg, before)
     return _row(t)
 
 
@@ -202,6 +233,7 @@ async def import_mt5_report(
     dry_run: bool = Query(False),
     db: AsyncSession = Depends(db_dep),
     user: AppUser = Depends(get_current_user),
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None in direct calls
 ):
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
@@ -263,7 +295,9 @@ async def import_mt5_report(
                     setattr(t, k, v)
                 t.updated_at = _now()
     if not dry_run:
+        cfg, before = await _prop_status(db)
         await db.commit()
+        await _warn_limits(db, request, cfg, before)
     logger.info("mt5 report import", account=account, added=added, updated=updated, dry_run=dry_run)
     return {
         "account": account,

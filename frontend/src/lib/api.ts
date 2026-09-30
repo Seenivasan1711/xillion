@@ -329,6 +329,14 @@ export const api = {
     },
   },
 
+  propAccount: {
+    status: () => request<PropStatus>('/prop-account/status'),
+    config: () => request<PropConfig>('/prop-account/config'),
+    saveConfig: (body: PropConfig) =>
+      request<{ saved: boolean }>('/prop-account/config', { method: 'PUT', body: JSON.stringify(body) }),
+    accounts: () => request<{ account: string; trades: number }[]>('/my-trades/accounts'),
+  },
+
   proposedChanges: {
     list: (status?: string) =>
       request<{ proposals: ProposedStrategyChange[] }>(`/proposed-changes${status ? `?status=${status}` : ''}`),
@@ -915,4 +923,45 @@ export interface MyTradeImportResult {
   updated: number
   dry_run: boolean
   warnings: string[]
+}
+
+// ── Prop account limits (FundingPips), from closed trades ─────────────────
+export interface PropConfig {
+  account: string
+  firm: string
+  program: string
+  phase: 'phase1' | 'phase2' | 'master'
+  start_balance: number
+  start_date: string
+  daily_loss_pct: number
+  max_loss_pct: number
+  personal_daily_stop_usd: number
+  warn_at_pct: number
+  min_profitable_day_pct: number
+  profit_target_pct?: number | null
+}
+
+export interface PropLimit {
+  name: string
+  limit_usd: number
+  used_usd: number
+  used_pct: number
+  level: 'ok' | 'warn' | 'breach'
+}
+
+export interface PropStatus {
+  config: PropConfig
+  server_day: string
+  next_reset_utc: string
+  balance: number
+  today_pnl: number
+  total_pnl: number
+  level: 'ok' | 'warn' | 'breach'
+  limits: PropLimit[]
+  target_usd: number | null
+  target_progress_pct: number | null
+  trading_days: number
+  profitable_days: number
+  trades_counted: number
+  basis: string
 }

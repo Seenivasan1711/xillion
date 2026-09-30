@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { api, MyTrade, MyTradeImportResult, MyTradeInput, MyTradeStats } from '../lib/api'
 import { Badge, fmtMoney, fmtTime, SkeletonRows } from '../components/ui'
+import PropAccountPanel from '../components/PropAccountPanel'
 
 // My Trades (2026-09-26): Rakesh's OWN trades -- imported from an MT5
 // History report or entered by hand -- tagged by setup, so real fills can
@@ -174,9 +175,11 @@ export default function MyTrades() {
   const [trades, setTrades] = useState<MyTrade[]>([])
   const [stats, setStats] = useState<MyTradeStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const load = async () => {
     setLoading(true)
+    setRefreshKey(k => k + 1)
     try {
       const [t, s] = await Promise.all([api.myTrades.list(), api.myTrades.stats()])
       setTrades(t)
@@ -204,6 +207,8 @@ export default function MyTrades() {
           <button className="btn ghost" onClick={load} disabled={loading}><RefreshCw size={13} /> Refresh</button>
         </div>
       </div>
+
+      <PropAccountPanel refreshKey={refreshKey} />
 
       <div className="grid-4">
         <div className="card card-pad"><div className="faint" style={label}>Trades</div><div className="hero-num sm">{o?.n ?? '—'}</div></div>

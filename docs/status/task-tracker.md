@@ -3,7 +3,7 @@
 > ## ▶️▶️ COLD START — READ THIS FIRST (updated 2026-09-26 00:40 IST)
 >
 > **Active branch:** `feat/track-b-pipelines`, worktree `.claude/worktrees/track-b-pipelines`.
-> Last commit `662ec3c`, **nothing pushed**. 729 tests pass.
+> **Nothing pushed.** 734 tests pass (2026-09-30).
 >
 > **Where we are:** the XAUUSD strategy research is **finished, with a
 > negative verdict**. Nothing survives realistic FundingPips trading. The
@@ -15,8 +15,8 @@
 > | 1 | **My Trades**: import MT5 History reports, manual trades, setup tags, per-setup stats | ✅ built and committed (`662ec3c`); ⏳ waiting on a real FundingPips report |
 > | — | **ML filter experiment** (doc 15, pre-registered) | ✅ run 2026-09-28: **FAILS** (worse than a random filter); holdout kept unused |
 > | 2–3 | Setup stats vs random baseline (once enough real trades are tagged) | ⏳ needs real trades first |
-> | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ⬜ **next** |
-> | 5 | Level alerts on Telegram (PDH/PDL/Asian range), replacing Gold Sweep-Reversal | ⬜ optional |
+> | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ✅ 2026-09-30, **closed trades only** (Rakesh's choice; live equity via MT5's MCP server is a later option). On the My Trades page |
+> | 5 | Level alerts on Telegram (PDH/PDL/Asian range), replacing Gold Sweep-Reversal | ⬜ **next** (optional) |
 >
 > **ML filter experiment spec (agreed 2026-09-26, not yet built):**
 > - Meta-labeling: learn which S01–S11 and I01–I08 signals to TAKE, from

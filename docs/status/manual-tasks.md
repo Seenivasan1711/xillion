@@ -52,6 +52,13 @@ of JEV/LLM work which he's deliberately sequencing last.)
          setup need ~30 trades before they mean anything.
       **Blocks:** real-trade stats (app step 2–3). **Cost:** 5 min.
 
+- [ ] **Set up the FundingPips limits panel (2026-09-30, 1 min).** My Trades →
+      top panel → **Settings**. Pick your account (after importing), your
+      **phase** (1 / 2 / master) and the **date the current phase started**,
+      so only this phase's trades count. The defaults are $5K, 4% daily, 12%
+      max, your $50 stop, and a warning at 80%. Warnings go to Telegram when an
+      import or manual trade crosses a level. It uses closed trades only.
+
 - [ ] **(Optional) restart Gold Sweep-Reversal alerts** from the Dashboard, if
       you still want them. The backend restart on 2026-09-26 stopped it
       (auto-start is off). Advice: leave it off; it failed every backtest.
