@@ -99,6 +99,11 @@ decrypt them. Set a real `ENCRYPTION_KEY` in `.env` once
 (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
 and reuse it everywhere you want those credentials to keep working.
 
+**Moving to a different laptop entirely?** See
+[docs/process/new-machine-setup.md](docs/process/new-machine-setup.md) for
+the full consolidated checklist (this section plus `.env`, credentials,
+and both backups in the right order).
+
 See [docs/product/user-guide.md](docs/product/user-guide.md) for the full
 walkthrough of every page in the app (Journal, Alerts, MCP server, going
 live, etc.), not just the backtest flow.

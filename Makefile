@@ -98,10 +98,10 @@ backup-warehouse: ## Snapshot+gzip the backtest warehouse DB (bar/option chain) 
 restore-warehouse: ## Restore the warehouse DB from a backup: make restore-warehouse FILE=path/to/warehouse_*.db.gz
 	./scripts/restore_warehouse.sh "$(FILE)"
 
-backup-xauusd-research: ## Archive the XAUUSD M1 research data (research/xauusd_scalping/data/xauusd/) for offline storage (e.g. Drive)
+backup-xauusd-research: ## Archive all research market data (research/xauusd_scalping/data/ -- XAUUSD+EURUSD+imported MT5 history) for offline storage (e.g. Drive)
 	./scripts/backup_xauusd_research.sh
 
-restore-xauusd-research: ## Restore XAUUSD research data from a backup: make restore-xauusd-research FILE=path/to/xauusd_m1_*.tar.gz
+restore-xauusd-research: ## Restore research market data from a backup: make restore-xauusd-research FILE=path/to/xauusd_research_*.tar.gz
 	./scripts/restore_xauusd_research.sh "$(FILE)"
 
 # ── Utilities ──────────────────────────────────────────────────────────────────

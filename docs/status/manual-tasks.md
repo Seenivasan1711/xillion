@@ -13,7 +13,11 @@
 > This file is the actionable, standing checklist; that one is the
 > per-checkpoint summary. Keep them in sync when either changes.
 
-**Last updated:** 2026-09-24 (XAUUSD research track is BLOCKED on one 30-second manual step: reading 3-5 real spread values off MT5 — see the top Open item. Every conclusion that track has reached rests on an unvalidated assumed spread table, and this settles it.)
+**Last updated:** 2026-10-01 (new-machine setup prepared — a real gap in
+the research-data backup script found and fixed, fresh backups generated,
+consolidated checklist written. See the top Open item.)
+
+**Previously, 2026-09-24:** (XAUUSD research track is BLOCKED on one 30-second manual step: reading 3-5 real spread values off MT5 — see the top Open item. Every conclusion that track has reached rests on an unvalidated assumed spread table, and this settles it.)
 
 **Previously, 2026-09-22:** (Gold Sweep-Reversal's full analysis queue
 (session-window, richer-level-data, finer SL/TP sweeps, confidence
@@ -38,6 +42,27 @@ of JEV/LLM work which he's deliberately sequencing last.)
 ---
 
 ## Open
+
+- [ ] **Re-upload refreshed backups to Drive (2026-10-01, ~5 min, do this
+      before setting up any new laptop).** Found and fixed a real gap while
+      preparing for your "set this up on a new machine" question: the
+      research-data backup script only ever archived
+      `research/xauusd_scalping/data/xauusd/` — it silently missed
+      `data/eurusd/` (EURUSD forex) and both `data/xauusd_mt5*/` folders
+      (your imported FundingPips MT5 broker history from 2026-09-25, which
+      **isn't re-downloadable** the way the Dukascopy data is). Fixed in
+      `scripts/backup_xauusd_research.sh`/`restore_xauusd_research.sh` to
+      snapshot the whole `data/` tree, verified with a real restore to a
+      scratch directory. Fresh backups already generated locally:
+      `data/backups/warehouse/warehouse_20261001_153630.db.gz` (241MB) and
+      `research/xauusd_scalping/data/backups/xauusd_research_20261001_153614.tar.gz`
+      (113MB). The old Drive copies (uploaded 2026-09-23) are now stale and
+      missing the forex/MT5-history data entirely — upload these two new
+      files to replace them. Full new-machine checklist, written today:
+      [`docs/process/new-machine-setup.md`](../process/new-machine-setup.md).
+      **Blocks:** a clean new-laptop setup having the real imported MT5
+      history and forex data (everything else — app code, DB access via
+      `.env`, broker credentials — already transfers with zero data loss).
 
 - [ ] **Export your FundingPips MT5 trade history and import it (2026-09-26).**
       1. In MT5, File → Login to Trade Account, using the FundingPips login
