@@ -17,6 +17,11 @@ Then report: current checkpoint, what's blocked, and the next concrete task.
 
 You can also invoke `/xillion-status` for this as a one-shot.
 
+**New machine? (moved 2026-10-01)** If `.env`, `data/` or Claude's project
+memory are missing, follow [docs/process/new-machine-setup.md](docs/process/new-machine-setup.md).
+Restore memory from `docs/process/claude-context/memory/` and the global rules
+from `docs/process/claude-context/global-CLAUDE.md`.
+
 ### Docs layout
 
 ```

@@ -1,33 +1,28 @@
 ---
 name: project-xauusd-track-b-status
-description: "xillion state 2026-09-26: XAUUSD research finished (negative); app work step 1 My Trades built; ML filter experiment approved but not started"
+description: "xillion state 2026-10-01: research done (negative), ML filter failed, My Trades + FundingPips limits panel built; moving to a new machine, all pushed"
 metadata:
-  node_type: memory
   type: project
-  originSessionId: e754d6b6-0251-4041-af2d-681588484dd5
-  modified: 2026-09-25T19:06:25.829Z
 ---
 
-As of 2026-09-26, work is on branch `feat/track-b-pipelines` in worktree
-`.claude/worktrees/track-b-pipelines`. Nothing has been pushed.
+As of 2026-10-01, everything is on `feat/track-b-pipelines`, **pushed to
+origin**, and not merged to main. Rakesh is moving to a new laptop (the old
+one returns to his company).
 
-- **Research:** finished with a negative verdict. Nothing survives realistic
-  FundingPips trading. See
-  `research/xauusd_scalping/14_results_summary_all_strategies.md`.
-- **App work (Rakesh's option 2), in order:**
-  1. My Trades (MT5 report import, manual trades, tags, stats). ✅ Built.
-  2. **The ML meta-labeling filter experiment.** Approved "after the My Trades
-     page" but **not started**. The spec is in the tracker's COLD START block.
-  3. The FundingPips limits panel plus Telegram warnings.
-  4. Level alerts.
-- **Supabase** is at migration 022. The backend runs without `--reload` on
-  port 8001.
-- **Waiting on Rakesh:** a FundingPips MT5 History report (his first export
-  was an empty demo account).
+- **XAUUSD research:** finished with a negative verdict (doc 14). The ML
+  meta-labeling filter also failed (doc 15). The holdout (2025-07→) is unused.
+- **App work done:**
+  - My Trades: MT5 History-report import, manual trades, tags, per-setup
+    stats.
+  - FundingPips limits panel: closed trades only, with Telegram warnings on
+    a level change.
+- **Next (optional):** level alerts. Otherwise this is a pause until real
+  FundingPips trades are imported.
+- **New-machine steps:** `docs/process/new-machine-setup.md` §7–§11.
+  Claude context is snapshotted in `docs/process/claude-context/`.
 
-**Why:** cold sessions must resume from the right step and not redo the
-research.
+**Why:** cold sessions on the new machine must resume from here.
 
 **How to apply:** read the ▶️▶️ COLD START block at the top of
-`docs/status/task-tracker.md` first. See
-[[user-direction-xauusd-forex-track-b]] and [[user-pending-asks]].
+`docs/status/task-tracker.md`. See [[user-pending-asks]] and
+[[user-direction-xauusd-forex-track-b]].
