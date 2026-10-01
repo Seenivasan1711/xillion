@@ -1,9 +1,19 @@
 # 15 — Task Tracker (LIVING DOCUMENT)
 
-> ## ▶️▶️ COLD START — READ THIS FIRST (updated 2026-09-26 00:40 IST)
+> ## ▶️▶️ COLD START — READ THIS FIRST (updated 2026-10-01)
 >
-> **Active branch:** `feat/track-b-pipelines`, worktree `.claude/worktrees/track-b-pipelines`.
-> **Nothing pushed.** 734 tests pass (2026-09-30).
+> **🖥️ MACHINE MOVE, 2026-10-01:** Rakesh is moving to a new laptop (the old
+> one goes back to his company). Everything is committed and **pushed** to
+> `origin/feat/track-b-pipelines`. If this is the new machine and something
+> is missing, follow `docs/process/new-machine-setup.md`, which covers `.env`
+> + `ENCRYPTION_KEY`, the backups, the `github-personal` SSH alias, research
+> deps, and Claude memory restore from `docs/process/claude-context/`.
+> **First thing on the new machine:** check that `make dev` works and that
+> you can log in. Supabase may have auto-paused if idle for over a week;
+> resume it in the dashboard.
+>
+> **Active branch:** `feat/track-b-pipelines`. On the old laptop it was the
+> worktree `.claude/worktrees/track-b-pipelines`. 734 tests pass (2026-09-30).
 >
 > **Where we are:** the XAUUSD strategy research is **finished, with a
 > negative verdict**. Nothing survives realistic FundingPips trading. The
@@ -18,7 +28,7 @@
 > | 4 | **FundingPips limits panel** (today vs his $50 stop / 4% daily / 12% max / profit target) + Telegram warnings | ✅ 2026-09-30, **closed trades only** (Rakesh's choice; live equity via MT5's MCP server is a later option). On the My Trades page |
 > | 5 | Level alerts on Telegram (PDH/PDL/Asian range), replacing Gold Sweep-Reversal | ⬜ **next** (optional) |
 >
-> **ML filter experiment spec (agreed 2026-09-26, not yet built):**
+> **ML filter experiment spec (agreed 2026-09-26; RUN 2026-09-28 and FAILED, see doc 15):**
 > - Meta-labeling: learn which S01–S11 and I01–I08 signals to TAKE, from
 >   entry-context features (session, hour, ADX, EMA alignment, volatility,
 >   weekday, strategy id).
@@ -49,6 +59,14 @@
 > 1. The FundingPips MT5 History report (the one he sent was an empty
 >    MetaQuotes-Demo account).
 > 2. Tagging his imported trades with a setup and followed-plan / broke-plan.
+> 3. Setting the limits panel's phase and phase start date (My Trades →
+>    Settings).
+> 4. **Before handing the old laptop back:** upload `.env` and the two
+>    2026-10-01 backups to Drive, then remove personal secrets
+>    (`new-machine-setup.md` §11).
+>
+> **Next app step if Rakesh wants it:** step 5, level alerts. Otherwise the
+> app work is at a natural pause until real trades are imported.
 
 
 
