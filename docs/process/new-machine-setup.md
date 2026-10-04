@@ -233,3 +233,23 @@ Before it leaves your hands:
 5. Supabase free-tier projects **pause after ~1 week idle**. If the new
    machine takes a while, resume the project in the Supabase dashboard
    first (see the CLAUDE.md gotcha; the pooler needs 60–90 s after resume).
+
+## 12. Local-only leftovers audit (2026-10-04)
+
+Everything in git is pushed (xillion, `nebula-router`, `prosper-engine`:
+0 unpushed commits, 0 stashes). What exists only on the old laptop:
+
+- **`.env`: upload the one in the worktree
+  (`.claude/worktrees/track-b-pipelines/.env`), not the main checkout's.**
+  The main checkout's `.env` is older and is missing `TWELVE_DATA_API_KEY`,
+  `FINNHUB_API_KEY`, `MONGODB_URI`, `NOTION_API_TOKEN`, `NOTION_DATABASE_ID`.
+- `Learnings/prosper-engine/.env` (4 lines: Ollama URL/model, port, agent
+  name). No secrets; re-create from its `.env.example`.
+- Regenerable, no need to copy: `research/xauusd_scalping/_custom/`,
+  `_real_trades_cache*.json`, `_s11_trades_*.json` (about 15MB of results
+  caches; regenerate with `custom_research.py`), `frontend/dist/`,
+  `data/test.db`.
+- `nebula/services/` holds only empty folders (`prosper-engine`,
+  `nebula-router` skeletons). The real repos are under `Learnings/`.
+- Not xillion, still unpushed on this laptop: `resume-builder`
+  (`custom-resumes/`, one resume PDF) and `ownwise` (`CLAUDE.md`).
